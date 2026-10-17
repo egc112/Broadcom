@@ -1,0 +1,225 @@
+# b43: 802.11n with A-MPDU for the BCM4331 (Netgear R6400) — TEST VERSION (rc2)
+
+> **Status: test version.** These patches work well on the author's Netgear R6400 v1
+> (many hours of soak tests, a clean 15-hour test with two clients and a phone, daily use);
+> the R6400 v2 has been tested as a client. They are not in OpenWrt or the Linux kernel.
+> Please test and report back (see *Reporting problems*), and read *Known limitations* first.
+
+The 2.4 GHz radio of the Netgear R6400 is a **Broadcom BCM4331** (HT-PHY, "b43" driver).
+Stock b43 runs it as 802.11g only, with a weak receiver and a distorted transmitter:
+about 10–12 Mbit/s download. These patches fix several b43 bugs and add 802.11n
+(HT20, one transmit stream) with A-MPDU aggregation in both directions.
+
+| Netgear R6400 v1, 2.4 GHz, 20 MHz (iperf3 TCP) | download (router → client) | upload (client → router) |
+|---|---|---|
+| stock b43 (802.11g) | 10–12 Mbit/s | 20–22 Mbit/s |
+| front-end + TX gain fixes (802.11g) | 21–22 Mbit/s | 19–21 Mbit/s |
+| **this series (802.11n, A-MPDU, SGI)** | **~49 Mbit/s** | **~80 Mbit/s** |
+
+Phone (Samsung S25 FE) link rates with this series: 72.2 Mbit/s down (MCS 7, short GI),
+144.4 Mbit/s up (MCS 15, short GI).
+
+## Hardware
+
+* **Netgear R6400 v1** (BCM4709 + BCM4331, external high-gain PA): tested.
+* **Netgear R6400 v2** (BCM4331 with FEM): tested as a client of an R6400 v1 (two overnight
+  tests, ~42 Mbit/s each way); as an access point not yet tested over a long period.
+* Other BCM4331 boards: patches 820/821 (DMA) and 823 (table reads) are generic b43
+  fixes; 822 and 824 act only on boards with the matching front-end flags. Untested elsewhere.
+* **BCM4360 (AC-PHY) is not supported** — neither by stock b43 nor by these patches. That is the
+  5 GHz radio of the R6400 and both radios of the Netgear R7000; b43 reports
+  `FOUND UNSUPPORTED PHY (Analog 12, Type 11 (AC))` for it. Only the generic DMA fixes
+  (820, 821) would also matter for a future BCM4360 b43 driver.
+
+## The patches
+
+Apply in this order (OpenWrt applies them by number).
+
+| Patch | What it does |
+|---|---|
+| 820 | DMA: map RX buffers bidirectionally so b43's RX poison works on non-coherent ARM |
+| 821 | DMA: drop RX frames spanning several buffers without losing ring sync |
+| 822 | HT-PHY: BCM4331 external front-end setup (external LNA/PA lines) |
+| 823 | HT-PHY: read 32-bit PHY table entries low half first |
+| 824 | HT-PHY: static TX gain instead of the TX power control loop |
+| 825 | HT-PHY: 802.11n HT20, MCS 0–7 (one TX stream), RX block-ack sessions |
+| 826 | HT-PHY: fill in the transmitter address of the BlockAck template |
+| 827 | HT-PHY: A-MPDU TX aggregation with block-ack window tracking |
+| 828 | HT-PHY: short guard interval at 20 MHz |
+| 829 | HT-PHY: RTS/CTS in front of A-MPDUs (only for re-sends by default) |
+| 830 | AP mode: hold frames for clients in power save |
+| 831 | HT-PHY: fill in the Duration field of 802.11n frames |
+| 832 | HT-PHY: use a 256-slot RX ring |
+
+Changes since rc1: patches 830, 831 and 832 are new; 820–829 are unchanged.
+
+### Bugs found and fixed
+
+| # | Problem | Cause | Fixed in |
+|---|---|---|---|
+| 1 | Receiver deaf on the R6400 v1 (-75 dBm where -48 is right) | b43 never configured the BCM4331's external front end (LNA/PA control lines, RF sequencer, PA LDO) | 822 |
+| 2 | Corrupted TX gain word | HT-PHY 32-bit table reads took the high half first; the PHY latches on the low half | 823 |
+| 3 | Distorted TX, download halved | The TX power control loop drives the external PA into compression | 824 |
+| 4 | Download 2.3 Mbit/s once RX aggregation is on | Block acks were sent with transmitter address 00:00:00:00:00:00: b43 never wrote its MAC into the BA template | 826 |
+| 5 | Video/voice traffic stuck | The BCM4331's VI/VO hardware queues never transmit | 827 (all traffic via the best-effort queue) |
+| 6 | Router hang ("reboot -f" blocked) | RX of a frame spanning several buffers left the ring pointer one slot too far: permanent ring desync | 821 |
+| 7 | Frames larger than one RX buffer (A-MSDU 3839/7935 bytes from HT clients) | Not handled safely (triggered bug 6) | 821 |
+| 8 | Garbage RX "frames", wifi dropouts, ring desync | RX buffers mapped DMA_FROM_DEVICE: on non-coherent ARM the RX poison never reached memory, skipped buffers were read as stale data | 820 |
+| 9 | Phones with the screen off lose frames under load (46 % ping loss) | No power-save handling: frames already queued in the driver went to a dozing client and were dropped after the retries | 830 |
+| 10 | Other stations did not reserve time for the acknowledgement of 802.11n frames | Duration field 0 in every MCS frame: mac80211 leaves it to the driver for MCS rates | 831 |
+| 11 | Frames lost although the sender got an ACK; a phone in power save unreachable for ~26 s under load | The firmware ACKs a frame before it is in host memory and drops it when the 32-slot RX ring is full, which A-MPDU bursts caused about three times per second | 832 |
+
+### Improvements added
+
+| Improvement | Effect | Patch |
+|---|---|---|
+| 802.11n HT20, MCS 0–7, receive MCS 0–15 | 20 Mbit/s → 802.11n rates, clients may send on two streams | 825 |
+| RX A-MPDU (block-ack sessions) | upload 22 → 45 Mbit/s | 825, 826 |
+| TX A-MPDU (up to 16 frames) | download 20 → 46, upload 45 → 75 Mbit/s | 827 |
+| Block-ack window tracking (as ath9k) | no frames lost when a block ack is missed | 827 |
+| Short guard interval | +7 % download, +10 % upload | 828 |
+| RTS/CTS for re-sent aggregates, at a basic OFDM rate | no frames given up under collisions, same throughput | 829 |
+| Watchdog / hang check, debugfs counters | self-recovery, diagnosis | 827 |
+| Power save in AP mode (as ath9k): frames held, TIM bit set, delivered on wake-up, PS-Poll or uAPSD trigger | phone with the screen off under load: 0 % ping loss (was 46 %) | 830 |
+
+## Test results
+
+15-hour test of rc2: R6400 v1 as access point, two clients that take turns and also load it
+together: an R6400 v2 (also on rc2) and a Qualcomm IPQ8074 router (ath11k). 144 test cycles;
+iperf3 TCP in Mbit/s, averages:
+
+| Phase | R6400 v2 | IPQ8074 |
+|---|---|---|
+| R6400 v2 download alone | 43.2 | — |
+| R6400 v2 upload alone | 42.2 | — |
+| both download | 5.4 | 44.2 |
+| R6400 v2 download, IPQ8074 upload | 10.4 | 63.2 |
+| R6400 v2 download + upload at once | 40.8 down / 2.8 up | — |
+| idle ping | 2.5 ms | 2.5 ms |
+
+Each cycle also pinged a phone in power save (screen off) while the R6400 v2 downloaded:
+0 % loss in 138 of 142 runs, at most 2 % in the others except one run in which the phone left.
+
+Access point and client: no stalls, no hangs, no RX ring errors, no reboot, memory stable.
+The uneven numbers when both clients are busy, and the R6400 v2's weak upload under load,
+are described under *Known limitations*.
+
+## Test images (GitHub Releases)
+
+Ready-made OpenWrt images with this series are attached to the release **b43-80211n-rc2**
+(OpenWrt snapshot r37195-66ee7b6950, kernel 6.18). Pick the image by the router's board ID:
+
+| Router | board ID | Image |
+|---|---|---|
+| R6400 v1 | U12H332T00_NETGEAR | `openwrt-r6400-v1-b43-80211n-rc2-squashfs.chk` |
+| R6400 v2 | U12H332T20_NETGEAR | `openwrt-r6400-v2-b43-80211n-rc2-squashfs.chk` |
+| R6400 v2 (OTP) | U12H332T30_NETGEAR | `openwrt-r6400-v2-otp-b43-80211n-rc2-squashfs.chk` |
+
+On OpenWrt the board ID is shown by `strings /dev/mtd1 | grep board_id` (the `nvram` partition).
+Netgear's own firmware only accepts a `.chk` with the router's own board ID.
+
+The **R6700 v3** has the same hardware as the R6400 v2 but board ID U12H332T77_NETGEAR: none of these
+images matches it for a first install from Netgear's firmware (an R6700 v3 already running OpenWrt can
+sysupgrade to the v2 image). Untested.
+
+Install: from Netgear's firmware, upload the `.chk` in the web interface (Advanced → Administration →
+Router Update); from OpenWrt, `sysupgrade -v <image>.chk`. Check the SHA-256 sums first. Have a way back
+(Netgear's TFTP/nmrp recovery) — this is a test version.
+
+**Upgrading with settings kept from an older OpenWrt:** a wireless configuration made with stock
+b43 has no `htmode` for the 2.4 GHz radio, and the radio then stays 802.11g. Check with `uci show wireless`
+and set it once:
+
+```sh
+uci set wireless.radio0.htmode='HT20'; uci commit wireless; wifi
+```
+
+The images contain LuCI (HTTPS), WireGuard, OpenVPN, pbr, https-dns-proxy, watchcat, Wake-on-LAN,
+tcpdump, USB storage (incl. NTFS), curl, `iperf3` and `htop`. The b43 module needs no configuration.
+Kernel modules from the OpenWrt package repository will not install on these images (custom kernel
+build); other packages usually do.
+
+## Building
+
+You need an OpenWrt build tree for the bcm53xx target with the R6400 supported
+(R6400 support is being upstreamed; see the other folders of this repository for the
+device patches). Tested with OpenWrt main (kernel 6.18, mac80211 backports 7.2).
+
+1. Copy the patches into the mac80211 package:
+
+   ```sh
+   cp patches/8*.patch <openwrt>/package/kernel/mac80211/patches/brcm/
+   ```
+
+2. Make sure b43 is selected (`make menuconfig`):
+   * Kernel modules → Wireless Drivers → `kmod-b43`
+   * b43 options: bus BCMA, PHY type **HT**, firmware **5.100.138** (contains ucode 666.2 for the BCM4331)
+
+3. Build the image (`make -j$(nproc)`) and flash it, or build only the module:
+
+   ```sh
+   make package/kernel/mac80211/{clean,compile} -j$(nproc)
+   ```
+
+   The module is `build_dir/target-*/linux-bcm53xx_generic/mac80211-regular/backports-*/ipkg-*/kmod-b43/lib/modules/<kernel>/b43.ko`.
+   Copying a module onto a router only works if the router runs an image from the **same**
+   build tree (same kernel and backports); otherwise flash the image.
+
+No configuration is needed: the defaults are the tested settings.
+
+## Module parameters
+
+Set in `/etc/modules.d/b43` (e.g. `b43 ampdu_rts=1`) and reboot. OpenWrt's `modprobe` ignores
+parameters on the command line.
+
+| Parameter | Default | Meaning |
+|---|---|---|
+| `ht` | 1 | 802.11n on the HT-PHY (0 = 802.11g only) |
+| `ht_rx_ampdu` | 1 | accept RX block-ack sessions |
+| `ht_tx_ampdu` | 1 | TX A-MPDU aggregation |
+| `ht_sgi` / `ht_sgi_tx` | 1 / 1 | announce / send the short guard interval |
+| `ampdu_rts` | -1 | RTS/CTS before aggregates: -1 only for re-sends, 1 always, 0 never |
+| `ampdu_inflight` | 2 | aggregates in flight per queue (1 lowers latency, costs ~12 % download) |
+| `ampdu_max_frames` | 16 | maximum frames per aggregate |
+| `ht_txgain_idx` | -2 | static TX gain index: -2 auto (24 with high-gain PA, else 16), -1 old power loop |
+| `ht_txcore` | 1 | TX core mask (one stream on core 0) |
+
+## Reporting problems
+
+Please include:
+
+```sh
+logread | grep -iE "b43|ieee80211" | tail -100
+cat /sys/kernel/debug/ieee80211/phy*/b43_ampdu
+iw dev <wifi interface> station dump
+```
+
+and what the clients were doing (download/upload, which device). `b43_ampdu` counters
+(reset by writing anything to the file): `rx_garbage` must stay 0; `stalls` and `hangs`
+should stay 0; `rx_uflow` (frames lost because the RX ring was full) should stay near 0;
+an occasional `baw_reset` (a few per day) is a recovery and harmless.
+
+## Known limitations
+
+* One transmit stream (MCS 0–7) on purpose, to keep the power amplifier within safe limits.
+  Clients may still send on two streams.
+* 20 MHz only (no 40 MHz), 2.4 GHz only.
+* No airtime fairness between clients: when several clients download at the same time,
+  the faster one gets most of the airtime (measured 5.4 vs 44.2 Mbit/s, see *Test results*).
+* The BCM4331 receiver misses part of the frames even on a quiet channel and with a strong
+  signal: an R6400 v1 registered only 70–86 % of the RTS frames sent by an R6400 v2 (and every
+  RTS it did register was answered), and an independent sniffer saw it acknowledge only 58 %
+  of a phone's frames at the first attempt. The cause is not found yet. Each miss makes the
+  sender wait longer before it retries.
+* **Client (station) mode:** because of the point above, an R6400 used as a client of another
+  R6400 sends slowly while the access point is busy with another client: ping times of
+  0.2–2.4 s. Since rc2 its connections no longer stall (none in 15 hours), and without that
+  other load it runs at ~42 Mbit/s each way. An ath11k client in the same position did not
+  show this (72–84 ms). Prefer the R6400 as an access point.
+* Power save: tested with a phone that wakes up fully to fetch its frames. Clients that use
+  PS-Poll or uAPSD are handled by the code but have not been tested yet.
+
+## License
+
+GPL-2.0, like the b43 driver. Based on b43, brcmsmac and ath9k (Linux kernel) and on
+measurements against Broadcom's wl driver.

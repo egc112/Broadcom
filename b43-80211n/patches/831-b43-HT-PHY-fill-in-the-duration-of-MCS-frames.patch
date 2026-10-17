@@ -1,0 +1,46 @@
+From: Erik Conijn <egc112@msn.com>
+Subject: b43: HT-PHY: fill in the duration of MCS frames
+
+mac80211 leaves the Duration field of frames sent at an MCS rate to the
+hardware (ieee80211_duration() returns 0 for them), and the b43 ucode sends
+it as it is: a capture showed Duration 0 in every one of 126833 A-MPDU
+subframes. Other stations then set no NAV for the ACK or block ack that
+follows, and only physical carrier sense protects the answer.
+
+Set SIFS plus the ACK, or the compressed block ack (32 bytes) of an A-MPDU,
+at the response rate, as brcms_c_compute_frame_dur() does; the response
+rate is the one the RTS/CTS patch uses for MCS frames, the fastest basic
+OFDM rate up to 24 Mbit/s (6 Mbit/s when the BSS has none). Group addressed
+and no-ack frames keep 0.
+
+Assisted-by: Claude:claude-opus-5-5
+Signed-off-by: Erik Conijn <egc112@msn.com>
+---
+diff --git a/drivers/net/wireless/broadcom/b43/xmit.c b/drivers/net/wireless/broadcom/b43/xmit.c
+index 217f0b0..13c2a30 100644
+--- a/drivers/net/wireless/broadcom/b43/xmit.c
++++ b/drivers/net/wireless/broadcom/b43/xmit.c
+@@ -631,6 +631,23 @@ int b43_generate_txhdr(struct b43_wldev *dev,
+ 		sgi = rates[0].flags & IEEE80211_TX_RC_SHORT_GI;
+ 		sgi_fb = rfb->flags & IEEE80211_TX_RC_SHORT_GI;
+ 
++		/* mac80211 leaves the duration of MCS frames to the hardware,
++		 * which sends 0: other stations then set no NAV for the
++		 * answer. Cover SIFS and the ACK, or the block ack of an
++		 * A-MPDU, at the response rate (brcms_c_compute_frame_dur) */
++		if (!wlhdr->duration_id && !is_multicast_ether_addr(wlhdr->addr1) &&
++		    !(info->flags & IEEE80211_TX_CTL_NO_ACK)) {
++			struct ieee80211_rate *r = b43_ht_rts_rate(dev, info);
++			unsigned int mbps = r ? r->bitrate / 10 : 6;
++			unsigned int bytes =
++				info->flags & IEEE80211_TX_CTL_AMPDU ? 32 : 14;
++
++			((struct ieee80211_hdr *)skb_frag->data)->duration_id =
++				cpu_to_le16(B43_SIFS_US + 20 + 6 +
++					    DIV_ROUND_UP(16 + 8 * bytes + 6,
++							 mbps * 4) * 4);
++		}
++
+ 		switch (dev->fw.hdr_format) {
+ 		case B43_FW_HDR_598:
+ 			plcp = txhdr->format_598.plcp.raw;

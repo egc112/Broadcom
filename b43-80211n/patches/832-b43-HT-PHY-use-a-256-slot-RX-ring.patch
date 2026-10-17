@@ -1,0 +1,97 @@
+From: Erik Conijn <egc112@msn.com>
+Subject: b43: HT-PHY: use a 256-slot RX ring
+
+The firmware acknowledges a frame on the air before DMA has put it in
+host memory. When no RX descriptor is free it drops the frame and raises
+an RX descriptor underrun, which b43 handles without counting or logging
+it. The sender saw an ACK or a set bit in the block ack and does not
+send the frame again.
+
+With 802.11n an A-MPDU fills 16 or more RX slots at once, and while the
+TX work holds wl->mutex the RX ring is not drained. On a BCM4331 serving
+a TCP download, the 32-slot ring overran 104 times in 30 seconds. The
+lost frames included TCP ACKs and the power save null frames of a phone:
+a lost PM=1 null left the phone asleep for about 26 seconds while
+mac80211 kept sending to it, and 62-65 % of the pings to it were lost
+(an independent sniffer showed the AP acknowledging the null, a driver
+log showed it never reaching b43_rx()).
+
+Use 256 RX slots on the HT-PHY, as many as the TX rings have; other PHYs
+keep 32. This costs about 1 MiB of RX buffers. Under the same load there
+were no underruns left, no phone lost its power save state in 40 test
+runs, and throughput is unchanged. Count the underruns in the debugfs
+b43_ampdu statistics ("rx_uflow").
+
+Assisted-by: Claude:claude-opus-5-5
+Signed-off-by: Erik Conijn <egc112@msn.com>
+---
+diff --git a/drivers/net/wireless/broadcom/b43/b43.h b/drivers/net/wireless/broadcom/b43/b43.h
+index 80abe6b..04ecb1d 100644
+--- a/drivers/net/wireless/broadcom/b43/b43.h
++++ b/drivers/net/wireless/broadcom/b43/b43.h
+@@ -928,6 +928,7 @@ struct b43_ampdu_stats {
+ 	/* RX path (b43_rx), before mac80211 */
+ 	u32 rx_garbage;		/* RX buffers with an impossible length */
+ 	u32 rx_skipped;		/* RX buffers the device did not fill (poison intact) */
++	u32 rx_uflow;		/* RX descriptor underruns: frames dropped */
+ 	/* item 2 diagnostics: why frames fail */
+ 	u32 ack_tries[6];	/* acked frames by earlier driver re-sends (0..5) */
+ 	u32 notack[4];		/* not acked: no BA / bit 0 in window / behind BA SSN / >= 64 ahead */
+diff --git a/drivers/net/wireless/broadcom/b43/dma.c b/drivers/net/wireless/broadcom/b43/dma.c
+index 7c349a0..616a254 100644
+--- a/drivers/net/wireless/broadcom/b43/dma.c
++++ b/drivers/net/wireless/broadcom/b43/dma.c
+@@ -850,6 +850,12 @@ struct b43_dmaring *b43_setup_dmaring(struct b43_wldev *dev,
+ 
+ 	if (for_tx)
+ 		nr_slots = B43_TXRING_SLOTS;
++	else if (dev->phy.type == B43_PHYTYPE_HT)
++		/* The firmware ACKs a frame before it is in host memory and
++		 * drops it when no RX slot is free. A-MPDU bursts arriving
++		 * while the TX work holds the mutex overran 32 slots about
++		 * three times per second under load. */
++		nr_slots = B43_RXRING_SLOTS_HT;
+ 	else
+ 		nr_slots = B43_RXRING_SLOTS;
+ 
+diff --git a/drivers/net/wireless/broadcom/b43/dma.h b/drivers/net/wireless/broadcom/b43/dma.h
+index e9553ac..d029444 100644
+--- a/drivers/net/wireless/broadcom/b43/dma.h
++++ b/drivers/net/wireless/broadcom/b43/dma.h
+@@ -171,6 +171,8 @@ struct b43_dmadesc_generic {
+ /* DMA engine tuning knobs */
+ #define B43_TXRING_SLOTS		256
+ #define B43_RXRING_SLOTS		32
++/* HT-PHY: an A-MPDU fills 16+ slots at once (see b43_setup_dmaring()) */
++#define B43_RXRING_SLOTS_HT		256
+ #define B43_DMA0_RX_FW598_BUFSIZE	(B43_DMA0_RX_FW598_FO + IEEE80211_MAX_FRAME_LEN)
+ #define B43_DMA0_RX_FW351_BUFSIZE	(B43_DMA0_RX_FW351_FO + IEEE80211_MAX_FRAME_LEN)
+ 
+diff --git a/drivers/net/wireless/broadcom/b43/main.c b/drivers/net/wireless/broadcom/b43/main.c
+index 9449563..c169e95 100644
+--- a/drivers/net/wireless/broadcom/b43/main.c
++++ b/drivers/net/wireless/broadcom/b43/main.c
+@@ -2132,6 +2132,7 @@ static void b43_do_interrupt_thread(struct b43_wldev *dev)
+ 	if (dma_reason[0] & B43_DMAIRQ_RDESC_UFLOW) {
+ 		if (B43_DEBUG)
+ 			b43warn(dev->wl, "RX descriptor underrun\n");
++		dev->wl->ampdu_stats.rx_uflow++;
+ 		b43_dma_handle_rx_overflow(dev->dma.rx_ring);
+ 	}
+ 	if (dma_reason[0] & B43_DMAIRQ_RX_DONE) {
+@@ -3943,12 +3944,13 @@ static ssize_t b43_ampdu_stats_read(struct file *file, char __user *ubuf,
+ 			 "inflight_reset %u\nstalls         %u\nhangs          %u\n"
+ 			 "baw_blocked    %u\nbaw_reset      %u\n"
+ 			 "rx_giants      %u\nrx_garbage     %u\nrx_skipped     %u\n"
+-			 "size_hist     ",
++			 "rx_uflow       %u\nsize_hist     ",
+ 			 st->aggregates, st->frames, st->statuses, st->no_ba,
+ 			 st->acked, st->retried, st->dropped, st->plain_status,
+ 			 st->ignored_status, st->broken, st->inflight_reset,
+ 			 st->stalls, st->hangs, st->baw_blocked, st->baw_reset,
+-			 st->rx_giants, st->rx_garbage, st->rx_skipped);
++			 st->rx_giants, st->rx_garbage, st->rx_skipped,
++			 st->rx_uflow);
+ 	for (i = 1; i < ARRAY_SIZE(st->size_hist); i++)
+ 		len += scnprintf(buf + len, size - len, " %u", st->size_hist[i]);
+ 	len += scnprintf(buf + len, size - len, "\nack_tries     ");

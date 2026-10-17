@@ -1,0 +1,476 @@
+From: Erik Conijn <egc112@msn.com>
+Subject: b43: AP mode: hold frames for stations in power save
+
+b43 did nothing for dozing stations in AP mode: sta_notify was empty and
+the ucode's power-management queue interrupt is drained and ignored. mac80211
+buffers new frames for a dozing station itself, but frames already handed to
+the driver were sent to a station that does not listen, re-sent until the
+retry limit and dropped. A phone in power save lost 10-25 % of the pings
+under load.
+
+mac80211 re-buffers frames that come back with IEEE80211_TX_STAT_TX_FILTERED,
+except A-MPDU frames, which it frees. So, as ath9k does, the driver keeps
+them:
+- sta_notify(SLEEP) marks the station; the TX work moves its frames from the
+  TX queue to a per-station queue, and an A-MPDU frame that comes back
+  without block ack while the station dozes goes there too (it keeps its
+  place in the block ack window and its retry count).
+- ieee80211_sta_set_buffered() reports the TIDs that hold frames, so the TIM
+  bit is set.
+- sta_notify(AWAKE): the held frames go back to the head of the TX queue,
+  before what mac80211 buffered meanwhile.
+- release_buffered_frames: the frames for a PS-Poll or uAPSD trigger go out
+  with MoreData/EOSP set; a released frame the station did not take is held
+  again and ends the service period.
+- A plain (non-aggregated) frame that was not acked while its station dozes
+  goes back to mac80211 as filtered.
+The queue heads are only changed with wl->mutex held (TX work, TX status);
+sta_notify and release_buffered_frames run in atomic context and only set
+flags. Nothing changes while no station dozes. debugfs b43_ampdu shows
+"ps held/filtered/released/resumed".
+
+Assisted-by: Claude:claude-opus-5-5
+Signed-off-by: Erik Conijn <egc112@msn.com>
+---
+diff --git a/drivers/net/wireless/broadcom/b43/b43.h b/drivers/net/wireless/broadcom/b43/b43.h
+index 5558ac6..80abe6b 100644
+--- a/drivers/net/wireless/broadcom/b43/b43.h
++++ b/drivers/net/wireless/broadcom/b43/b43.h
+@@ -932,6 +932,11 @@ struct b43_ampdu_stats {
+ 	u32 ack_tries[6];	/* acked frames by earlier driver re-sends (0..5) */
+ 	u32 notack[4];		/* not acked: no BA / bit 0 in window / behind BA SSN / >= 64 ahead */
+ 	u32 drop_cause[4];	/* finally dropped, same causes as notack */
++	/* AP power save */
++	u32 ps_held;		/* frames held for a dozing station */
++	u32 ps_filtered;	/* plain frames given back to mac80211 as filtered */
++	u32 ps_released;	/* held frames released for a PS-Poll/uAPSD */
++	u32 ps_resumed;		/* held frames sent after the station woke */
+ };
+ 
+ struct b43_wl {
+@@ -1006,6 +1011,11 @@ struct b43_wl {
+ 	/* Flag that implement the queues stopping. */
+ 	bool tx_queue_stopped[B43_QOS_QUEUE_NUM];
+ 
++	/* AP power save: stations holding frames for a doze (b43_sta.psq),
++	 * protected by the mutex */
++	struct list_head ps_stas;
++	atomic_t ps_dozing;	/* stations in power save */
++
+ 	/* firmware loading work */
+ 	struct work_struct firmware_load;
+ 
+diff --git a/drivers/net/wireless/broadcom/b43/dma.c b/drivers/net/wireless/broadcom/b43/dma.c
+index a1b2b0f..7c349a0 100644
+--- a/drivers/net/wireless/broadcom/b43/dma.c
++++ b/drivers/net/wireless/broadcom/b43/dma.c
+@@ -1685,6 +1685,11 @@ void b43_dma_handle_ampdu_txstatus(struct b43_wldev *dev,
+ 			info->status.ampdu_ack_len = 1;
+ 			info->status.ampdu_len = 1;
+ 			ieee80211_tx_status_skb(wl->hw, skb);
++		} else if (sta && READ_ONCE(bsta->asleep)) {
++			/* the station dozes: keep the frame (and its place
++			 * in the block ack window) until it wakes */
++			wl->ampdu_stats.notack[cause]++;
++			b43_ps_hold(wl, sta, skb);
+ 		} else if (retry && *retry < B43_AMPDU_RETRY_LIMIT) {
+ 			wl->ampdu_stats.notack[cause]++;
+ 			(*retry)++;
+@@ -1914,6 +1919,19 @@ void b43_dma_handle_txstatus(struct b43_wldev *dev,
+ 
+ 			frame_succeed = b43_fill_txstatus_report(dev, info,
+ 								 txstat);
++			if (!frame_succeed &&
++			    !(info->flags & IEEE80211_TX_CTL_NO_PS_BUFFER)) {
++				struct ieee80211_sta *sta;
++
++				/* sent while the station dozes: mac80211
++				 * buffers it again (not for A-MPDU frames) */
++				rcu_read_lock();
++				if (b43_ps_asleep(dev->wl, meta->skb, &sta)) {
++					info->flags |= IEEE80211_TX_STAT_TX_FILTERED;
++					dev->wl->ampdu_stats.ps_filtered++;
++				}
++				rcu_read_unlock();
++			}
+ #ifdef CPTCFG_B43_DEBUG
+ 			if (frame_succeed)
+ 				ring->nr_succeed_tx_packets++;
+diff --git a/drivers/net/wireless/broadcom/b43/main.c b/drivers/net/wireless/broadcom/b43/main.c
+index 4a344cd..9449563 100644
+--- a/drivers/net/wireless/broadcom/b43/main.c
++++ b/drivers/net/wireless/broadcom/b43/main.c
+@@ -3839,6 +3839,8 @@ static int b43_tx_ampdu(struct b43_wldev *dev, int queue_num)
+ 		info = IEEE80211_SKB_CB(skb);
+ 		hdr = (struct ieee80211_hdr *)skb->data;
+ 		if (!(info->flags & IEEE80211_TX_CTL_AMPDU) ||
++		    ((info->flags ^ IEEE80211_SKB_CB(n ? skbs[0] : skb)->flags) &
++		     IEEE80211_TX_CTL_NO_PS_BUFFER) ||
+ 		    !ieee80211_is_data_qos(hdr->frame_control) ||
+ 		    !ether_addr_equal(hdr->addr1, ra) ||
+ 		    ieee80211_get_tid(hdr) != tid ||
+@@ -3958,6 +3960,10 @@ static ssize_t b43_ampdu_stats_read(struct file *file, char __user *ubuf,
+ 	len += scnprintf(buf + len, size - len, "\ndrop_cause    ");
+ 	for (i = 0; i < ARRAY_SIZE(st->drop_cause); i++)
+ 		len += scnprintf(buf + len, size - len, " %u", st->drop_cause[i]);
++	len += scnprintf(buf + len, size - len,
++			 "\nps             held %u filtered %u released %u resumed %u",
++			 st->ps_held, st->ps_filtered, st->ps_released,
++			 st->ps_resumed);
+ 	len += scnprintf(buf + len, size - len, "\n");
+ 
+ 	mutex_lock(&wl->mutex);
+@@ -4002,6 +4008,200 @@ static const struct file_operations b43_ampdu_stats_fops = {
+ 	.llseek = default_llseek,
+ };
+ 
++/*
++ * AP power save. mac80211 buffers new frames for a dozing station itself,
++ * but frames already handed to the driver would go to a station that does
++ * not listen, and mac80211 frees A-MPDU frames given back as filtered. So
++ * they wait in the station's psq: mac80211 learns which TIDs hold frames
++ * (TIM bit), they go back to the head of the TX queue when the station
++ * wakes, and single frames go out for a PS-Poll or uAPSD trigger. Queue
++ * heads are only changed with wl->mutex held (TX work, TX status).
++ */
++
++/* The station of an AP unicast frame if it dozes (RCU read side) */
++bool b43_ps_asleep(struct b43_wl *wl, struct sk_buff *skb,
++		   struct ieee80211_sta **psta)
++{
++	struct ieee80211_hdr *hdr = (struct ieee80211_hdr *)skb->data;
++	struct ieee80211_sta *sta;
++
++	if (!atomic_read(&wl->ps_dozing) || !wl->vif ||
++	    wl->vif->type != NL80211_IFTYPE_AP ||
++	    is_multicast_ether_addr(hdr->addr1))
++		return false;
++	sta = ieee80211_find_sta(wl->vif, hdr->addr1);
++	if (!sta || !READ_ONCE(((struct b43_sta *)sta->drv_priv)->asleep))
++		return false;
++	*psta = sta;
++	return true;
++}
++
++static u8 b43_ps_tid(struct sk_buff *skb)
++{
++	struct ieee80211_hdr *hdr = (struct ieee80211_hdr *)skb->data;
++
++	return ieee80211_is_data_qos(hdr->frame_control) ?
++	       ieee80211_get_tid(hdr) : 0;
++}
++
++static u16 b43_ps_queued_tids(struct b43_sta *bsta)
++{
++	struct sk_buff *skb;
++	u16 tids = 0;
++
++	skb_queue_walk(&bsta->psq, skb)
++		tids |= BIT(b43_ps_tid(skb));
++	return tids;
++}
++
++/* Tell mac80211 which TIDs hold frames, for the TIM bit */
++static void b43_ps_report_tids(struct ieee80211_sta *sta, struct b43_sta *bsta)
++{
++	u16 tids = b43_ps_queued_tids(bsta), change = tids ^ bsta->ps_tids;
++	int tid;
++
++	for (tid = 0; change >> tid; tid++)
++		if (change & BIT(tid))
++			ieee80211_sta_set_buffered(sta, tid, tids & BIT(tid));
++	bsta->ps_tids = tids;
++}
++
++/* Hold a frame for a dozing station (wl->mutex held, RCU read side) */
++void b43_ps_hold(struct b43_wl *wl, struct ieee80211_sta *sta,
++		 struct sk_buff *skb)
++{
++	struct b43_sta *bsta = (struct b43_sta *)sta->drv_priv;
++	struct ieee80211_tx_info *info = IEEE80211_SKB_CB(skb);
++	struct ieee80211_hdr *hdr = (struct ieee80211_hdr *)skb->data;
++
++	/* a released frame that found the station asleep again: its
++	 * service period is over */
++	if (info->flags & IEEE80211_TX_STATUS_EOSP)
++		ieee80211_sta_eosp(sta);
++	info->flags &= ~(IEEE80211_TX_CTL_NO_PS_BUFFER |
++			 IEEE80211_TX_STATUS_EOSP);
++	hdr->frame_control &= ~cpu_to_le16(IEEE80211_FCTL_MOREDATA);
++	if (ieee80211_is_data_qos(hdr->frame_control))
++		*ieee80211_get_qos_ctl(hdr) &= ~IEEE80211_QOS_CTL_EOSP;
++	/* the bounce buffer pointer shares the vif's slot */
++	info->control.vif = wl->vif;
++
++	if (list_empty(&bsta->ps_list))
++		list_add_tail(&bsta->ps_list, &wl->ps_stas);
++	skb_queue_tail(&bsta->psq, skb);
++	wl->ampdu_stats.ps_held++;
++	if (!(bsta->ps_tids & BIT(b43_ps_tid(skb)))) {
++		bsta->ps_tids |= BIT(b43_ps_tid(skb));
++		ieee80211_sta_set_buffered(sta, b43_ps_tid(skb), true);
++	}
++}
++
++/* Put frames back at the head of their TX queues, keeping their order */
++static void b43_ps_requeue(struct b43_wl *wl, struct sk_buff_head *list)
++{
++	struct sk_buff *skb;
++
++	while ((skb = __skb_dequeue_tail(list)))
++		skb_queue_head(&wl->tx_queue[skb_get_queue_mapping(skb)], skb);
++}
++
++/* Release up to n held frames for a PS-Poll (one) or a uAPSD trigger */
++static void b43_ps_release(struct b43_wl *wl, struct ieee80211_sta *sta,
++			   struct b43_sta *bsta, int n)
++{
++	struct sk_buff_head rel;
++	struct sk_buff *skb, *tmp;
++	bool uapsd = bsta->ps_release_uapsd;
++
++	__skb_queue_head_init(&rel);
++	skb_queue_walk_safe(&bsta->psq, skb, tmp) {
++		if (skb_queue_len(&rel) >= n)
++			break;
++		if (!(bsta->ps_release_tids & BIT(b43_ps_tid(skb))))
++			continue;
++		skb_unlink(skb, &bsta->psq);
++		__skb_queue_tail(&rel, skb);
++	}
++	if (skb_queue_empty(&rel)) {
++		/* nothing left: end the service period */
++		ieee80211_sta_eosp(sta);
++		return;
++	}
++	skb_queue_walk(&rel, skb) {
++		struct ieee80211_tx_info *info = IEEE80211_SKB_CB(skb);
++		struct ieee80211_hdr *hdr = (struct ieee80211_hdr *)skb->data;
++		bool last = skb_queue_is_last(&rel, skb);
++
++		info->flags |= IEEE80211_TX_CTL_NO_PS_BUFFER;
++		if (!last || !skb_queue_empty(&bsta->psq) ||
++		    bsta->ps_release_more)
++			hdr->frame_control |=
++				cpu_to_le16(IEEE80211_FCTL_MOREDATA);
++		if (!last)
++			continue;
++		info->flags |= IEEE80211_TX_STATUS_EOSP |
++			       IEEE80211_TX_CTL_REQ_TX_STATUS;
++		if (uapsd && ieee80211_is_data_qos(hdr->frame_control))
++			*ieee80211_get_qos_ctl(hdr) |= IEEE80211_QOS_CTL_EOSP;
++	}
++	wl->ampdu_stats.ps_released += skb_queue_len(&rel);
++	b43_ps_requeue(wl, &rel);
++	b43_ps_report_tids(sta, bsta);
++}
++
++/* Wake-ups and releases (TX work, wl->mutex held) */
++static void b43_ps_work(struct b43_wl *wl)
++{
++	struct b43_sta *bsta, *tmp;
++
++	rcu_read_lock();
++	list_for_each_entry_safe(bsta, tmp, &wl->ps_stas, ps_list) {
++		struct ieee80211_sta *sta =
++			container_of((void *)bsta, struct ieee80211_sta,
++				     drv_priv);
++		int n;
++
++		if (!READ_ONCE(bsta->asleep)) {
++			/* awake: the held frames go out before what
++			 * mac80211 buffered meanwhile */
++			wl->ampdu_stats.ps_resumed += skb_queue_len(&bsta->psq);
++			b43_ps_requeue(wl, &bsta->psq);
++			bsta->ps_tids = 0;
++			list_del_init(&bsta->ps_list);
++			continue;
++		}
++		if (xchg(&bsta->ps_resleep, 0)) {
++			/* mac80211 forgot the buffered TIDs when it woke */
++			bsta->ps_tids = 0;
++			b43_ps_report_tids(sta, bsta);
++		}
++		n = xchg(&bsta->ps_release, 0);
++		if (n)
++			b43_ps_release(wl, sta, bsta, n);
++		if (skb_queue_empty(&bsta->psq))
++			list_del_init(&bsta->ps_list);
++	}
++	rcu_read_unlock();
++}
++
++/* Hold the frame at the queue head if its station dozes (wl->mutex held) */
++static bool b43_ps_check(struct b43_wl *wl, struct sk_buff_head *q,
++			 struct sk_buff *skb)
++{
++	struct ieee80211_sta *sta;
++	bool held = false;
++
++	if (IEEE80211_SKB_CB(skb)->flags & IEEE80211_TX_CTL_NO_PS_BUFFER)
++		return false;
++	rcu_read_lock();
++	if (b43_ps_asleep(wl, skb, &sta)) {
++		b43_ps_hold(wl, sta, skb_dequeue(q));
++		held = true;
++	}
++	rcu_read_unlock();
++	return held;
++}
++
+ static void b43_tx_work(struct work_struct *work)
+ {
+ 	struct b43_wl *wl = container_of(work, struct b43_wl, tx_work);
+@@ -4017,8 +4217,13 @@ static void b43_tx_work(struct work_struct *work)
+ 		return;
+ 	}
+ 
++	if (!list_empty(&wl->ps_stas))
++		b43_ps_work(wl);
+ 	for (queue_num = 0; queue_num < B43_QOS_QUEUE_NUM; queue_num++) {
+ 		while ((skb = b43_txq_peek(&wl->tx_queue[queue_num]))) {
++			if (unlikely(atomic_read(&wl->ps_dozing)) &&
++			    b43_ps_check(wl, &wl->tx_queue[queue_num], skb))
++				continue;
+ 			if (dev->ht_tx_ampdu &&
+ 			    (IEEE80211_SKB_CB(skb)->flags & IEEE80211_TX_CTL_AMPDU) &&
+ 			    ieee80211_is_data_qos(((struct ieee80211_hdr *)skb->data)->frame_control) &&
+@@ -5574,8 +5779,78 @@ static void b43_op_sta_notify(struct ieee80211_hw *hw,
+ 			      struct ieee80211_sta *sta)
+ {
+ 	struct b43_wl *wl = hw_to_b43_wl(hw);
++	struct b43_sta *bsta = (struct b43_sta *)sta->drv_priv;
+ 
+ 	B43_WARN_ON(!vif || wl->vif != vif);
++	/* atomic context: flag only, the TX work moves the frames */
++	if (!bsta->ps_init)
++		return;
++	switch (notify_cmd) {
++	case STA_NOTIFY_SLEEP:
++		if (!bsta->asleep)
++			atomic_inc(&wl->ps_dozing);
++		WRITE_ONCE(bsta->ps_resleep, 1);
++		WRITE_ONCE(bsta->asleep, true);
++		break;
++	case STA_NOTIFY_AWAKE:
++		if (bsta->asleep)
++			atomic_dec(&wl->ps_dozing);
++		WRITE_ONCE(bsta->asleep, false);
++		break;
++	}
++	ieee80211_queue_work(hw, &wl->tx_work);
++}
++
++static void b43_op_release_buffered_frames(struct ieee80211_hw *hw,
++					   struct ieee80211_sta *sta,
++					   u16 tids, int num_frames,
++					   enum ieee80211_frame_release_type reason,
++					   bool more_data)
++{
++	struct b43_wl *wl = hw_to_b43_wl(hw);
++	struct b43_sta *bsta = (struct b43_sta *)sta->drv_priv;
++
++	if (!bsta->ps_init || skb_queue_empty_lockless(&bsta->psq)) {
++		ieee80211_sta_eosp(sta);
++		return;
++	}
++	bsta->ps_release_tids = tids;
++	bsta->ps_release_uapsd = reason == IEEE80211_FRAME_RELEASE_UAPSD;
++	bsta->ps_release_more = more_data;
++	/* pairs with the xchg() in b43_ps_work() */
++	smp_store_release(&bsta->ps_release, num_frames);
++	ieee80211_queue_work(hw, &wl->tx_work);
++}
++
++static int b43_op_sta_add(struct ieee80211_hw *hw, struct ieee80211_vif *vif,
++			  struct ieee80211_sta *sta)
++{
++	struct b43_sta *bsta = (struct b43_sta *)sta->drv_priv;
++
++	/* added again by a mac80211 reconfiguration: keep the state */
++	if (bsta->ps_init)
++		return 0;
++	skb_queue_head_init(&bsta->psq);
++	INIT_LIST_HEAD(&bsta->ps_list);
++	bsta->ps_init = true;
++	return 0;
++}
++
++static int b43_op_sta_remove(struct ieee80211_hw *hw, struct ieee80211_vif *vif,
++			     struct ieee80211_sta *sta)
++{
++	struct b43_wl *wl = hw_to_b43_wl(hw);
++	struct b43_sta *bsta = (struct b43_sta *)sta->drv_priv;
++
++	mutex_lock(&wl->mutex);
++	if (bsta->asleep)
++		atomic_dec(&wl->ps_dozing);
++	bsta->asleep = false;
++	bsta->ps_init = false;
++	list_del_init(&bsta->ps_list);
++	ieee80211_purge_tx_queue(hw, &bsta->psq);
++	mutex_unlock(&wl->mutex);
++	return 0;
+ }
+ 
+ static void b43_op_sw_scan_start_notifier(struct ieee80211_hw *hw,
+@@ -5742,6 +6017,9 @@ static const struct ieee80211_ops b43_hw_ops = {
+ 	.stop			= b43_op_stop,
+ 	.set_tim		= b43_op_beacon_set_tim,
+ 	.sta_notify		= b43_op_sta_notify,
++	.release_buffered_frames = b43_op_release_buffered_frames,
++	.sta_add		= b43_op_sta_add,
++	.sta_remove		= b43_op_sta_remove,
+ 	.sw_scan_start		= b43_op_sw_scan_start_notifier,
+ 	.sw_scan_complete	= b43_op_sw_scan_complete_notifier,
+ 	.get_survey		= b43_op_get_survey,
+@@ -6175,6 +6453,7 @@ static struct b43_wl *b43_wireless_init(struct b43_bus_dev *dev)
+ 		skb_queue_head_init(&wl->tx_queue[queue_num]);
+ 		wl->tx_queue_stopped[queue_num] = false;
+ 	}
++	INIT_LIST_HEAD(&wl->ps_stas);
+ 
+ 	snprintf(chip_name, ARRAY_SIZE(chip_name),
+ 		 (dev->chip_id > 0x9999) ? "%d" : "%04X", dev->chip_id);
+diff --git a/drivers/net/wireless/broadcom/b43/main.h b/drivers/net/wireless/broadcom/b43/main.h
+index d94ab86..f8b93cc 100644
+--- a/drivers/net/wireless/broadcom/b43/main.h
++++ b/drivers/net/wireless/broadcom/b43/main.h
+@@ -85,6 +85,11 @@ void b43_power_saving_ctl_bits(struct b43_wldev *dev, unsigned int ps_flags);
+ 
+ void b43_wireless_core_phy_pll_reset(struct b43_wldev *dev);
+ 
++void b43_ps_hold(struct b43_wl *wl, struct ieee80211_sta *sta,
++		 struct sk_buff *skb);
++bool b43_ps_asleep(struct b43_wl *wl, struct sk_buff *skb,
++		   struct ieee80211_sta **psta);
++
+ void b43_mac_suspend(struct b43_wldev *dev);
+ void b43_mac_enable(struct b43_wldev *dev);
+ void b43_mac_phy_clock_set(struct b43_wldev *dev, bool on);
+diff --git a/drivers/net/wireless/broadcom/b43/xmit.h b/drivers/net/wireless/broadcom/b43/xmit.h
+index b162712..5c509a0 100644
+--- a/drivers/net/wireless/broadcom/b43/xmit.h
++++ b/drivers/net/wireless/broadcom/b43/xmit.h
+@@ -237,6 +237,21 @@ struct b43_sta {
+ 	u16 baw_start[IEEE80211_NUM_TIDS];
+ 	u64 baw_map[IEEE80211_NUM_TIDS];
+ 	bool baw_valid[IEEE80211_NUM_TIDS];
++	/* AP power save: while the station dozes its frames wait in psq
++	 * (mac80211 frees A-MPDU frames that come back filtered); the
++	 * station is on wl->ps_stas while psq holds frames. asleep and
++	 * ps_release are set from sta_notify/release_buffered_frames, which
++	 * run in atomic context; the TX work does the queue handling. */
++	bool ps_init;			/* psq/ps_list set up (sta_add) */
++	bool asleep;
++	int ps_resleep;			/* dozed again: report the TIDs anew */
++	u16 ps_tids;			/* TIDs reported to mac80211 as buffered */
++	int ps_release;			/* frames to release (PS-Poll/uAPSD) */
++	u16 ps_release_tids;
++	bool ps_release_uapsd;
++	bool ps_release_more;
++	struct sk_buff_head psq;
++	struct list_head ps_list;
+ };
+ 
+ /*

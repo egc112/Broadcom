@@ -1,0 +1,49 @@
+From: Erik Conijn <egc112@msn.com>
+Subject: b43: HT-PHY: fill in the transmitter address of the BlockAck template
+
+With an RX block ack session (the HT20 patch, ht_rx_ampdu=1) the ucode answers
+each A-MPDU and BlockAckReq with a BlockAck built from template RAM. The
+driver has to write the station's own MAC address into that template at
+offset 0x48 (T_BA_TPL_BASE + 16), as brcmsmac's brcms_c_ampdu_macaddr_upd()
+does. b43 never wrote it, so every BlockAck went out with TA
+00:00:00:00:00:00 (seen on an ath11k monitor: 2139 such BAs in 5 s). The
+originator cannot match them, retransmits every A-MPDU, falls back to
+MCS 0 and sends BARs: a thin uplink stream such as TCP ACKs collapsed the
+download to ~2.3 Mbit/s, while the bulk upload hid it behind duplicates.
+
+Write the TA together with the MAC/BSSID templates on the HT-PHY.
+
+Assisted-by: Claude:claude-opus-5-5
+Signed-off-by: Erik Conijn <egc112@msn.com>
+---
+diff --git a/drivers/net/wireless/broadcom/b43/main.c b/drivers/net/wireless/broadcom/b43/main.c
+index 2d05ff9..fabfc46 100644
+--- a/drivers/net/wireless/broadcom/b43/main.c
++++ b/drivers/net/wireless/broadcom/b43/main.c
+@@ -735,9 +735,26 @@ static void b43_write_mac_bssid_templates(struct b43_wldev *dev)
+ 	}
+ }
+ 
++/* The ucode answers an A-MPDU with a BlockAck built from a template whose
++ * transmitter address the driver has to fill in (brcmsmac:
++ * brcms_c_ampdu_macaddr_upd). Without it the BlockAck goes out with
++ * TA 00:00:00:00:00:00 and the originator ignores it. */
++#define B43_TPL_BA_TA		0x48
++
++static void b43_write_ba_template_ta(struct b43_wldev *dev)
++{
++	const u8 *mac = dev->wl->mac_addr;
++
++	b43_ram_write(dev, B43_TPL_BA_TA, mac[0] | (mac[1] << 8) |
++		      (mac[2] << 16) | ((u32)mac[3] << 24));
++	b43_ram_write(dev, B43_TPL_BA_TA + 4, mac[4] | (mac[5] << 8));
++}
++
+ static void b43_upload_card_macaddress(struct b43_wldev *dev)
+ {
+ 	b43_write_mac_bssid_templates(dev);
++	if (dev->phy.type == B43_PHYTYPE_HT)
++		b43_write_ba_template_ta(dev);
+ 	b43_macfilter_set(dev, B43_MACFILTER_SELF, dev->wl->mac_addr);
+ }
+ 

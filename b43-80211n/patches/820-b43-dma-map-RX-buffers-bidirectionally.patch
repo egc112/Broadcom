@@ -1,0 +1,76 @@
+From: Erik Conijn <egc112@msn.com>
+Subject: b43: dma: map RX buffers bidirectionally so the RX poison works
+
+b43 poisons every RX buffer before handing it to the device (frame length
+0, 0xff bytes behind the frame offset) and drops buffers that still carry
+the poison: the device sometimes skips a buffer, and dma_rx() relies on
+the poison to recognise it.
+
+The RX buffers are mapped and synced DMA_FROM_DEVICE. On a non-coherent
+ARM system (BCM4708/BCM4709, Cortex-A9 + PL310) dma_map_single() and
+dma_sync_single_for_device() then only invalidate the cache, so the
+poison the CPU just wrote is discarded and never reaches memory. A
+skipped buffer then holds stale memory instead: the plaintext of earlier
+TX frames, or an old frame from the previous use of that buffer. Seen on
+a Netgear R6400 (BCM4331): garbage "frame lengths" between normal frames,
+buffers full of the router's own transmitted download payload, an RX ring
+that lost sync and hung the router, and old frames handed up again.
+
+Map, unmap and sync the RX buffers DMA_BIDIRECTIONAL: the poison is
+written back on map/sync-for-device and the cache is invalidated on
+sync-for-cpu. After this, skipped buffers are recognised and dropped
+(about 150 per hour under load on the R6400) and no garbage reaches the
+RX path any more.
+
+Assisted-by: Claude:claude-opus-5-5
+Signed-off-by: Erik Conijn <egc112@msn.com>
+---
+diff --git a/drivers/net/wireless/broadcom/b43/dma.c b/drivers/net/wireless/broadcom/b43/dma.c
+index e0a74f4..d842cbd 100644
+--- a/drivers/net/wireless/broadcom/b43/dma.c
++++ b/drivers/net/wireless/broadcom/b43/dma.c
+@@ -353,8 +353,16 @@ static inline
+ 		dmaaddr = dma_map_single(ring->dev->dev->dma_dev,
+ 					 buf, len, DMA_TO_DEVICE);
+ 	} else {
++		/*
++		 * Bidirectional, not FROM_DEVICE: on non-coherent ARM a
++		 * FROM_DEVICE map/sync only invalidates the cache, so the
++		 * poison written by b43_poison_rx_buffer() never reached
++		 * memory. A buffer the device skipped then held stale data
++		 * (e.g. an old TX frame) instead of the poison and was read
++		 * as a frame with an impossible length.
++		 */
+ 		dmaaddr = dma_map_single(ring->dev->dev->dma_dev,
+-					 buf, len, DMA_FROM_DEVICE);
++					 buf, len, DMA_BIDIRECTIONAL);
+ 	}
+ 
+ 	return dmaaddr;
+@@ -369,7 +377,7 @@ static inline
+ 				 addr, len, DMA_TO_DEVICE);
+ 	} else {
+ 		dma_unmap_single(ring->dev->dev->dma_dev,
+-				 addr, len, DMA_FROM_DEVICE);
++				 addr, len, DMA_BIDIRECTIONAL);
+ 	}
+ }
+ 
+@@ -379,7 +387,7 @@ static inline
+ {
+ 	B43_WARN_ON(ring->tx);
+ 	dma_sync_single_for_cpu(ring->dev->dev->dma_dev,
+-				    addr, len, DMA_FROM_DEVICE);
++				    addr, len, DMA_BIDIRECTIONAL);
+ }
+ 
+ static inline
+@@ -388,7 +396,7 @@ static inline
+ {
+ 	B43_WARN_ON(ring->tx);
+ 	dma_sync_single_for_device(ring->dev->dev->dma_dev,
+-				   addr, len, DMA_FROM_DEVICE);
++				   addr, len, DMA_BIDIRECTIONAL);
+ }
+ 
+ static inline

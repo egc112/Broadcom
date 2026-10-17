@@ -1,0 +1,89 @@
+From: Erik Conijn <egc112@msn.com>
+Subject: b43: HT-PHY: static TX gain instead of the TX power control loop
+
+On a BCM4331 behind an external PA (Netgear R6400 v1/v2) the hardware
+TX power control loop drives the gain to (near) maximum and compresses
+the PA. Measured at 802.11g with a fixed client on the R6400 v2: 11.7..12.3
+Mbit/s download with the loop, 22.3..23.1 with the loop off and a fixed
+gain from TX gain table entry 0xc0 + index for every index from 16 to 40;
+index 12 shows the first loss, 8 gives 17, 0 is as bad as the loop. The
+R6400 v1 has a high-gain PA (BFL_HGPA): index 16 still compresses there
+(17 Mbit/s), 20..32 are clean (~22).
+
+Turn the loop off and program the static gain wherever
+b43_phy_ht_tx_power_fix() used index 40. The index comes from the
+ht_txgain_idx module parameter: -2 (auto, default) = 24 with BFL_HGPA,
+else 16, about four steps above the measured edge on both boards; 0..127
+forces an index; -1 restores the old behaviour. wl runs these chains at
+indices 10..17 with its own calibration. Needs the 32-bit table read fix.
+
+Assisted-by: Claude:claude-opus-5-5
+Signed-off-by: Erik Conijn <egc112@msn.com>
+---
+diff --git a/drivers/net/wireless/broadcom/b43/phy_ht.c b/drivers/net/wireless/broadcom/b43/phy_ht.c
+index bf5edc6..fc818ad 100644
+--- a/drivers/net/wireless/broadcom/b43/phy_ht.c
++++ b/drivers/net/wireless/broadcom/b43/phy_ht.c
+@@ -17,6 +17,34 @@
+ #include "radio_2059.h"
+ #include "main.h"
+ 
++/*
++ * Static TX gain instead of the hardware TX power control loop. On the
++ * BCM4331 boards with an external PA (Netgear R6400) the loop drives the
++ * gain to (near) maximum, which compresses the PA: at a fixed client
++ * distance the download doubled (12 -> 22.5 Mbit/s at 802.11g) with the
++ * loop off and a fixed gain from table 0x1a entry 0xc0 + index, for every
++ * index from 16 up to 40 on the R6400 v2 (FEM board); index 12 shows the
++ * first loss, index 8 distorts, index 0 is as bad as the loop. A board with
++ * a high-gain external PA (BFL_HGPA, R6400 v1) still compresses at index 16
++ * and is clean from 20. wl runs these chains at indices 10..17.
++ * Default -2 (auto): index 24 with BFL_HGPA, else 16, i.e. about four steps
++ * above the measured edge on both boards. 0..127 forces an index, -1 keeps
++ * the old behaviour (loop on, static gain from index 40).
++ */
++static int b43_ht_txgain_idx = -2;
++module_param_named(ht_txgain_idx, b43_ht_txgain_idx, int, 0644);
++MODULE_PARM_DESC(ht_txgain_idx, "HT-PHY: static TX gain index 0..127 with the hardware TX power control off; -2 = auto (24 on boards with a high-gain PA, else 16, default); -1 = hardware power control (old behaviour)");
++
++/* the static TX gain index to use, or -1 for the hardware power control loop */
++static int b43_phy_ht_txgain_idx(struct b43_wldev *dev)
++{
++	if (b43_ht_txgain_idx >= 0 && b43_ht_txgain_idx < 128)
++		return b43_ht_txgain_idx;
++	if (b43_ht_txgain_idx == -2)
++		return (dev->dev->bus_sprom->boardflags_lo & B43_BFL_HGPA) ? 24 : 16;
++	return -1;
++}
++
+ /* Force values to keep compatibility with wl */
+ enum ht_rssi_type {
+ 	HT_RSSI_W1 = 0,
+@@ -514,7 +542,8 @@ static void b43_phy_ht_tx_power_fix(struct b43_wldev *dev)
+ 
+ 	for (i = 0; i < 3; i++) {
+ 		u16 mask;
+-		u32 tmp = b43_httab_read(dev, B43_HTTAB32(26, 0xE8));
++		int idx = b43_phy_ht_txgain_idx(dev);
++		u32 tmp = b43_httab_read(dev, B43_HTTAB32(26, idx >= 0 ? 0xC0 + idx : 0xE8));
+ 
+ 		if (0) /* FIXME */
+ 			mask = 0x2 << (i * 4);
+@@ -1005,7 +1034,16 @@ static int b43_phy_ht_op_init(struct b43_wldev *dev)
+ 	b43_phy_ht_tx_power_ctl_idle_tssi(dev);
+ 	b43_phy_ht_tx_power_ctl_setup(dev);
+ 	b43_phy_ht_tssi_setup(dev);
+-	b43_phy_ht_tx_power_ctl(dev, saved_tx_pwr_ctl);
++	if (b43_phy_ht_txgain_idx(dev) >= 0) {
++		b43_phy_ht_tx_power_ctl(dev, false);
++		b43info(dev->wl, "HT-PHY: hardware TX power control off, static TX gain index %d (%s)\n",
++			b43_phy_ht_txgain_idx(dev),
++			b43_ht_txgain_idx >= 0 ? "forced" :
++			(dev->dev->bus_sprom->boardflags_lo & B43_BFL_HGPA) ?
++			"auto, high-gain PA" : "auto");
++	} else {
++		b43_phy_ht_tx_power_ctl(dev, saved_tx_pwr_ctl);
++	}
+ 
+ 	return 0;
+ }

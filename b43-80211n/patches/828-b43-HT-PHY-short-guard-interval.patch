@@ -1,0 +1,155 @@
+From: Erik Conijn <egc112@msn.com>
+Subject: b43: HT-PHY: short guard interval at 20 MHz
+
+Announce the short guard interval at 20 MHz (as brcmsmac does for RX) and
+send with it when minstrel picks an SGI rate: HT-SIG2 bit 7 in the PLCP
+(brcmsmac RSPEC_SHORT_GI >> 16) and the L-SIG length computed with the SGI
+rate, CEIL(rate * 10, 9) as in brcmsmac's mcs_table, also in the A-MPDU
+fix-up. brcmsmac never transmits SGI ("not supported yet"); Broadcom's wl
+does. It adds no transmit power, minstrel uses it only where it works.
+
+Module parameters: ht_sgi (announce, default 1), ht_sgi_tx (send with
+SGI when rate control picks it, default 1; 0 sends the long GI and
+reports it that way).
+
+R6400 v1, 4 TCP streams to an ath11k client: download 45.5 -> 48-49.5
+Mbit/s, upload 75 -> 82-83 Mbit/s (the clients now send MCS 14/15 SGI).
+
+Assisted-by: Claude:claude-opus-5-5
+Signed-off-by: Erik Conijn <egc112@msn.com>
+---
+diff --git a/drivers/net/wireless/broadcom/b43/main.c b/drivers/net/wireless/broadcom/b43/main.c
+index b17a2d9..8bdcf2d 100644
+--- a/drivers/net/wireless/broadcom/b43/main.c
++++ b/drivers/net/wireless/broadcom/b43/main.c
+@@ -107,6 +107,15 @@ int b43_modparam_ht = 1;
+ module_param_named(ht, b43_modparam_ht, int, 0444);
+ MODULE_PARM_DESC(ht, "HT-PHY: 802.11n HT20 MCS 0-7 (1, default) or legacy only (0)");
+ 
++/* Short guard interval (20 MHz): announced for RX like brcmsmac; TX when
++ * minstrel picks an SGI rate (brcmsmac never sends SGI, wl does) */
++static int b43_modparam_ht_sgi = 1;
++module_param_named(ht_sgi, b43_modparam_ht_sgi, int, 0444);
++MODULE_PARM_DESC(ht_sgi, "HT-PHY: announce short guard interval at 20 MHz (1, default) or not (0)");
++int b43_ht_sgi_tx = 1;
++module_param_named(ht_sgi_tx, b43_ht_sgi_tx, int, 0644);
++MODULE_PARM_DESC(ht_sgi_tx, "HT-PHY: send with short guard interval when rate control picks it (1, default) or never (0)");
++
+ static int b43_modparam_ht_rx_ampdu = 1;
+ module_param_named(ht_rx_ampdu, b43_modparam_ht_rx_ampdu, int, 0644);
+ MODULE_PARM_DESC(ht_rx_ampdu, "HT-PHY: accept A-MPDU RX block ack sessions (1, default) or refuse them (0)");
+@@ -5795,6 +5804,10 @@ static int b43_setup_bands(struct b43_wldev *dev,
+ 	limited_5g = phy->radio_ver == 0x2057 &&
+ 		     phy->radio_rev == 9;
+ 
++	if (b43_modparam_ht_sgi)
++		b43_band_2GHz_htphy.ht_cap.cap |= IEEE80211_HT_CAP_SGI_20;
++	else
++		b43_band_2GHz_htphy.ht_cap.cap &= ~IEEE80211_HT_CAP_SGI_20;
+ 	if (have_2ghz_phy)
+ 		hw->wiphy->bands[NL80211_BAND_2GHZ] = limited_2g ?
+ 			&b43_band_2ghz_limited :
+diff --git a/drivers/net/wireless/broadcom/b43/xmit.c b/drivers/net/wireless/broadcom/b43/xmit.c
+index 4015c81..c33b179 100644
+--- a/drivers/net/wireless/broadcom/b43/xmit.c
++++ b/drivers/net/wireless/broadcom/b43/xmit.c
+@@ -201,6 +201,7 @@ static u16 b43_generate_tx_phy_ctl1(struct b43_wldev *dev, u8 bitrate)
+  * mixed-mode preamble (brcms_c_calc_lsig_len).
+  */
+ extern int b43_modparam_ht;
++extern int b43_ht_sgi_tx;
+ 
+ static int b43_ht_txcore = 1;
+ module_param_named(ht_txcore, b43_ht_txcore, int, 0644);
+@@ -224,12 +225,15 @@ static bool b43_ht_rate(struct b43_wldev *dev, const struct ieee80211_tx_rate *r
+ 	       r->idx >= 0 && (r->flags & IEEE80211_TX_RC_MCS) && r->idx < 8;
+ }
+ 
+-static void b43_ht_plcp(u8 *plcp, u8 mcs, unsigned int len)
++/* HT-SIG2 bit 7 (brcmsmac RSPEC_SHORT_GI >> 16) */
++#define B43_HT_PLCP3_SGI	0x80
++
++static void b43_ht_plcp(u8 *plcp, u8 mcs, unsigned int len, bool sgi)
+ {
+ 	plcp[0] = mcs & 0x7f;
+ 	plcp[1] = len & 0xff;
+ 	plcp[2] = (len >> 8) & 0xff;
+-	plcp[3] = 0x07;
++	plcp[3] = 0x07 | (sgi ? B43_HT_PLCP3_SGI : 0);
+ 	plcp[4] = 0;
+ 	plcp[5] = 0;
+ }
+@@ -240,10 +244,12 @@ static u16 b43_ht_phyctl1(u8 mcs)
+ 	       (b43_ht_mcs_phyctl3[mcs & 7] << 8);
+ }
+ 
+-/* brcms_c_calc_lsig_len: one stream, no STBC, 20 MHz, long GI */
+-static u16 b43_ht_lsig_len(u8 mcs, unsigned int len)
++/* brcms_c_calc_lsig_len: one stream, no STBC, 20 MHz; the SGI rate is
++ * CEIL(rate * 10, 9) as in brcmsmac's mcs_table */
++static u16 b43_ht_lsig_len(u8 mcs, unsigned int len, bool sgi)
+ {
+-	unsigned int kndps = b43_ht_mcs_kbps20[mcs & 7] * 4;
++	unsigned int kbps = b43_ht_mcs_kbps20[mcs & 7];
++	unsigned int kndps = (sgi ? DIV_ROUND_UP(kbps * 10, 9) : kbps) * 4;
+ 	unsigned int nsyms = DIV_ROUND_UP((16 + 8 * len + 6) * 1000, kndps);
+ 
+ 	nsyms += 1 + 3;		/* HT-LTF per stream, HT-SIG (2), HT-STF (1) */
+@@ -301,9 +307,11 @@ void b43_ht_ampdu_fixup(struct b43_wldev *dev, struct b43_txhdr **hdrs, int n)
+ 	plcp[1] = ampdu_len & 0xff;
+ 	plcp[2] = (ampdu_len >> 8) & 0xff;
+ 	plcp[3] |= 0x08;		/* MIMO_PLCP_AMPDU */
+-	first->mimo_modelen = cpu_to_le16(b43_ht_lsig_len(plcp[0], ampdu_len));
++	first->mimo_modelen = cpu_to_le16(b43_ht_lsig_len(plcp[0], ampdu_len,
++							   plcp[3] & B43_HT_PLCP3_SGI));
+ 	first->mimo_ratelen_fb =
+-		cpu_to_le16(b43_ht_lsig_len(first->plcp_fb.raw[0], ampdu_len));
++		cpu_to_le16(b43_ht_lsig_len(first->plcp_fb.raw[0], ampdu_len,
++					    first->plcp_fb.raw[3] & B43_HT_PLCP3_SGI));
+ 
+ }
+ 
+@@ -513,11 +521,20 @@ int b43_generate_txhdr(struct b43_wldev *dev,
+ 
+ 	/* 802.11n: override the rate fields for MCS rates */
+ 	if (b43_ht_rate(dev, &rates[0])) {
+-		const struct ieee80211_tx_rate *rfb =
++		struct ieee80211_tx_rate *rfb =
+ 			b43_ht_rate(dev, &rates[1]) ? &rates[1] : &rates[0];
+ 		u8 mcs = rates[0].idx, mcs_fb = rfb->idx;
++		bool sgi, sgi_fb;
+ 		u8 *plcp = NULL;
+ 
++		if (!b43_ht_sgi_tx) {
++			/* sent with the long GI: report it that way */
++			rates[0].flags &= ~IEEE80211_TX_RC_SHORT_GI;
++			rfb->flags &= ~IEEE80211_TX_RC_SHORT_GI;
++		}
++		sgi = rates[0].flags & IEEE80211_TX_RC_SHORT_GI;
++		sgi_fb = rfb->flags & IEEE80211_TX_RC_SHORT_GI;
++
+ 		switch (dev->fw.hdr_format) {
+ 		case B43_FW_HDR_598:
+ 			plcp = txhdr->format_598.plcp.raw;
+@@ -530,16 +547,17 @@ int b43_generate_txhdr(struct b43_wldev *dev,
+ 			break;
+ 		}
+ 		if (plcp)
+-			b43_ht_plcp(plcp, mcs, plcp_fragment_len);
+-		b43_ht_plcp(txhdr->plcp_fb.raw, mcs_fb, plcp_fragment_len);
++			b43_ht_plcp(plcp, mcs, plcp_fragment_len, sgi);
++		b43_ht_plcp(txhdr->plcp_fb.raw, mcs_fb, plcp_fragment_len, sgi_fb);
+ 		txhdr->phy_rate = mcs;
+ 		extra_ft = (extra_ft & ~B43_TXH_EFT_FB) | B43_TXH_EFT_FB_HT;
+ 		phy_ctl = (phy_ctl & ~(B43_TXH_PHY_ENC | B43_TXH_PHY_ANT |
+ 				       B43_TXH_PHY_SHORTPRMBL)) |
+ 			  B43_TXH_PHY_ENC_HT_ |
+ 			  ((b43_ht_txcore & 7) << 6);
+-		txhdr->mimo_modelen = cpu_to_le16(b43_ht_lsig_len(mcs, plcp_fragment_len));
+-		txhdr->mimo_ratelen_fb = cpu_to_le16(b43_ht_lsig_len(mcs_fb, plcp_fragment_len));
++		txhdr->mimo_modelen = cpu_to_le16(b43_ht_lsig_len(mcs, plcp_fragment_len, sgi));
++		txhdr->mimo_ratelen_fb = cpu_to_le16(b43_ht_lsig_len(mcs_fb, plcp_fragment_len,
++								      sgi_fb));
+ 		txhdr->dur_fb = wlhdr->duration_id;
+ 		/* PHY control word 1 below takes these */
+ 		rate = 0xff;

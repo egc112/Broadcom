@@ -1,4 +1,4 @@
-# b43: 802.11n with A-MPDU for the BCM4331 (Netgear R6400) — TEST VERSION (rc2)
+# b43: 802.11n with A-MPDU for the BCM4331 (Netgear R6400) — TEST VERSION (rc3)
 
 > **Status: test version.** These patches work well on the author's Netgear R6400 v1
 > (many hours of soak tests, a clean 15-hour test with two clients and a phone, daily use);
@@ -50,9 +50,10 @@ Apply in this order (OpenWrt applies them by number).
 | 830 | AP mode: hold frames for clients in power save |
 | 831 | HT-PHY: fill in the Duration field of 802.11n frames |
 | 832 | HT-PHY: use a 256-slot RX ring |
-| 833 | HT-PHY: receive CCK only when the BSS uses it (**new, not yet in the rc2 test images**) |
+| 833 | HT-PHY: receive CCK only when the BSS uses it |
+| 834 | HT-PHY: take frames from the mac80211 TXQs when there is room (airtime fairness) |
 
-Changes since rc1: patches 830, 831 and 832 are new (in the rc2 images); 833 is new after rc2 and will be in the next images; 820–829 are unchanged.
+Changes since rc2: patches 833 and 834 are new; 820–832 are unchanged.
 
 ### Bugs found and fixed
 
@@ -70,6 +71,7 @@ Changes since rc1: patches 830, 831 and 832 are new (in the rc2 images); 833 is 
 | 10 | Other stations did not reserve time for the acknowledgement of 802.11n frames | Duration field 0 in every MCS frame: mac80211 leaves it to the driver for MCS rates | 831 |
 | 11 | Frames lost although the sender got an ACK; a phone in power save unreachable for ~26 s under load | The firmware ACKs a frame before it is in host memory and drops it when the 32-slot RX ring is full, which A-MPDU bursts caused about three times per second | 832 |
 | 12 | Receiver "deaf" to 13–16 % of its clients' frames on a quiet channel, at any signal level and rate | The receiver locks onto every CCK (802.11b) frame it detects, also a weak 1 Mbit/s broadcast of a distant network (~2 ms), and misses a much stronger frame of its own clients that starts meanwhile (90 % lost then, 2 % otherwise) | 833 (CCK reception off when the network uses no CCK rates, the OpenWrt default) |
+| 13 | Phones in power save slow under load (0.4–1.5 s pings), stations not served in turn | b43 let mac80211 push all frames into one shared driver queue (100–270 frames): a waking phone's frames waited behind another station's traffic and the phone dozed off again | 834 |
 
 ### Improvements added
 
@@ -84,6 +86,7 @@ Changes since rc1: patches 830, 831 and 832 are new (in the rc2 images); 833 is 
 | Watchdog / hang check, debugfs counters | self-recovery, diagnosis | 827 |
 | Power save in AP mode (as ath9k): frames held, TIM bit set, delivered on wake-up, PS-Poll or uAPSD trigger | phone with the screen off under load: 0 % ping loss (was 46 %) | 830 |
 | CCK reception only when the network uses CCK rates | client frames ACKed at the first attempt 86 → 99 %; TCP to/from a client 49.6 → 53.7 / 85.2 → 93.7 Mbit/s | 833 |
+| Airtime fairness: frames taken from mac80211's per-station queues only when the hardware has room, airtime reported, AQL | phone in power save under load: same latency as without load (~0.3 s instead of up to 1.5 s); two UDP downloads get equal airtime | 834 |
 
 ## Test results
 
@@ -104,19 +107,22 @@ Each cycle also pinged a phone in power save (screen off) while the R6400 v2 dow
 0 % loss in 138 of 142 runs, at most 2 % in the others except one run in which the phone left.
 
 Access point and client: no stalls, no hangs, no RX ring errors, no reboot, memory stable.
+
+rc3 (patches 833 and 834 added) was then tested for an hour with the same cycles and the phone:
+no stalls, the phone 0 % loss under load (average 0.3 s, as without load), throughput as above.
 The uneven numbers when both clients are busy, and the R6400 v2's weak upload under load,
 are described under *Known limitations*.
 
 ## Test images (GitHub Releases)
 
-Ready-made OpenWrt images with this series are attached to the release **b43-80211n-rc2**
+Ready-made OpenWrt images with this series are attached to the release **b43-80211n-rc3**
 (OpenWrt snapshot r37195-66ee7b6950, kernel 6.18). Pick the image by the router's board ID:
 
 | Router | board ID | Image |
 |---|---|---|
-| R6400 v1 | U12H332T00_NETGEAR | `openwrt-r6400-v1-b43-80211n-rc2-squashfs.chk` |
-| R6400 v2 | U12H332T20_NETGEAR | `openwrt-r6400-v2-b43-80211n-rc2-squashfs.chk` |
-| R6400 v2 (OTP) | U12H332T30_NETGEAR | `openwrt-r6400-v2-otp-b43-80211n-rc2-squashfs.chk` |
+| R6400 v1 | U12H332T00_NETGEAR | `openwrt-r6400-v1-b43-80211n-rc3-squashfs.chk` |
+| R6400 v2 | U12H332T20_NETGEAR | `openwrt-r6400-v2-b43-80211n-rc3-squashfs.chk` |
+| R6400 v2 (OTP) | U12H332T30_NETGEAR | `openwrt-r6400-v2-otp-b43-80211n-rc3-squashfs.chk` |
 
 On OpenWrt the board ID is shown by `strings /dev/mtd1 | grep board_id` (the `nvram` partition).
 Netgear's own firmware only accepts a `.chk` with the router's own board ID.
@@ -187,6 +193,7 @@ parameters on the command line.
 | `ht_txgain_idx` | -2 | static TX gain index: -2 auto (24 with high-gain PA, else 16), -1 old power loop |
 | `ht_txcore` | 1 | TX core mask (one stream on core 0) |
 | `ht_cck_rx` | -1 | CCK (802.11b) reception (patch 833): -1 only when the network has CCK basic rates, 0 never, 1 always |
+| `ht_txq_pull` | 1 | airtime fairness (patch 834); 0 = the old single driver queue |
 
 ## Reporting problems
 
@@ -208,8 +215,10 @@ an occasional `baw_reset` (a few per day) is a recovery and harmless.
 * One transmit stream (MCS 0–7) on purpose, to keep the power amplifier within safe limits.
   Clients may still send on two streams.
 * 20 MHz only (no 40 MHz), 2.4 GHz only.
-* No airtime fairness between clients: when several clients download at the same time,
-  the faster one gets most of the airtime (measured 5.4 vs 44.2 Mbit/s, see *Test results*).
+* Airtime is shared fairly since patch 834 (two UDP downloads: equal airtime). With TCP, an
+  R6400 used as a *client* still gets less than a modern client next to it (12 vs 39 Mbit/s),
+  because it has a harder time sending its TCP acknowledgements; ordinary clients are not
+  affected.
 * Without patch 833 (and with 833 when 802.11b rates are enabled, `legacy_rates 1`), the
   receiver misses 13–16 % of its clients' frames: it locks onto weak 802.11b frames of
   neighbouring networks. Patch 833 turns CCK reception off when the network uses no CCK

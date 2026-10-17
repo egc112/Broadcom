@@ -50,8 +50,9 @@ Apply in this order (OpenWrt applies them by number).
 | 830 | AP mode: hold frames for clients in power save |
 | 831 | HT-PHY: fill in the Duration field of 802.11n frames |
 | 832 | HT-PHY: use a 256-slot RX ring |
+| 833 | HT-PHY: receive CCK only when the BSS uses it (**new, not yet in the rc2 test images**) |
 
-Changes since rc1: patches 830, 831 and 832 are new; 820–829 are unchanged.
+Changes since rc1: patches 830, 831 and 832 are new (in the rc2 images); 833 is new after rc2 and will be in the next images; 820–829 are unchanged.
 
 ### Bugs found and fixed
 
@@ -68,6 +69,7 @@ Changes since rc1: patches 830, 831 and 832 are new; 820–829 are unchanged.
 | 9 | Phones with the screen off lose frames under load (46 % ping loss) | No power-save handling: frames already queued in the driver went to a dozing client and were dropped after the retries | 830 |
 | 10 | Other stations did not reserve time for the acknowledgement of 802.11n frames | Duration field 0 in every MCS frame: mac80211 leaves it to the driver for MCS rates | 831 |
 | 11 | Frames lost although the sender got an ACK; a phone in power save unreachable for ~26 s under load | The firmware ACKs a frame before it is in host memory and drops it when the 32-slot RX ring is full, which A-MPDU bursts caused about three times per second | 832 |
+| 12 | Receiver "deaf" to 13–16 % of its clients' frames on a quiet channel, at any signal level and rate | The receiver locks onto every CCK (802.11b) frame it detects, also a weak 1 Mbit/s broadcast of a distant network (~2 ms), and misses a much stronger frame of its own clients that starts meanwhile (90 % lost then, 2 % otherwise) | 833 (CCK reception off when the network uses no CCK rates, the OpenWrt default) |
 
 ### Improvements added
 
@@ -81,6 +83,7 @@ Changes since rc1: patches 830, 831 and 832 are new; 820–829 are unchanged.
 | RTS/CTS for re-sent aggregates, at a basic OFDM rate | no frames given up under collisions, same throughput | 829 |
 | Watchdog / hang check, debugfs counters | self-recovery, diagnosis | 827 |
 | Power save in AP mode (as ath9k): frames held, TIM bit set, delivered on wake-up, PS-Poll or uAPSD trigger | phone with the screen off under load: 0 % ping loss (was 46 %) | 830 |
+| CCK reception only when the network uses CCK rates | client frames ACKed at the first attempt 86 → 99 %; TCP to/from a client 49.6 → 53.7 / 85.2 → 93.7 Mbit/s | 833 |
 
 ## Test results
 
@@ -183,6 +186,7 @@ parameters on the command line.
 | `ampdu_max_frames` | 16 | maximum frames per aggregate |
 | `ht_txgain_idx` | -2 | static TX gain index: -2 auto (24 with high-gain PA, else 16), -1 old power loop |
 | `ht_txcore` | 1 | TX core mask (one stream on core 0) |
+| `ht_cck_rx` | -1 | CCK (802.11b) reception (patch 833): -1 only when the network has CCK basic rates, 0 never, 1 always |
 
 ## Reporting problems
 
@@ -206,16 +210,17 @@ an occasional `baw_reset` (a few per day) is a recovery and harmless.
 * 20 MHz only (no 40 MHz), 2.4 GHz only.
 * No airtime fairness between clients: when several clients download at the same time,
   the faster one gets most of the airtime (measured 5.4 vs 44.2 Mbit/s, see *Test results*).
-* The BCM4331 receiver misses part of the frames even on a quiet channel and with a strong
-  signal: an R6400 v1 registered only 70–86 % of the RTS frames sent by an R6400 v2 (and every
-  RTS it did register was answered), and an independent sniffer saw it acknowledge only 58 %
-  of a phone's frames at the first attempt. The cause is not found yet. Each miss makes the
-  sender wait longer before it retries.
+* Without patch 833 (and with 833 when 802.11b rates are enabled, `legacy_rates 1`), the
+  receiver misses 13–16 % of its clients' frames: it locks onto weak 802.11b frames of
+  neighbouring networks. Patch 833 turns CCK reception off when the network uses no CCK
+  rates (the OpenWrt default); the router then does not answer 802.11b probe requests of
+  scanning clients, which still find the network by its beacons.
 * **Client (station) mode:** because of the point above, an R6400 used as a client of another
   R6400 sends slowly while the access point is busy with another client: ping times of
-  0.2–2.4 s. Since rc2 its connections no longer stall (none in 15 hours), and without that
-  other load it runs at ~42 Mbit/s each way. An ath11k client in the same position did not
-  show this (72–84 ms). Prefer the R6400 as an access point.
+  0.2–2.4 s with rc2, avg 0.46 s and at most 1.05 s with patch 833 (no airtime fairness yet).
+  Since rc2 its connections no longer stall (none in 15 hours), and without that other load
+  it runs at ~42–51 Mbit/s. An ath11k client in the same position did not show this
+  (72–84 ms). Prefer the R6400 as an access point.
 * Power save: tested with a phone that wakes up fully to fetch its frames. Clients that use
   PS-Poll or uAPSD are handled by the code but have not been tested yet.
 

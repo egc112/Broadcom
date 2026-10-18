@@ -1,0 +1,112 @@
+From: Erik Conijn <egc112@msn.com>
+Subject: b43: HT-PHY: one rate control status per A-MPDU
+
+Each MPDU of an A-MPDU that got a block ack was reported to rate control
+as a one-frame A-MPDU that succeeded, MPDUs without a block ack that are
+sent again were not reported at all, and dropped ones were reported
+without a transmission count. Rate control saw only successes: it kept
+MCS 15 at 95-100 % success while 41 % of the A-MPDUs got no block ack,
+and two-stream throughput fell from 80 to 9-23 Mbit/s for minutes.
+
+Report each A-MPDU once with ieee80211_tx_status_ext(): its length, the
+number of MPDUs acked and the rate of its first MPDU, which covers every
+transmission including the MPDUs sent again. The per-MPDU statuses no
+longer carry A-MPDU information, so rate control ignores them. MPDUs that
+are sent again take the rates rate control picks at that time.
+
+On an R6400 with a two-stream client, rate control now moves to MCS 13-14
+when MCS 15 stops working (70-79 Mbit/s instead of 9-23); with one stream
+throughput is unchanged (53 Mbit/s).
+
+Based on the rate control status in "wifi: b43: aggregate MPDUs on
+transmit with HT enabled" by Rosen Penev <rosenp@gmail.com>
+(openwrt/openwrt#25922).
+
+Assisted-by: Claude:claude-opus-5-5
+Signed-off-by: Erik Conijn <egc112@msn.com>
+---
+diff --git a/drivers/net/wireless/broadcom/b43/dma.c b/drivers/net/wireless/broadcom/b43/dma.c
+index 190e879..feea9dc 100644
+--- a/drivers/net/wireless/broadcom/b43/dma.c
++++ b/drivers/net/wireless/broadcom/b43/dma.c
+@@ -1585,6 +1585,8 @@ void b43_dma_handle_ampdu_txstatus(struct b43_wldev *dev,
+ 	enum nl80211_band air_band = NL80211_BAND_2GHZ;
+ 	unsigned int air_len = 0;
+ 	u8 air_tid = 0;
++	u32 air_probe = 0;
++	int i;
+ 
+ 	ring = parse_cookie(dev, status->cookie, &slot);
+ 	if (unlikely(!ring))
+@@ -1670,6 +1672,8 @@ void b43_dma_handle_ampdu_txstatus(struct b43_wldev *dev,
+ 			air_rate = info->control.rates[0];
+ 			air_band = info->band;
+ 			air_tid = tid;
++			air_probe = info->flags &
++				    IEEE80211_TX_CTL_RATE_CTRL_PROBE;
+ 		}
+ 		/* MPDU + delimiter, padded to 4 bytes */
+ 		air_len += ALIGN(skb->len + 4, 4);
+@@ -1693,13 +1697,12 @@ void b43_dma_handle_ampdu_txstatus(struct b43_wldev *dev,
+ 			}
+ 			if (bsta)
+ 				b43_baw_done(bsta, tid, seq);
++			/* no A-MPDU status here: rate control gets one
++			 * for the whole A-MPDU below */
+ 			info->status.rates[0].count = 1;
+ 			info->status.rates[1].idx = -1;
+ 			info->status.rates[1].count = 0;
+-			info->flags |= IEEE80211_TX_STAT_ACK |
+-				       IEEE80211_TX_STAT_AMPDU;
+-			info->status.ampdu_ack_len = 1;
+-			info->status.ampdu_len = 1;
++			info->flags |= IEEE80211_TX_STAT_ACK;
+ 			ieee80211_tx_status_skb(wl->hw, skb);
+ 		} else if (sta && READ_ONCE(bsta->asleep)) {
+ 			/* the station dozes: keep the frame (and its place
+@@ -1714,6 +1717,15 @@ void b43_dma_handle_ampdu_txstatus(struct b43_wldev *dev,
+ 			 * window keeps it inside the receiver's window */
+ 			/* the bounce buffer pointer shares the vif's slot */
+ 			info->control.vif = wl->vif;
++			/* send it again at the rates rate control picks now */
++			for (i = 0; i < ARRAY_SIZE(info->control.rates); i++) {
++				info->control.rates[i].idx = -1;
++				info->control.rates[i].count = 0;
++			}
++			info->flags &= ~IEEE80211_TX_CTL_RATE_CTRL_PROBE;
++			ieee80211_get_tx_rates(wl->vif, sta, skb,
++					       info->control.rates,
++					       ARRAY_SIZE(info->control.rates));
+ 			__skb_queue_tail(&requeue, skb);
+ 		} else {
+ 			wl->ampdu_stats.notack[cause]++;
+@@ -1734,6 +1746,29 @@ void b43_dma_handle_ampdu_txstatus(struct b43_wldev *dev,
+ 			break;
+ 		slot = next_slot(ring, slot);
+ 	}
++	/*
++	 * One rate control status for the whole A-MPDU, at the rate of its
++	 * first MPDU, covering every transmission including the MPDUs sent
++	 * again: otherwise rate control sees only the MPDUs that got through
++	 * and keeps a rate at which most aggregates fail.
++	 */
++	if (sta && nframes && air_rate.idx >= 0) {
++		struct ieee80211_tx_info ri = {};
++		struct ieee80211_tx_status rs = { .sta = sta, .info = &ri };
++
++		ri.band = air_band;
++		ri.flags = IEEE80211_TX_CTL_AMPDU | IEEE80211_TX_STAT_AMPDU |
++			   air_probe;
++		if (nacked)
++			ri.flags |= IEEE80211_TX_STAT_ACK;
++		for (i = 0; i < ARRAY_SIZE(ri.status.rates); i++)
++			ri.status.rates[i].idx = -1;
++		ri.status.rates[0] = air_rate;
++		ri.status.rates[0].count = 1;
++		ri.status.ampdu_len = nframes;
++		ri.status.ampdu_ack_len = nacked;
++		ieee80211_tx_status_ext(wl->hw, &rs);
++	}
+ 	if (sta && wl->txq_pull && air_len && air_rate.idx >= 0) {
+ 		struct ieee80211_tx_info ti = { .band = air_band };
+ 		u32 airtime;

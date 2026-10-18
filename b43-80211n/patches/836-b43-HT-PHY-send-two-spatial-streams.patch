@@ -1,0 +1,185 @@
+From: Erik Conijn <egc112@msn.com>
+Subject: b43: HT-PHY: send two spatial streams (MCS 8-15)
+
+The BCM4331 has three TX chains, but b43 sent MCS 0-7 on one core only.
+Add MCS 8-15 as in brcmsmac's mcs_table: tx_phy_ctl3 and the 20 MHz rates,
+SDM mode for two streams, one HT-LTF per stream in the L-SIG length and the
+PPDU airtime, and the TX core mask ht_txcore2 (default 3, cores 0 and 1)
+for two-stream frames. A one-stream fallback rate of a two-stream frame
+goes out on the same cores with cyclic delay diversity. The TX MCS set is
+advertised equal to the RX set (MCS 0-15) when two streams are enabled.
+
+Two streams are off by default: the module parameter ht_tx_streams=2
+enables them. Both chains then transmit at the static gain of one, which
+is about 3 dB more in total.
+
+On an R6400 v2 AP with a two-stream client at -24 dBm, TCP from the router
+goes from 53 to 70-83 Mbit/s.
+
+Assisted-by: Claude:claude-opus-5-5
+Signed-off-by: Erik Conijn <egc112@msn.com>
+---
+diff --git a/drivers/net/wireless/broadcom/b43/main.c b/drivers/net/wireless/broadcom/b43/main.c
+index da2844a..9266914 100644
+--- a/drivers/net/wireless/broadcom/b43/main.c
++++ b/drivers/net/wireless/broadcom/b43/main.c
+@@ -6520,6 +6520,10 @@ static int b43_setup_bands(struct b43_wldev *dev,
+ 		b43_band_2GHz_htphy.ht_cap.cap |= IEEE80211_HT_CAP_SGI_20;
+ 	else
+ 		b43_band_2GHz_htphy.ht_cap.cap &= ~IEEE80211_HT_CAP_SGI_20;
++	/* two TX streams: the TX MCS set equals the RX set (MCS 0-15) */
++	b43_band_2GHz_htphy.ht_cap.mcs.tx_params = b43_ht_tx_streams >= 2 ?
++		IEEE80211_HT_MCS_TX_DEFINED :
++		IEEE80211_HT_MCS_TX_DEFINED | IEEE80211_HT_MCS_TX_RX_DIFF;
+ 	if (have_2ghz_phy)
+ 		hw->wiphy->bands[NL80211_BAND_2GHZ] = limited_2g ?
+ 			&b43_band_2ghz_limited :
+diff --git a/drivers/net/wireless/broadcom/b43/xmit.c b/drivers/net/wireless/broadcom/b43/xmit.c
+index 13c2a30..17c6c05 100644
+--- a/drivers/net/wireless/broadcom/b43/xmit.c
++++ b/drivers/net/wireless/broadcom/b43/xmit.c
+@@ -205,16 +205,33 @@ extern int b43_ht_sgi_tx;
+ 
+ static int b43_ht_txcore = 1;
+ module_param_named(ht_txcore, b43_ht_txcore, int, 0644);
+-MODULE_PARM_DESC(ht_txcore, "HT-PHY: TX core mask for MCS frames (1..7, default 1 = core 0)");
++MODULE_PARM_DESC(ht_txcore, "HT-PHY: TX core mask for one-stream MCS frames (1..7, default 1 = core 0)");
++
++int b43_ht_tx_streams = 1;
++module_param_named(ht_tx_streams, b43_ht_tx_streams, int, 0444);
++MODULE_PARM_DESC(ht_tx_streams, "HT-PHY: TX spatial streams, 1 (MCS 0-7, default) or 2 (MCS 0-15)");
++
++static int b43_ht_txcore2 = 3;
++module_param_named(ht_txcore2, b43_ht_txcore2, int, 0644);
++MODULE_PARM_DESC(ht_txcore2, "HT-PHY: TX core mask for two-stream MCS frames (3, 5 or 6; default 3 = cores 0 and 1)");
+ 
+ #define B43_TXH_PHY_ENC_HT_	0x0002
+-static const u8 b43_ht_mcs_phyctl3[8] = {
++/* brcmsmac mcs_table: tx_phy_ctl3 and the 20 MHz rate, MCS 0-15 */
++static const u8 b43_ht_mcs_phyctl3[16] = {
+ 	0x00, 0x08, 0x0A, 0x10, 0x12, 0x19, 0x1A, 0x1C,
++	0x40, 0x48, 0x4A, 0x50, 0x52, 0x59, 0x5A, 0x5C,
+ };
+-static const u16 b43_ht_mcs_kbps20[8] = {
++static const u32 b43_ht_mcs_kbps20[16] = {
+ 	6500, 13000, 19500, 26000, 39000, 52000, 58500, 65000,
++	13000, 26000, 39000, 52000, 78000, 104000, 117000, 130000,
+ };
+ 
++/* spatial streams of an MCS 0-15 */
++static unsigned int b43_ht_nss(u8 mcs)
++{
++	return ((mcs & 15) >> 3) + 1;
++}
++
+ /* RX: the PLCP byte 0 of the last HT frame, for A-MPDU subframes after the first */
+ static u8 b43_ht_last_rx_plcp0;
+ static bool b43_ht_subframe_seen;
+@@ -222,7 +239,8 @@ static bool b43_ht_subframe_seen;
+ static bool b43_ht_rate(struct b43_wldev *dev, const struct ieee80211_tx_rate *r)
+ {
+ 	return b43_modparam_ht && dev->phy.type == B43_PHYTYPE_HT &&
+-	       r->idx >= 0 && (r->flags & IEEE80211_TX_RC_MCS) && r->idx < 8;
++	       r->idx >= 0 && (r->flags & IEEE80211_TX_RC_MCS) &&
++	       r->idx < 8 * clamp(b43_ht_tx_streams, 1, 2);
+ }
+ 
+ /* HT-SIG2 bit 7 (brcmsmac RSPEC_SHORT_GI >> 16) */
+@@ -238,21 +256,26 @@ static void b43_ht_plcp(u8 *plcp, u8 mcs, unsigned int len, bool sgi)
+ 	plcp[5] = 0;
+ }
+ 
+-static u16 b43_ht_phyctl1(u8 mcs)
++/* one stream on several cores goes out with cyclic delay diversity */
++static u16 b43_ht_phyctl1(u8 mcs, unsigned int cores)
+ {
+-	return B43_TXH_PHY1_BW_20 | B43_TXH_PHY1_MODE_SISO |
+-	       (b43_ht_mcs_phyctl3[mcs & 7] << 8);
++	u16 mode = b43_ht_nss(mcs) > 1 ? B43_TXH_PHY1_MODE_SDM :
++		   hweight8(cores & 7) > 1 ? B43_TXH_PHY1_MODE_CDD :
++		   B43_TXH_PHY1_MODE_SISO;
++
++	return B43_TXH_PHY1_BW_20 | mode | (b43_ht_mcs_phyctl3[mcs & 15] << 8);
+ }
+ 
+-/* brcms_c_calc_lsig_len: one stream, no STBC, 20 MHz; the SGI rate is
++/* brcms_c_calc_lsig_len: no STBC, 20 MHz; the SGI rate is
+  * CEIL(rate * 10, 9) as in brcmsmac's mcs_table */
+ static u16 b43_ht_lsig_len(u8 mcs, unsigned int len, bool sgi)
+ {
+-	unsigned int kbps = b43_ht_mcs_kbps20[mcs & 7];
++	unsigned int kbps = b43_ht_mcs_kbps20[mcs & 15];
+ 	unsigned int kndps = (sgi ? DIV_ROUND_UP(kbps * 10, 9) : kbps) * 4;
+ 	unsigned int nsyms = DIV_ROUND_UP((16 + 8 * len + 6) * 1000, kndps);
+ 
+-	nsyms += 1 + 3;		/* HT-LTF per stream, HT-SIG (2), HT-STF (1) */
++	/* one HT-LTF per stream, HT-SIG (2), HT-STF (1) */
++	nsyms += b43_ht_nss(mcs) + 3;
+ 	return 3 * nsyms - 3;
+ }
+ 
+@@ -313,15 +336,16 @@ static unsigned int b43_ctl_us(const struct b43_plcp_hdr6 *plcp, bool ofdm,
+ 	return 192 + DIV_ROUND_UP(bytes * 8 * 10, plcp->raw[0] ?: 10);
+ }
+ 
+-/* Airtime of an HT mixed-mode PPDU, one stream, 20 MHz: L-STF, L-LTF,
+- * L-SIG, HT-SIG, HT-STF and one HT-LTF (36 us), the data symbols (3.6 us
+- * with the short GI) and the 6 us signal extension */
++/* Airtime of an HT mixed-mode PPDU, 20 MHz: L-STF, L-LTF, L-SIG, HT-SIG,
++ * HT-STF (32 us) and one HT-LTF per stream, the data symbols (3.6 us with
++ * the short GI) and the 6 us signal extension */
+ static unsigned int b43_ht_ppdu_us(u8 mcs, bool sgi, unsigned int len)
+ {
+-	unsigned int ndbps = b43_ht_mcs_kbps20[mcs & 7] / 250;
++	unsigned int ndbps = b43_ht_mcs_kbps20[mcs & 15] / 250;
+ 	unsigned int nsym = DIV_ROUND_UP(16 + 8 * len + 6, ndbps);
+ 
+-	return 36 + (sgi ? DIV_ROUND_UP(nsym * 36, 10) : nsym * 4) + 6;
++	return 32 + 4 * b43_ht_nss(mcs) +
++	       (sgi ? DIV_ROUND_UP(nsym * 36, 10) : nsym * 4) + 6;
+ }
+ 
+ #define B43_SIFS_US	10
+@@ -620,6 +644,9 @@ int b43_generate_txhdr(struct b43_wldev *dev,
+ 		struct ieee80211_tx_rate *rfb =
+ 			b43_ht_rate(dev, &rates[1]) ? &rates[1] : &rates[0];
+ 		u8 mcs = rates[0].idx, mcs_fb = rfb->idx;
++		/* the core mask is shared by the main and the fallback rate */
++		unsigned int cores = (b43_ht_nss(mcs) > 1 ? b43_ht_txcore2 :
++				      b43_ht_txcore) & 7;
+ 		bool sgi, sgi_fb;
+ 		u8 *plcp = NULL;
+ 
+@@ -666,8 +693,7 @@ int b43_generate_txhdr(struct b43_wldev *dev,
+ 		extra_ft = (extra_ft & ~B43_TXH_EFT_FB) | B43_TXH_EFT_FB_HT;
+ 		phy_ctl = (phy_ctl & ~(B43_TXH_PHY_ENC | B43_TXH_PHY_ANT |
+ 				       B43_TXH_PHY_SHORTPRMBL)) |
+-			  B43_TXH_PHY_ENC_HT_ |
+-			  ((b43_ht_txcore & 7) << 6);
++			  B43_TXH_PHY_ENC_HT_ | (cores << 6);
+ 		txhdr->mimo_modelen = cpu_to_le16(b43_ht_lsig_len(mcs, plcp_fragment_len, sgi));
+ 		txhdr->mimo_ratelen_fb = cpu_to_le16(b43_ht_lsig_len(mcs_fb, plcp_fragment_len,
+ 								      sgi_fb));
+@@ -676,8 +702,8 @@ int b43_generate_txhdr(struct b43_wldev *dev,
+ 		rate = 0xff;
+ 		rate_fb = 0xff;
+ 		fill_phy_ctl1 = true;
+-		txhdr->phy_ctl1 = cpu_to_le16(b43_ht_phyctl1(mcs));
+-		txhdr->phy_ctl1_fb = cpu_to_le16(b43_ht_phyctl1(mcs_fb));
++		txhdr->phy_ctl1 = cpu_to_le16(b43_ht_phyctl1(mcs, cores));
++		txhdr->phy_ctl1_fb = cpu_to_le16(b43_ht_phyctl1(mcs_fb, cores));
+ 	}
+ 
+ 	/* MAC control */
+diff --git a/drivers/net/wireless/broadcom/b43/xmit.h b/drivers/net/wireless/broadcom/b43/xmit.h
+index dff5432..6a610c7 100644
+--- a/drivers/net/wireless/broadcom/b43/xmit.h
++++ b/drivers/net/wireless/broadcom/b43/xmit.h
+@@ -317,6 +317,7 @@ static inline void b43_baw_done(struct b43_sta *bsta, u8 tid, u16 sn)
+ 		bsta->baw_valid[tid] = false;
+ }
+ 
++extern int b43_ht_tx_streams;
+ bool b43_ht_ampdu_rate_ok(struct b43_wldev *dev,
+ 			  struct ieee80211_tx_info *info);
+ void b43_ht_ampdu_fixup(struct b43_wldev *dev, struct b43_txhdr **hdrs, int n);

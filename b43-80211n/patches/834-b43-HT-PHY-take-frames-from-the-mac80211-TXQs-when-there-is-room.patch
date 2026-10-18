@@ -14,14 +14,18 @@ and fairness had nothing left to schedule:
 
 Implement wake_tx_queue: the TX work takes frames only while a ring has
 room for another A-MPDU and its driver queue is empty, one A-MPDU (or two
-single frames) per ieee80211_next_txq() turn. A-MPDU frames without a block
-ack, and frames held for a dozing station, go to a retry queue in the txq's
-driver data, kept in sequence number order together with that txq's frames
-still waiting in the driver queue, and are sent before newer ones; the txq is
-scheduled again for them, and a dozing station's held frames are reported
-with ieee80211_sta_set_buffered(). PS-Poll and uAPSD releases take the
-retry queue first, then mac80211's queue. TX airtime is reported per PPDU
-with ieee80211_sta_register_airtime(), and AIRTIME_FAIRNESS and AQL are
+single frames) per ieee80211_next_txq() turn. A-MPDU frames without a
+block ack, and frames held for a dozing station, go to a retry queue in
+the txq's driver data, kept in sequence number order together with that
+txq's frames still waiting in the driver queue, and are sent before newer
+ones; the txq is scheduled again for them, and a dozing station's held
+frames are reported with ieee80211_sta_set_buffered(). The frames in a
+retry queue were dequeued, so AQL counts them as pending; once they exceed
+the station's AQL limit, ieee80211_next_txq() skips the txq and they would
+never be sent, so the TX work sends the retry queue of such a txq
+directly. PS-Poll and uAPSD releases take the retry queue first, then
+mac80211's queue. TX airtime is reported per PPDU with
+ieee80211_sta_register_airtime(), and AIRTIME_FAIRNESS and AQL are
 enabled. The module parameter ht_txq_pull=0 restores the old model.
 
 On an R6400 AP with two clients: pings to a phone in power save under load
@@ -34,26 +38,28 @@ Assisted-by: Claude:claude-opus-5-5
 Signed-off-by: Erik Conijn <egc112@msn.com>
 ---
 diff --git a/drivers/net/wireless/broadcom/b43/b43.h b/drivers/net/wireless/broadcom/b43/b43.h
-index 8364b9f..41dbc8b 100644
+index 8364b9f..ebe37b0 100644
 --- a/drivers/net/wireless/broadcom/b43/b43.h
 +++ b/drivers/net/wireless/broadcom/b43/b43.h
-@@ -929,6 +929,9 @@ struct b43_ampdu_stats {
+@@ -929,6 +929,10 @@ struct b43_ampdu_stats {
  	u32 rx_garbage;		/* RX buffers with an impossible length */
  	u32 rx_skipped;		/* RX buffers the device did not fill (poison intact) */
  	u32 rx_uflow;		/* RX descriptor underruns: frames dropped */
 +	u32 txq_visits;		/* TXQ pull: txq turns */
++	u32 txq_aql_resend;	/* TXQ pull: retry frames sent past AQL */
 +	u32 txq_frames;		/* TXQ pull: frames taken from mac80211 */
 +	u32 txq_airtime;	/* TXQ pull: TX airtime reported (us) */
  	/* item 2 diagnostics: why frames fail */
  	u32 ack_tries[6];	/* acked frames by earlier driver re-sends (0..5) */
  	u32 notack[4];		/* not acked: no BA / bit 0 in window / behind BA SSN / >= 64 ahead */
-@@ -981,6 +984,9 @@ struct b43_wl {
+@@ -981,6 +985,10 @@ struct b43_wl {
  #endif /* CPTCFG_B43_HWRNG */
  
  	bool radiotap_enabled;
 +	/* HT-PHY: pull frames from the mac80211 TXQs (ht_txq_pull) */
 +	bool txq_pull;
 +	atomic_t txq_ps_pending;	/* PS event for the pull model's TX work */
++	struct list_head txq_retry[IEEE80211_NUM_ACS];	/* txqs with frames to send again */
  	/* HT-PHY: a software scan is running (CCK reception stays on) */
  	bool cck_scanning;
  	bool radio_enabled;
@@ -135,7 +141,7 @@ index 616a254..190e879 100644
  			if (frame_succeed)
  				ring->nr_succeed_tx_packets++;
 diff --git a/drivers/net/wireless/broadcom/b43/main.c b/drivers/net/wireless/broadcom/b43/main.c
-index e6f696f..59d0e91 100644
+index e6f696f..da2844a 100644
 --- a/drivers/net/wireless/broadcom/b43/main.c
 +++ b/drivers/net/wireless/broadcom/b43/main.c
 @@ -121,6 +121,10 @@ static int b43_modparam_ht_cck_rx = -1;
@@ -164,20 +170,21 @@ index e6f696f..59d0e91 100644
  	if (dev->ht_tx_ampdu) {
  		ieee80211_hw_set(wl->hw, AMPDU_AGGREGATION);
  		wl->hw->max_tx_aggregation_subframes = B43_AMPDU_BA_WSIZE;
-@@ -3994,6 +4006,12 @@ static ssize_t b43_ampdu_stats_read(struct file *file, char __user *ubuf,
+@@ -3994,6 +4006,13 @@ static ssize_t b43_ampdu_stats_read(struct file *file, char __user *ubuf,
  		if (dev->phy.type == B43_PHYTYPE_HT)
  			len += scnprintf(buf + len, size - len, "cck_rx %s\n",
  					 dev->phy.ht->cck_rx_off ? "off" : "on");
 +		if (wl->txq_pull)
 +			len += scnprintf(buf + len, size - len,
-+					 "txq_pull visits %u frames %u airtime %u ms\n",
++					 "txq_pull visits %u frames %u airtime %u ms aql_resend %u\n",
 +					 wl->ampdu_stats.txq_visits,
 +					 wl->ampdu_stats.txq_frames,
-+					 wl->ampdu_stats.txq_airtime / 1000);
++					 wl->ampdu_stats.txq_airtime / 1000,
++					 wl->ampdu_stats.txq_aql_resend);
  	}
  	mutex_unlock(&wl->mutex);
  
-@@ -4076,6 +4094,109 @@ static void b43_ps_report_tids(struct ieee80211_sta *sta, struct b43_sta *bsta)
+@@ -4076,6 +4095,113 @@ static void b43_ps_report_tids(struct ieee80211_sta *sta, struct b43_sta *bsta)
  	bsta->ps_tids = tids;
  }
  
@@ -196,6 +203,8 @@ index e6f696f..59d0e91 100644
 +
 +	if (!bt->init) {
 +		__skb_queue_head_init(&bt->retry_q);
++		INIT_LIST_HEAD(&bt->retry_list);
++		bt->txq = txq;
 +		bt->init = true;
 +	}
 +	return bt;
@@ -278,6 +287,8 @@ index e6f696f..59d0e91 100644
 +		else
 +			__skb_queue_head(&bt->retry_q, skb);
 +	}
++	if (!skb_queue_empty(&bt->retry_q) && list_empty(&bt->retry_list))
++		list_add_tail(&bt->retry_list, &wl->txq_retry[txq->ac]);
 +	if (asleep)
 +		b43_txq_report(txq, bt, true);
 +	else
@@ -287,7 +298,7 @@ index e6f696f..59d0e91 100644
  /* Hold a frame for a dozing station (wl->mutex held, RCU read side) */
  void b43_ps_hold(struct b43_wl *wl, struct ieee80211_sta *sta,
  		 struct sk_buff *skb)
-@@ -4096,6 +4217,16 @@ void b43_ps_hold(struct b43_wl *wl, struct ieee80211_sta *sta,
+@@ -4096,6 +4222,16 @@ void b43_ps_hold(struct b43_wl *wl, struct ieee80211_sta *sta,
  	/* the bounce buffer pointer shares the vif's slot */
  	info->control.vif = wl->vif;
  
@@ -304,7 +315,7 @@ index e6f696f..59d0e91 100644
  	if (list_empty(&bsta->ps_list))
  		list_add_tail(&bsta->ps_list, &wl->ps_stas);
  	skb_queue_tail(&bsta->psq, skb);
-@@ -4212,13 +4343,214 @@ static bool b43_ps_check(struct b43_wl *wl, struct sk_buff_head *q,
+@@ -4212,13 +4348,252 @@ static bool b43_ps_check(struct b43_wl *wl, struct sk_buff_head *q,
  	return held;
  }
  
@@ -457,6 +468,43 @@ index e6f696f..59d0e91 100644
 + * driver queue is empty, so the stations take turns per aggregate instead of
 + * waiting behind one shared queue.
 + */
++static void b43_txq_resend(struct b43_wldev *dev, int ac)
++{
++	struct b43_wl *wl = dev->wl;
++	struct b43_txq *bt, *tmp;
++	struct sk_buff *skb;
++	int n;
++
++	list_for_each_entry_safe(bt, tmp, &wl->txq_retry[ac], retry_list) {
++		struct ieee80211_txq *txq = bt->txq;
++
++		if (skb_queue_empty(&bt->retry_q)) {
++			list_del_init(&bt->retry_list);
++			continue;
++		}
++		if (!skb_queue_empty(&wl->tx_queue[ac]) ||
++		    b43_dma_tx_ampdu_room(dev, ac) <= 0)
++			break;
++		/* scheduled by mac80211 as usual, or a dozing station */
++		if (ieee80211_txq_airtime_check(wl->hw, txq) ||
++		    (txq->sta &&
++		     READ_ONCE(((struct b43_sta *)txq->sta->drv_priv)->asleep)))
++			continue;
++		for (n = 0; n < min3(b43_dma_tx_ampdu_room(dev, ac),
++				     B43_AMPDU_MAX_FRAMES,
++				     max(b43_ampdu_max_frames, 1)); n++) {
++			skb = __skb_dequeue(&bt->retry_q);
++			if (!skb)
++				break;
++			skb_queue_tail(&wl->tx_queue[ac], skb);
++			wl->ampdu_stats.txq_aql_resend++;
++		}
++		if (skb_queue_empty(&bt->retry_q))
++			list_del_init(&bt->retry_list);
++		b43_tx_queue_run(dev, ac);
++	}
++}
++
 +static void b43_txq_pull(struct b43_wldev *dev)
 +{
 +	struct b43_wl *wl = dev->wl;
@@ -466,6 +514,7 @@ index e6f696f..59d0e91 100644
 +	int ac, n, max;
 +
 +	for (ac = 0; ac < IEEE80211_NUM_ACS; ac++) {
++		b43_txq_resend(dev, ac);
 +		ieee80211_txq_schedule_start(hw, ac);
 +		while (skb_queue_empty(&wl->tx_queue[ac]) &&
 +		       b43_dma_tx_ampdu_room(dev, ac) > 0 &&
@@ -521,7 +570,7 @@ index e6f696f..59d0e91 100644
  
  	mutex_lock(&wl->mutex);
  	dev = wl->current_dev;
-@@ -4229,50 +4561,12 @@ static void b43_tx_work(struct work_struct *work)
+@@ -4229,50 +4604,12 @@ static void b43_tx_work(struct work_struct *work)
  
  	if (!list_empty(&wl->ps_stas))
  		b43_ps_work(wl);
@@ -578,7 +627,7 @@ index e6f696f..59d0e91 100644
  
  #if B43_DEBUG
  	dev->tx_count++;
-@@ -4280,6 +4574,19 @@ static void b43_tx_work(struct work_struct *work)
+@@ -4280,6 +4617,19 @@ static void b43_tx_work(struct work_struct *work)
  	mutex_unlock(&wl->mutex);
  }
  
@@ -598,7 +647,7 @@ index e6f696f..59d0e91 100644
  static void b43_op_tx(struct ieee80211_hw *hw,
  		      struct ieee80211_tx_control *control,
  		      struct sk_buff *skb)
-@@ -5846,6 +6153,8 @@ static void b43_op_sta_notify(struct ieee80211_hw *hw,
+@@ -5846,6 +6196,8 @@ static void b43_op_sta_notify(struct ieee80211_hw *hw,
  		WRITE_ONCE(bsta->asleep, false);
  		break;
  	}
@@ -607,7 +656,7 @@ index e6f696f..59d0e91 100644
  	ieee80211_queue_work(hw, &wl->tx_work);
  }
  
-@@ -5858,15 +6167,18 @@ static void b43_op_release_buffered_frames(struct ieee80211_hw *hw,
+@@ -5858,15 +6210,18 @@ static void b43_op_release_buffered_frames(struct ieee80211_hw *hw,
  	struct b43_wl *wl = hw_to_b43_wl(hw);
  	struct b43_sta *bsta = (struct b43_sta *)sta->drv_priv;
  
@@ -628,7 +677,7 @@ index e6f696f..59d0e91 100644
  	ieee80211_queue_work(hw, &wl->tx_work);
  }
  
-@@ -5897,6 +6209,13 @@ static int b43_op_sta_remove(struct ieee80211_hw *hw, struct ieee80211_vif *vif,
+@@ -5897,6 +6252,17 @@ static int b43_op_sta_remove(struct ieee80211_hw *hw, struct ieee80211_vif *vif,
  	bsta->ps_init = false;
  	list_del_init(&bsta->ps_list);
  	ieee80211_purge_tx_queue(hw, &bsta->psq);
@@ -636,13 +685,17 @@ index e6f696f..59d0e91 100644
 +		int tid;
 +
 +		for (tid = 0; tid < IEEE80211_NUM_TIDS; tid++)
-+			if (sta->txq[tid])
-+				b43_txq_purge(hw, &b43_txq_drv(sta->txq[tid])->retry_q);
++			if (sta->txq[tid]) {
++				struct b43_txq *bt = b43_txq_drv(sta->txq[tid]);
++
++				list_del_init(&bt->retry_list);
++				b43_txq_purge(hw, &bt->retry_q);
++			}
 +	}
  	mutex_unlock(&wl->mutex);
  	return 0;
  }
-@@ -6053,7 +6372,7 @@ static const struct ieee80211_ops b43_hw_ops = {
+@@ -6053,7 +6419,7 @@ static const struct ieee80211_ops b43_hw_ops = {
  	.change_chanctx = ieee80211_emulate_change_chanctx,
  	.switch_vif_chanctx = ieee80211_emulate_switch_vif_chanctx,
  	.tx			= b43_op_tx,
@@ -651,7 +704,7 @@ index e6f696f..59d0e91 100644
  	.conf_tx		= b43_op_conf_tx,
  	.add_interface		= b43_op_add_interface,
  	.remove_interface	= b43_op_remove_interface,
-@@ -6484,6 +6803,7 @@ static struct b43_wl *b43_wireless_init(struct b43_bus_dev *dev)
+@@ -6484,6 +6850,7 @@ static struct b43_wl *b43_wireless_init(struct b43_bus_dev *dev)
  	wl->hw_registered = false;
  	hw->max_rates = 2;
  	hw->sta_data_size = sizeof(struct b43_sta);
@@ -659,6 +712,15 @@ index e6f696f..59d0e91 100644
  	SET_IEEE80211_DEV(hw, dev->dev);
  	if (is_valid_ether_addr(sprom->et1mac))
  		SET_IEEE80211_PERM_ADDR(hw, sprom->et1mac);
+@@ -6506,6 +6873,8 @@ static struct b43_wl *b43_wireless_init(struct b43_bus_dev *dev)
+ 		wl->tx_queue_stopped[queue_num] = false;
+ 	}
+ 	INIT_LIST_HEAD(&wl->ps_stas);
++	for (queue_num = 0; queue_num < IEEE80211_NUM_ACS; queue_num++)
++		INIT_LIST_HEAD(&wl->txq_retry[queue_num]);
+ 
+ 	snprintf(chip_name, ARRAY_SIZE(chip_name),
+ 		 (dev->chip_id > 0x9999) ? "%d" : "%04X", dev->chip_id);
 diff --git a/drivers/net/wireless/broadcom/b43/main.h b/drivers/net/wireless/broadcom/b43/main.h
 index f8b93cc..7b7ff60 100644
 --- a/drivers/net/wireless/broadcom/b43/main.h
@@ -673,10 +735,10 @@ index f8b93cc..7b7ff60 100644
  		 struct sk_buff *skb);
  bool b43_ps_asleep(struct b43_wl *wl, struct sk_buff *skb,
 diff --git a/drivers/net/wireless/broadcom/b43/xmit.h b/drivers/net/wireless/broadcom/b43/xmit.h
-index 5c509a0..e25a692 100644
+index 5c509a0..dff5432 100644
 --- a/drivers/net/wireless/broadcom/b43/xmit.h
 +++ b/drivers/net/wireless/broadcom/b43/xmit.h
-@@ -254,6 +254,17 @@ struct b43_sta {
+@@ -254,6 +254,22 @@ struct b43_sta {
  	struct list_head ps_list;
  };
  
@@ -687,6 +749,11 @@ index 5c509a0..e25a692 100644
 + */
 +struct b43_txq {
 +	struct sk_buff_head retry_q;
++	/* on wl->txq_retry[ac] while retry_q holds frames: they count as
++	 * pending airtime for AQL, so they are sent without waiting for
++	 * mac80211's scheduler, which skips a txq over its AQL limit */
++	struct list_head retry_list;
++	struct ieee80211_txq *txq;
 +	bool init;
 +	bool buffered;		/* reported with ieee80211_sta_set_buffered() */
 +};

@@ -198,7 +198,7 @@ parameters on the command line.
 | `ampdu_rts` | -1 | RTS/CTS before aggregates: -1 only for re-sends, 1 always, 0 never |
 | `ampdu_inflight` | 2 | aggregates in flight per queue (1 lowers latency, costs ~12 % download) |
 | `ampdu_max_frames` | 16 | maximum frames per aggregate |
-| `ht_txgain_idx` | -2 | static TX gain index: -2 auto (24 with high-gain PA, else 16), -1 old power loop |
+| `ht_txgain_idx` | -2 | static TX gain index: -2 auto (24 with high-gain PA, else 16), -1 old power loop; a higher index is less power (+6 ≈ 3 dB less per chain) |
 | `ht_txcore` | 1 | TX core mask for one-stream frames (core 0) |
 | `ht_tx_streams` | 1 | transmit streams (patch 836): 1 = MCS 0–7, 2 = MCS 0–15; only at module load |
 | `ht_txcore2` | 3 | TX core mask for two-stream frames (3 = cores 0 and 1; 5, 6 possible) |
@@ -208,13 +208,24 @@ parameters on the command line.
 ## Two transmit streams (optional)
 
 Patch 836 can send two spatial streams (MCS 8–15) to clients that receive two streams, as
-most phones and laptops do. It is **off by default** in rc4: with two streams two power
-amplifiers transmit at the same time at the gain of one, about 3 dB more in total. So far it
-has been tested on the R6400 v2 (download 53 → 70–83 Mbit/s to a two-stream client at
--24 dBm); the R6400 v1, with its external high-gain amplifiers, has not been tested yet.
+most phones and laptops do. It is **off by default** in rc4 (the next test version turns it
+on). With two streams two power amplifiers transmit at the same time, each at the gain used
+for one stream, so the total output is about 3 dB higher on two-stream frames.
 
-To turn it on, set the parameter in `/etc/modules.d/b43` and reboot (it is read only when
-the module loads):
+Results, 30 minutes of continuous download per setting, alternating an R6400 v2 (b43) and an
+IPQ8074 client at close range (R6400 v1 as the access point):
+
+| Setting | Download (v2 / IPQ8074) | SoC temperature |
+|---|---|---|
+| one stream (default in rc4) | 50 / 53 Mbit/s | 55.6 °C |
+| two streams, `ht_tx_streams=2` | 89 / 84 Mbit/s | 56.9 °C |
+| two streams, lower power, `ht_tx_streams=2 ht_txgain_idx=30` | 89 / 83 Mbit/s | 56.9 °C |
+
+No stalls or hangs; the case stayed lukewarm near the antennas. The R6400 v2 (no external
+high-gain amplifiers) gave 53 → 70–83 Mbit/s with two streams.
+
+To turn two streams on, set the parameter in `/etc/modules.d/b43` and reboot (it is read
+only when the module loads):
 
 ```sh
 echo "b43 ht_tx_streams=2" > /etc/modules.d/b43
@@ -229,8 +240,23 @@ cat /sys/module/b43/parameters/ht_tx_streams       # 2
 iw dev <wifi interface> station dump | grep "tx bitrate"   # MCS 8-15 to two-stream clients
 ```
 
-To turn it off again, remove the parameter (or set `ht_tx_streams=1`) and reboot. Rate
-control (patch 835) moves to a lower rate on its own when the two-stream rates do not
+### Lower power with two streams
+
+If you prefer the two amplifiers together to send no more than one did, lower the gain by
+about 3 dB per chain with `ht_txgain_idx`. On the **R6400 v1** (auto index 24) that is 30:
+
+```sh
+echo "b43 ht_tx_streams=2 ht_txgain_idx=30" > /etc/modules.d/b43
+reboot
+```
+
+At close range this gave the same throughput (table above), but every frame is sent with
+this gain, also one-stream and 802.11g frames, so the range is somewhat shorter. On the
+**R6400 v2** (auto index 16) the same step is `ht_txgain_idx=22`; that has not been
+measured. Check with `logread | grep "static TX gain"`.
+
+To turn two streams off again, remove the parameter (or set `ht_tx_streams=1`) and reboot.
+Rate control (patch 835) moves to a lower rate on its own when the two-stream rates do not
 work; please report your results, with and without it.
 
 ## Reporting problems

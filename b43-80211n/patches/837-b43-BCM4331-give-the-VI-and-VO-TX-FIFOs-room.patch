@@ -1,0 +1,149 @@
+From: Erik Conijn <egc112@msn.com>
+Subject: b43: BCM4331: give the VI and VO TX FIFOs room, one FIFO per AC
+
+The BCM4331 initvals give the VI and VO TX FIFOs 11 and 9 blocks of 256
+bytes. Frames queued on them are never sent: the DMA engine moves one
+frame into the FIFO and the ucode leaves it there. That is why b43 sends
+all traffic through the BE FIFO on this chip, which leaves the four
+access categories without priority over each other, and video traffic
+without aggregation.
+
+The size is what matters: moved elsewhere with the same sizes, VI and VO
+still stall; VI enlarged in place works. Program the VI and VO FIFOs after
+the initvals, in FIFO memory the initvals leave unused: VI blocks 66-195,
+enough for a 16-MPDU A-MPDU, and VO 196-255. The other FIFOs keep the
+initvals' layout (BK 6-15, BCMC 50-63, ATIM 64-65, BE 256-511). The
+sequence is brcmsmac's brcms_b_corerev_fifofixup(): reset the FIFO, set
+its start and end block, reset it again.
+
+With room in all four FIFOs, use one per access category again and allow
+TX block ack sessions for video (TIDs 4 and 5) as well; voice and
+background stay without aggregation, as in brcmsmac. The module parameter
+ht_qos_fifos=0 restores sending everything through the BE FIFO.
+
+On an R6400 AP, TCP to an 802.11n client: video 10 -> 56 Mbit/s, voice
+34 Mbit/s, best effort and background unchanged (53-54 Mbit/s). With a
+best effort and a voice download at the same time, voice now gets 32.5
+and best effort 2.4 Mbit/s, instead of 5.5 and 41.5.
+
+Assisted-by: Claude:claude-opus-5-5
+Signed-off-by: Erik Conijn <egc112@msn.com>
+---
+diff --git a/drivers/net/wireless/broadcom/b43/b43.h b/drivers/net/wireless/broadcom/b43/b43.h
+index ebe37b0..81befe6 100644
+--- a/drivers/net/wireless/broadcom/b43/b43.h
++++ b/drivers/net/wireless/broadcom/b43/b43.h
+@@ -129,6 +129,8 @@
+ #define B43_MMIO_XMTFIFO_WR_PTR		0x52A	/* core rev>= 16 only */
+ #define B43_MMIO_XMTFIFODEF1		0x52C	/* core rev>= 16 only */
+ #define B43_MMIO_XMTFIFOCMD		0x540
++#define  B43_TXFIFOCMD_RESET		0x8000
++#define  B43_TXFIFOCMD_FIFOSEL_SHIFT	8
+ #define B43_MMIO_XMTFIFOFLUSH		0x542
+ #define B43_MMIO_XMTFIFOTHRESH		0x544
+ #define B43_MMIO_XMTFIFORDY		0x546
+diff --git a/drivers/net/wireless/broadcom/b43/main.c b/drivers/net/wireless/broadcom/b43/main.c
+index 9266914..8251e5f 100644
+--- a/drivers/net/wireless/broadcom/b43/main.c
++++ b/drivers/net/wireless/broadcom/b43/main.c
+@@ -123,6 +123,10 @@ MODULE_PARM_DESC(ht_cck_rx, "HT-PHY: receive CCK (802.11b) frames: -1 only when
+ 
+ static int b43_modparam_ht_txq_pull = 1;
+ module_param_named(ht_txq_pull, b43_modparam_ht_txq_pull, int, 0444);
++
++static int b43_modparam_ht_qos_fifos = 1;
++module_param_named(ht_qos_fifos, b43_modparam_ht_qos_fifos, int, 0444);
++MODULE_PARM_DESC(ht_qos_fifos, "BCM4331: one TX FIFO per access category (1, default) or all traffic on the best effort FIFO (0)");
+ MODULE_PARM_DESC(ht_txq_pull, "HT-PHY: take frames from mac80211's per-station queues only when the hardware has room (1, default) or let mac80211 push them into one driver queue (0)");
+ 
+ static int b43_modparam_ht_rx_ampdu = 1;
+@@ -2723,13 +2727,13 @@ start_ieee80211:
+ 		wl->hw->queues = 1;
+ 
+ 	/*
+-	 * BCM4331: frames on the VI and VO FIFOs are never sent (measured:
+-	 * video/voice-marked traffic stalls, BE and BK flow), which is why b43
+-	 * kept this chip at one queue. HT needs four mac80211 queues, so keep
+-	 * them but send everything through the BE FIFO.
++	 * BCM4331: with the initvals' TX FIFO sizes, frames on the VI and VO
++	 * FIFOs are never sent (b43_txfifo_setup() enlarges them). Without
++	 * that, keep the four mac80211 queues but send everything through the
++	 * BE FIFO.
+ 	 */
+ 	dev->qos_one_fifo = dev->dev->chip_id == BCMA_CHIP_ID_BCM4331 &&
+-			    wl->hw->queues > 1;
++			    wl->hw->queues > 1 && !b43_modparam_ht_qos_fifos;
+ 
+ 	/* A-MPDU TX needs the 598 TX header (pre-rev-40 ucode), QoS and DMA */
+ 	dev->ht_tx_ampdu = b43_modparam_ht && b43_modparam_ht_tx_ampdu &&
+@@ -3406,6 +3410,42 @@ static void b43_chip_exit(struct b43_wldev *dev)
+ /* Initialize the chip
+  * https://bcm-specs.sipsolutions.net/ChipInit
+  */
++/*
++ * BCM4331 (core rev 29): the initvals give the VI and VO TX FIFOs 11 and 9
++ * blocks of 256 bytes. The DMA engine moves a frame into them, but the ucode
++ * never sends it; with more room both work. Move them into FIFO memory the
++ * initvals leave unused: VI 66-195 (a full 16-MPDU A-MPDU fits), VO 196-255.
++ * The other FIFOs keep the initvals' layout (BK 6-15, BCMC 50-63, ATIM 64-65,
++ * BE 256-511). The sequence is brcmsmac's brcms_b_corerev_fifofixup(): reset
++ * the FIFO, set its start and end block, reset it again.
++ */
++static void b43_txfifo_setup(struct b43_wldev *dev)
++{
++	static const struct {
++		u8 fifo;
++		u16 start, end;
++	} layout[] = {
++		{ 2, 66, 195 },		/* VI */
++		{ 3, 196, 255 },	/* VO */
++	};
++	int i;
++
++	if (dev->dev->chip_id != BCMA_CHIP_ID_BCM4331 ||
++	    !b43_modparam_ht_qos_fifos)
++		return;
++	for (i = 0; i < ARRAY_SIZE(layout); i++) {
++		u16 cmd = B43_TXFIFOCMD_RESET |
++			  (layout[i].fifo << B43_TXFIFOCMD_FIFOSEL_SHIFT);
++
++		b43_write16(dev, B43_MMIO_XMTFIFOCMD, cmd);
++		b43_write16(dev, B43_MMIO_XMTFIFODEF,
++			    (layout[i].start & 0xff) | ((layout[i].end & 0xff) << 8));
++		b43_write16(dev, B43_MMIO_XMTFIFODEF1,
++			    ((layout[i].start >> 8) & 1) | (((layout[i].end >> 8) & 1) << 8));
++		b43_write16(dev, B43_MMIO_XMTFIFOCMD, cmd);
++	}
++}
++
+ static int b43_chip_init(struct b43_wldev *dev)
+ {
+ 	struct b43_phy *phy = &dev->phy;
+@@ -3436,6 +3476,8 @@ static int b43_chip_init(struct b43_wldev *dev)
+ 	if (err)
+ 		goto err_gpio_clean;
+ 
++	b43_txfifo_setup(dev);
++
+ 	/* Turn the Analog on and initialize the PHY. */
+ 	phy->ops->switch_analog(dev, 1);
+ 	err = b43_phy_init(dev);
+@@ -6384,13 +6426,13 @@ static int b43_op_ampdu_action(struct ieee80211_hw *hw,
+ 		return -EOPNOTSUPP;
+ 	case IEEE80211_AMPDU_TX_START:
+ 		/*
+-		 * Best effort only (TIDs 0 and 3). brcmsmac leaves voice and
+-		 * background out (not enough FIFO space); on the BCM4331 an
+-		 * aggregate on the video FIFO got no TX status at all (seen
+-		 * with a phone), so video stays out too.
++		 * Best effort, and video when it has its own FIFO (TIDs 4 and
++		 * 5). brcmsmac leaves voice and background out (not enough FIFO
++		 * space); so does b43.
+ 		 */
+ 		if (dev && dev->ht_tx_ampdu &&
+-		    (params->tid == 0 || params->tid == 3))
++		    (params->tid == 0 || params->tid == 3 ||
++		     (!dev->qos_one_fifo && (params->tid == 4 || params->tid == 5))))
+ 			return IEEE80211_AMPDU_TX_START_IMMEDIATE;
+ 		return -EINVAL;
+ 	case IEEE80211_AMPDU_TX_STOP_CONT:

@@ -9,12 +9,17 @@ for two-stream frames. A one-stream fallback rate of a two-stream frame
 goes out on the same cores with cyclic delay diversity. The TX MCS set is
 advertised equal to the RX set (MCS 0-15) when two streams are enabled.
 
-Two streams are off by default: the module parameter ht_tx_streams=2
-enables them. Both chains then transmit at the static gain of one, which
-is about 3 dB more in total.
+Two streams are on by default; the module parameter ht_tx_streams=1
+restores one stream. Each chain keeps the static gain of one-stream
+operation, so two-stream frames go out with about 3 dB more in total,
+while one-stream and legacy frames keep their power. On an R6400 v1
+(external high-gain PAs), 30 minutes of continuous download each: the
+SoC temperature settles at 56.9 C with two streams against 55.6 C with
+one, the client's signal rises by the expected 2.5-3 dB and MCS 15
+succeeds 82-91 % of the time; the case stays lukewarm.
 
-On an R6400 v2 AP with a two-stream client at -24 dBm, TCP from the router
-goes from 53 to 70-83 Mbit/s.
+On an R6400 AP, TCP from the router to two-stream clients goes from 50-53
+to 84-89 Mbit/s.
 
 Assisted-by: Claude:claude-opus-5-5
 Signed-off-by: Erik Conijn <egc112@msn.com>
@@ -35,7 +40,7 @@ index da2844a..9266914 100644
  		hw->wiphy->bands[NL80211_BAND_2GHZ] = limited_2g ?
  			&b43_band_2ghz_limited :
 diff --git a/drivers/net/wireless/broadcom/b43/xmit.c b/drivers/net/wireless/broadcom/b43/xmit.c
-index 13c2a30..17c6c05 100644
+index 13c2a30..769da1a 100644
 --- a/drivers/net/wireless/broadcom/b43/xmit.c
 +++ b/drivers/net/wireless/broadcom/b43/xmit.c
 @@ -205,16 +205,33 @@ extern int b43_ht_sgi_tx;
@@ -45,9 +50,9 @@ index 13c2a30..17c6c05 100644
 -MODULE_PARM_DESC(ht_txcore, "HT-PHY: TX core mask for MCS frames (1..7, default 1 = core 0)");
 +MODULE_PARM_DESC(ht_txcore, "HT-PHY: TX core mask for one-stream MCS frames (1..7, default 1 = core 0)");
 +
-+int b43_ht_tx_streams = 1;
++int b43_ht_tx_streams = 2;
 +module_param_named(ht_tx_streams, b43_ht_tx_streams, int, 0444);
-+MODULE_PARM_DESC(ht_tx_streams, "HT-PHY: TX spatial streams, 1 (MCS 0-7, default) or 2 (MCS 0-15)");
++MODULE_PARM_DESC(ht_tx_streams, "HT-PHY: TX spatial streams, 1 (MCS 0-7) or 2 (MCS 0-15, default)");
 +
 +static int b43_ht_txcore2 = 3;
 +module_param_named(ht_txcore2, b43_ht_txcore2, int, 0644);

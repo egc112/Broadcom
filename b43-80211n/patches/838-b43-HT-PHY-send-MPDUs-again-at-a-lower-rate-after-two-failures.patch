@@ -1,0 +1,116 @@
+From: Erik Conijn <egc112@msn.com>
+Subject: b43: HT-PHY: send MPDUs again at a lower rate after two failures
+
+An MPDU that got no block ack is sent again at the rate rate control
+picks at that moment, which is nearly always the same first entry of the
+rate table that just failed. When a client briefly cannot receive that
+rate, the MPDU is sent up to six times at it and then given up. On an
+R6400 with a phone (screen off, awake, answering every RTS with a CTS) the
+phone at times sent no block ack for two-stream frames; the AP sent the
+same MPDU six times at MCS 13 within 12 ms and then sent a BAR.
+
+From the second time an MPDU is sent again, use the next entry of the
+rate table (with hw->max_rates = 2 that is minstrel's most reliable
+rate), as multi-rate retry hardware does. The first re-send keeps the
+first entry with RTS/CTS, which covers a collision. Aggregate building
+already stops where the rate changes, so these MPDUs go out in their own
+aggregate. ampdu_retry_mrr=0 restores the old behaviour.
+
+Assisted-by: Claude:claude-opus-5-5
+Signed-off-by: Erik Conijn <egc112@msn.com>
+---
+diff --git a/drivers/net/wireless/broadcom/b43/b43.h b/drivers/net/wireless/broadcom/b43/b43.h
+index 81befe6..b1d8a42 100644
+--- a/drivers/net/wireless/broadcom/b43/b43.h
++++ b/drivers/net/wireless/broadcom/b43/b43.h
+@@ -917,6 +917,7 @@ struct b43_ampdu_stats {
+ 	u32 no_ba;		/* aggregates without a block ack */
+ 	u32 acked;		/* MPDUs acknowledged */
+ 	u32 retried;		/* MPDUs queued again */
++	u32 retry_lower;	/* of those, sent at a lower rate table entry */
+ 	u32 dropped;		/* MPDUs given up after the retry limit (BAR) */
+ 	u32 plain_status;	/* plain status for an aggregate's first frame */
+ 	u32 ignored_status;	/* status for a frame inside an aggregate */
+diff --git a/drivers/net/wireless/broadcom/b43/dma.c b/drivers/net/wireless/broadcom/b43/dma.c
+index feea9dc..f9415e8 100644
+--- a/drivers/net/wireless/broadcom/b43/dma.c
++++ b/drivers/net/wireless/broadcom/b43/dma.c
+@@ -1455,6 +1455,7 @@ out:
+ 
+ extern int b43_ampdu_dbg;
+ extern int b43_ampdu_inflight;
++extern int b43_ampdu_retry_mrr;
+ static inline bool b43_ampdu_dbg_on(void)
+ {
+ 	return b43_ampdu_dbg > 0;
+@@ -1586,7 +1587,7 @@ void b43_dma_handle_ampdu_txstatus(struct b43_wldev *dev,
+ 	unsigned int air_len = 0;
+ 	u8 air_tid = 0;
+ 	u32 air_probe = 0;
+-	int i;
++	int i, k;
+ 
+ 	ring = parse_cookie(dev, status->cookie, &slot);
+ 	if (unlikely(!ring))
+@@ -1726,6 +1727,26 @@ void b43_dma_handle_ampdu_txstatus(struct b43_wldev *dev,
+ 			ieee80211_get_tx_rates(wl->vif, sta, skb,
+ 					       info->control.rates,
+ 					       ARRAY_SIZE(info->control.rates));
++			/* the first entry failed twice: go down the table, as
++			 * multi-rate retry hardware does (the next aggregate
++			 * starts where the rate changes) */
++			k = b43_ampdu_retry_mrr ?
++			    min_t(int, *retry - 1,
++				  ARRAY_SIZE(info->control.rates) - 1) : 0;
++			while (k > 0 && info->control.rates[k].idx < 0)
++				k--;
++			if (k > 0) {
++				for (i = 0; i < ARRAY_SIZE(info->control.rates); i++) {
++					if (i + k < ARRAY_SIZE(info->control.rates)) {
++						info->control.rates[i] =
++							info->control.rates[i + k];
++					} else {
++						info->control.rates[i].idx = -1;
++						info->control.rates[i].count = 0;
++					}
++				}
++				wl->ampdu_stats.retry_lower++;
++			}
+ 			__skb_queue_tail(&requeue, skb);
+ 		} else {
+ 			wl->ampdu_stats.notack[cause]++;
+diff --git a/drivers/net/wireless/broadcom/b43/main.c b/drivers/net/wireless/broadcom/b43/main.c
+index 8251e5f..9563cc2 100644
+--- a/drivers/net/wireless/broadcom/b43/main.c
++++ b/drivers/net/wireless/broadcom/b43/main.c
+@@ -151,6 +151,12 @@ int b43_ampdu_inflight = 2;
+ module_param_named(ampdu_inflight, b43_ampdu_inflight, int, 0644);
+ MODULE_PARM_DESC(ampdu_inflight, "HT-PHY A-MPDU TX: aggregates in flight per ring (1 or 2, default 2)");
+ 
++/* MPDUs sent again: from the second re-send on, use the next entry of the
++ * rate table (multi-rate retry) instead of the rate that failed */
++int b43_ampdu_retry_mrr = 1;
++module_param_named(ampdu_retry_mrr, b43_ampdu_retry_mrr, int, 0644);
++MODULE_PARM_DESC(ampdu_retry_mrr, "HT-PHY A-MPDU TX: re-send at the next rate table entry from the second re-send on (default 1), 0 = always the first entry");
++
+ /* Debugging: log the next N A-MPDUs and their TX status reports */
+ int b43_ampdu_dbg;
+ module_param_named(ampdu_dbg, b43_ampdu_dbg, int, 0644);
+@@ -3997,7 +4003,7 @@ static ssize_t b43_ampdu_stats_read(struct file *file, char __user *ubuf,
+ 	len += scnprintf(buf + len, size - len,
+ 			 "aggregates     %u\nframes         %u\n"
+ 			 "statuses       %u\nno_ba          %u\n"
+-			 "acked          %u\nretried        %u\n"
++			 "acked          %u\nretried        %u\nretry_lower    %u\n"
+ 			 "dropped        %u\nplain_status   %u\n"
+ 			 "ignored_status %u\nbroken         %u\n"
+ 			 "inflight_reset %u\nstalls         %u\nhangs          %u\n"
+@@ -4005,7 +4011,7 @@ static ssize_t b43_ampdu_stats_read(struct file *file, char __user *ubuf,
+ 			 "rx_giants      %u\nrx_garbage     %u\nrx_skipped     %u\n"
+ 			 "rx_uflow       %u\nsize_hist     ",
+ 			 st->aggregates, st->frames, st->statuses, st->no_ba,
+-			 st->acked, st->retried, st->dropped, st->plain_status,
++			 st->acked, st->retried, st->retry_lower, st->dropped, st->plain_status,
+ 			 st->ignored_status, st->broken, st->inflight_reset,
+ 			 st->stalls, st->hangs, st->baw_blocked, st->baw_reset,
+ 			 st->rx_giants, st->rx_garbage, st->rx_skipped,

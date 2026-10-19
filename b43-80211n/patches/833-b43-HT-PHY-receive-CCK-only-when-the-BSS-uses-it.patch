@@ -156,7 +156,7 @@ index c169e95..e6f696f 100644
  	mutex_unlock(&wl->mutex);
  }
 diff --git a/drivers/net/wireless/broadcom/b43/phy_ht.c b/drivers/net/wireless/broadcom/b43/phy_ht.c
-index fc818ad..63d4966 100644
+index 58c6762..b7f3394 100644
 --- a/drivers/net/wireless/broadcom/b43/phy_ht.c
 +++ b/drivers/net/wireless/broadcom/b43/phy_ht.c
 @@ -261,6 +261,20 @@ static u16 b43_phy_ht_classifier(struct b43_wldev *dev, u16 mask, u16 val)

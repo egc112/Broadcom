@@ -1,4 +1,4 @@
-# b43: 802.11n with A-MPDU for the BCM4331 (Netgear R6400) — TEST VERSION (rc6)
+# b43: 802.11n with A-MPDU for the BCM4331 (Netgear R6400) — TEST VERSION (rc7)
 
 > **Status: test version.** These patches work well on the author's Netgear R6400 v1
 > (many hours of soak tests, three clean overnight tests with two clients and a phone, daily use);
@@ -15,7 +15,7 @@ about 10–12 Mbit/s download. These patches fix several b43 bugs and add 802.11
 | stock b43 (802.11g) | 10–12 Mbit/s | 20–22 Mbit/s |
 | front-end + TX gain fixes (802.11g) | 21–22 Mbit/s | 19–21 Mbit/s |
 | this series, one transmit stream (rc4) | ~49 Mbit/s | ~80 Mbit/s |
-| **this series, two transmit streams (rc5, rc6)** | **~85–90 Mbit/s** | **~90–105 Mbit/s** |
+| **this series, two transmit streams (rc5–rc7)** | **~85–90 Mbit/s** | **~90–105 Mbit/s** |
 
 Phone (Samsung S25 FE) link rates with this series: up to 144.4 Mbit/s in both directions
 (MCS 15, short GI).
@@ -40,7 +40,7 @@ Apply in this order (OpenWrt applies them by number).
 |---|---|
 | 820 | DMA: map RX buffers bidirectionally so b43's RX poison works on non-coherent ARM |
 | 821 | DMA: drop RX frames spanning several buffers without losing ring sync |
-| 822 | HT-PHY: BCM4331 external front-end setup (external LNA/PA lines) |
+| 822 | HT-PHY: BCM4331 external front end with analog PA control (external LNA/PA lines); **rewritten in rc7** from open sources and measurements, see [PROVENANCE.md](PROVENANCE.md) |
 | 823 | HT-PHY: read 32-bit PHY table entries low half first |
 | 824 | HT-PHY: static TX gain instead of the TX power control loop |
 | 825 | HT-PHY: 802.11n HT20, MCS 0–7 (one TX stream), RX block-ack sessions |
@@ -59,14 +59,17 @@ Apply in this order (OpenWrt applies them by number).
 | 838 | HT-PHY: send frames again at a lower rate after two failures (multi-rate retry) |
 | 839 | encrypt robust management frames in software, needed with WPA3/PMF — **patch by Rosen Penev**, from openwrt/openwrt#25922, unchanged |
 
-Changes since rc5: 839 is new (with WPA3 or PMF the router set up no send aggregation without
-it); 820–838 are unchanged. Since rc4: 836 changed (two streams on by default), 837 and 838 new.
+Changes since rc6: 822 is rewritten. It now rests only on open sources and on measurements of the
+hardware, not on decompiled Broadcom code (see [PROVENANCE.md](PROVENANCE.md)); it sets the same
+hardware state as before, so nothing changes in use. 824, 833 and 839 differ only in line offsets;
+the other patches are unchanged. Since rc5: 839 is new (with WPA3 or PMF the router set up no send
+aggregation without it). Since rc4: 836 changed (two streams on by default), 837 and 838 new.
 
 ### Bugs found and fixed
 
 | # | Problem | Cause | Fixed in |
 |---|---|---|---|
-| 1 | Receiver deaf on the R6400 v1 (-75 dBm where -48 is right) | b43 never configured the BCM4331's external front end (LNA/PA control lines, RF sequencer, PA LDO) | 822 |
+| 1 | Receiver deaf on the R6400 v1 (-75 dBm where -48 is right) | b43 never configured the BCM4331's external front end (LNA/PA control lines, RF sequencer) | 822 |
 | 2 | Corrupted TX gain word | HT-PHY 32-bit table reads took the high half first; the PHY latches on the low half | 823 |
 | 3 | Distorted TX, download halved | The TX power control loop drives the external PA into compression | 824 |
 | 4 | Download 2.3 Mbit/s once RX aggregation is on | Block acks were sent with transmitter address 00:00:00:00:00:00: b43 never wrote its MAC into the BA template | 826 |
@@ -127,6 +130,11 @@ Access point: no stalls, no hangs, no RX ring errors, no reboot, memory stable, 
 The R6400 v2 client had one TX stall of about one second that recovered by itself, on rc4 and
 on rc5. The 192 frames given up on rc5 are out of 17 million aggregates.
 
+rc7 changes only patch 822 (see *The patches*). On both routers it leaves exactly the hardware
+state of the rc6 version, also from a cold start, and a 100-minute soak test (R6400 v1 access point,
+R6400 v2 client, both on rc7's 822) gave the same results as rc5/rc6: 89.5 / 92.2 Mbit/s, no
+stalls, hangs or receive errors.
+
 rc6 is rc5 plus patch 839. With PMF switched on (`ieee80211w` 1 or 2), rc5 set up no send
 aggregation: R6400 v2 download/upload 23/20 Mbit/s, pings up to 2.2 s, and the block-ack setup
 to a phone was retried without end. With 839: 85.5/91.4 Mbit/s, block-ack sessions in both
@@ -137,14 +145,14 @@ are described under *Known limitations*.
 
 ## Test images (GitHub Releases)
 
-Ready-made OpenWrt images with this series are attached to the release **b43-80211n-rc6**
+Ready-made OpenWrt images with this series are attached to the release **b43-80211n-rc7**
 (OpenWrt snapshot r37195-66ee7b6950, kernel 6.18). Pick the image by the router's board ID:
 
 | Router | board ID | Image |
 |---|---|---|
-| R6400 v1 | U12H332T00_NETGEAR | `openwrt-r6400-v1-b43-80211n-rc6-squashfs.chk` |
-| R6400 v2 | U12H332T20_NETGEAR | `openwrt-r6400-v2-b43-80211n-rc6-squashfs.chk` |
-| R6400 v2 (OTP) | U12H332T30_NETGEAR | `openwrt-r6400-v2-otp-b43-80211n-rc6-squashfs.chk` |
+| R6400 v1 | U12H332T00_NETGEAR | `openwrt-r6400-v1-b43-80211n-rc7-squashfs.chk` |
+| R6400 v2 | U12H332T20_NETGEAR | `openwrt-r6400-v2-b43-80211n-rc7-squashfs.chk` |
+| R6400 v2 (OTP) | U12H332T30_NETGEAR | `openwrt-r6400-v2-otp-b43-80211n-rc7-squashfs.chk` |
 
 On OpenWrt the board ID is shown by `strings /dev/mtd1 | grep board_id` (the `nvram` partition).
 Netgear's own firmware only accepts a `.chk` with the router's own board ID.
@@ -401,4 +409,5 @@ openwrt/openwrt#25922, which brings 802.11n to the b43 N-PHY devices (e.g. the A
 ## License
 
 GPL-2.0, like the b43 driver. Based on b43, brcmsmac and ath9k (Linux kernel) and on
-measurements against Broadcom's wl driver.
+measurements against Broadcom's wl driver. Where every patch comes from, and how the
+information was obtained, is documented in [PROVENANCE.md](PROVENANCE.md).

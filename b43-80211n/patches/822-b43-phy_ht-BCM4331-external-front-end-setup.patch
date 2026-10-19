@@ -1,18 +1,38 @@
 From: Erik Conijn <egc112@msn.com>
-Subject: b43: HT-PHY: BCM4331 external front end setup (analog PA control)
+Subject: b43: HT-PHY: BCM4331 external front end with analog PA control
 
-b43's HT-PHY ignores the board's front-end flags. Port the tail of wl
-7.14.164.18's wlc_phy_init_htphy for a BCM4331 (PCI id 0x4332) with
-BFL2_ANAPACTRL_2G on 2.4 GHz: the RF sequencer entries in PHY table 7,
-the PA reference LDO, and the 4331 chipcontrol bits for the external
-PA/LNA lines (EXT_LNA set, EXTPA_EN/EXTPA_EN2 cleared), plus wl's PHY
-0x259 writes for every board.
+On BCM4331 boards whose 2.4 GHz external PAs are driven by the analog
+PA control lines (boardflags2 BFL2_ANAPACTRL_2G), such as the Netgear
+R6400 v1 and v2, b43 keeps the front end as bcma sets it up at boot for
+every BCM4331: the digital external PA lines enabled (EXTPA_EN and
+EXTPA_EN2, bcma_pmu_workarounds()) and the external LNA off. The
+receiver is then deaf: an R6400 v1 reads another R6400 at -75 dBm
+instead of -48 dBm, and an R6400 v2 does not hear an R6400 v1 at all.
+
+On these boards switch the ChipCommon chipcontrol to analog PA control
+(clear EXTPA_EN and EXTPA_EN2, set EXTPA_ANA_EN) and enable the external
+LNA when the board has one (BFL_EXTLNA). EXTPA_ANA_EN and
+BFL2_ANAPACTRL_2G are not named in Linux yet; their names, bits and
+meanings are those of Broadcom's published sbchipc.h and bcmdevs.h.
+
+Also set the two PHY values that differ between b43's initialisation and
+the state of the hardware under Broadcom's driver on these boards, read
+back from the hardware on an R6400 v1: RF sequencer delay 0x90 in PHY
+table 7 (0x08 -> 0x46) and PHY register 0x259 (0x2024 -> 0x2444). The
+other RF sequencer entries already match. The 12x9 package (9, 11)
+wires the external PA lines to GPIO 2/5 instead (see bcma) and is left
+as it is.
+
+On the R6400 v1 (external high-gain PA) and v2 (FEM), chipcontrol goes
+from 0x00001010 at power-on to 0x01000004. With this patch on the v1
+only, the v1 reads the v2 at -48 instead of -75 dBm, and the v2, which
+did not hear the v1 at all before, reads it at -49 dBm.
 
 Assisted-by: Claude:claude-opus-5-5
 Signed-off-by: Erik Conijn <egc112@msn.com>
 ---
 diff --git a/drivers/net/wireless/broadcom/b43/phy_ht.c b/drivers/net/wireless/broadcom/b43/phy_ht.c
-index fab8399..bf5edc6 100644
+index fab8399..0782537 100644
 --- a/drivers/net/wireless/broadcom/b43/phy_ht.c
 +++ b/drivers/net/wireless/broadcom/b43/phy_ht.c
 @@ -866,6 +866,8 @@ static void b43_phy_ht_op_prepare_structs(struct b43_wldev *dev)
@@ -33,7 +53,7 @@ index fab8399..bf5edc6 100644
  	saved_tx_pwr_ctl = phy_ht->tx_pwr_ctl;
  	b43_phy_ht_tx_power_fix(dev);
  	b43_phy_ht_tx_power_ctl(dev, false);
-@@ -1116,6 +1120,105 @@ static void b43_phy_ht_op_adjust_txpower(struct b43_wldev *dev)
+@@ -1116,6 +1120,61 @@ static void b43_phy_ht_op_adjust_txpower(struct b43_wldev *dev)
  {
  }
  
@@ -41,99 +61,55 @@ index fab8399..bf5edc6 100644
 + * External front end (BCM4331 with analog PA control)
 + **************************************************/
 +
-+/* SPROM boardflags / boardflags2 bits (Broadcom bcmdevs.h names) */
-+#define B43_HT_BFL_EXTLNA		0x00001000
-+#define B43_HT_BFL_BIT28		0x10000000
-+#define B43_HT_BFL2_ANAPACTRL_2G	0x00100000
++/*
++ * Not named in Linux yet; names and meanings as in Broadcom's published
++ * bcmdevs.h and sbchipc.h.
++ */
++#define B43_BFL2_ANAPACTRL_2G		0x00100000	/* 2.4 GHz ext PAs controlled by analog PA control lines */
++#define B43_CHIPCTL_4331_EXTPA_ANA_EN	BIT(24)		/* analog control of the ext PAs */
 +
 +/*
-+ * The tail of wl's wlc_phy_init_htphy (wl 7.14.164.18) for a BCM4331 with PCI
-+ * device id 0x4332 on a 2.4 GHz chanspec, when boardflags2 has
-+ * BFL2_ANAPACTRL_2G (the PA is under analog control) or extpagain2g is 2:
-+ *  - PHY table 7 (the RF sequencer): commands 4,3,6,5,2,1,8,0x1f,0x1f at
-+ *    0x10 and delays 0x46,4,2,2,4,4,6,1 at 0x90; 0x19..0x1f = 0x1f and
-+ *    0x99..0x9f = 1;
-+ *  - PMU regulator control 1 bits 0..3 (the PA reference LDO,
-+ *    si_pmu_set_ldo_voltage SET_LDO_VOLTAGE_PAREF on a 4331) =
-+ *    parefldovoltage / 5 + 9, default parefldovoltage 0x23, masked to 4 bits;
-+ *  - ChipCommon chipcontrol: on a package other than 9/11, mask
-+ *    0x1000000 | 0x1010, value 0x1000000, plus bit 2 (BCMA_CHIPCTL_4331_EXT_LNA)
-+ *    in mask and value with BFL_EXTLNA. So EXTPA_EN and EXTPA_EN2 are CLEARED
-+ *    and EXT_LNA is SET, where bcma_pmu_workarounds() set EXTPA_EN(2).
-+ * Then, for every board, PHY 0x259 bits 4..7 = 4 and bits 8..11 = 4.
-+ * Only that path (no boardflags bit 28) is ported; other boards keep the old
-+ * behaviour apart from the 0x259 writes.
++ * On BCM4331 boards with BFL2_ANAPACTRL_2G (e.g. the Netgear R6400 v1 and v2)
++ * the 2.4 GHz external PAs are driven by the analog PA control lines. bcma
++ * enables the digital ones (EXTPA_EN, EXTPA_EN2) for every BCM4331 at boot, and
++ * b43 never enables the external LNA: the receiver is deaf and the transmitter
++ * weak. Switch to the analog lines, enable the external LNA, and set the two
++ * PHY values that differ from b43's init on these boards to what the hardware
++ * holds under Broadcom's driver: RF sequencer delay 0x90 in table 7 (0x08 ->
++ * 0x46) and PHY 0x259 (0x2024 -> 0x2444). The 12x9 package (9, 11) wires the
++ * ext PA lines differently (GPIO 2/5, see bcma) and is left alone.
 + */
 +static void b43_phy_ht_ext_fem_setup(struct b43_wldev *dev)
 +{
 +	struct ssb_sprom *sprom = dev->dev->bus_sprom;
-+	struct bcma_bus *bus;
 +	struct bcma_drv_cc *cc;
-+	u32 bf, bf2, mask, val, old, new;
-+	u8 pkg, paref;
-+	u16 devid = 0;
-+	unsigned int i;
++	struct bcma_bus *bus;
++	u32 bf2, set, old;
 +
 +	if (dev->dev->bus_type != B43_BUS_BCMA)
-+		goto phy_259;
++		return;
 +	bus = dev->dev->bdev->bus;
-+	cc = &bus->drv_cc;
-+	/* wl's device id: the SPROM/nvram devid override, else the PCI id */
-+	if (sprom->dev_id)
-+		devid = sprom->dev_id;
-+	else if (bus->hosttype == BCMA_HOSTTYPE_PCI && bus->host_pci)
-+		devid = bus->host_pci->device;
-+	bf = sprom->boardflags_lo | (sprom->boardflags_hi << 16);
 +	bf2 = sprom->boardflags2_lo | (sprom->boardflags2_hi << 16);
-+	pkg = bus->chipinfo.pkg;
-+
-+	if (bus->chipinfo.id != BCMA_CHIP_ID_BCM4331 || devid != 0x4332 ||
++	if (bus->chipinfo.id != BCMA_CHIP_ID_BCM4331 ||
 +	    b43_current_band(dev->wl) != NL80211_BAND_2GHZ ||
-+	    !((bf2 & B43_HT_BFL2_ANAPACTRL_2G) ||
-+	      sprom->fem.ghz2.extpa_gain == 2) ||
-+	    (bf & B43_HT_BFL_BIT28) || pkg == 9 || pkg == 11) {
-+		b43info(dev->wl, "HT-PHY ext FEM: not the analog-PA path (chip 0x%04x devid 0x%04x pkg %u bf 0x%08x bf2 0x%08x extpagain2g %u), skipped\n",
-+			bus->chipinfo.id, devid, pkg, bf, bf2,
-+			sprom->fem.ghz2.extpa_gain);
-+		goto phy_259;
-+	}
++	    !(bf2 & B43_BFL2_ANAPACTRL_2G) ||
++	    bus->chipinfo.pkg == 9 || bus->chipinfo.pkg == 11)
++		return;
++	cc = &bus->drv_cc;
 +
-+	/* RF sequencer, table 7, 8 bit entries */
-+	{
-+		static const u8 cmd[9] = { 0x04, 0x03, 0x06, 0x05, 0x02, 0x01,
-+					   0x08, 0x1f, 0x1f };
-+		static const u8 dly[9] = { 0x46, 0x04, 0x02, 0x02, 0x04, 0x04,
-+					   0x06, 0x01, 0x01 };
-+
-+		b43_httab_write_bulk(dev, B43_HTTAB8(7, 0x10), 9, cmd);
-+		b43_httab_write_bulk(dev, B43_HTTAB8(7, 0x90), 9, dly);
-+		for (i = 0x19; i < 0x20; i++) {
-+			b43_httab_write(dev, B43_HTTAB8(7, i), 0x1f);
-+			b43_httab_write(dev, B43_HTTAB8(7, i + 0x80), 1);
-+		}
-+	}
-+
-+	/* PA reference LDO: parefldovoltage is not in the SPROM, wl's default */
-+	paref = (0x23 / 5 + 9) & 0xf;
-+	bcma_chipco_regctl_maskset(cc, 1, ~0xf, paref);
-+
-+	/* External PA / LNA lines */
-+	mask = 0x1000000 | 0x1010;
-+	val = 0x1000000;
-+	if (bf & B43_HT_BFL_EXTLNA) {
-+		mask |= BCMA_CHIPCTL_4331_EXT_LNA;
-+		val |= BCMA_CHIPCTL_4331_EXT_LNA;
-+	}
++	set = B43_CHIPCTL_4331_EXTPA_ANA_EN;
++	if (sprom->boardflags_lo & B43_BFL_EXTLNA)
++		set |= BCMA_CHIPCTL_4331_EXT_LNA;
 +	old = bcma_cc_read32(cc, BCMA_CC_CHIPCTL);
-+	new = (old & ~mask) | val;
-+	bcma_cc_write32(cc, BCMA_CC_CHIPCTL, new);
++	bcma_cc_maskset32(cc, BCMA_CC_CHIPCTL,
++			  ~(BCMA_CHIPCTL_4331_EXTPA_EN |
++			    BCMA_CHIPCTL_4331_EXTPA_EN2), set);
 +
-+	b43info(dev->wl, "HT-PHY ext FEM: analog-PA path (pkg %u bf 0x%08x bf2 0x%08x): RF seq table 7 set, PAREF LDO %u, chipcontrol 0x%08x -> 0x%08x\n",
-+		pkg, bf, bf2, paref, old, bcma_cc_read32(cc, BCMA_CC_CHIPCTL));
++	b43_httab_write(dev, B43_HTTAB8(7, 0x90), 0x46);
++	b43_phy_maskset(dev, 0x259, ~0x0ff0, 0x0440);
 +
-+phy_259:
-+	b43_phy_maskset(dev, 0x259, ~0xf0, 0x40);
-+	b43_phy_maskset(dev, 0x259, ~0xf00, 0x400);
++	b43info(dev->wl, "HT-PHY ext FEM: analog PA control, chipcontrol 0x%08x -> 0x%08x\n",
++		old, bcma_cc_read32(cc, BCMA_CC_CHIPCTL));
 +}
 +
  /**************************************************

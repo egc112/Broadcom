@@ -1,0 +1,134 @@
+# Provenance and legal notes
+
+This page explains where every part of the b43-80211n patch series comes from and how the
+information was obtained. Anyone can check it. It covers the series as of **rc7** (patches 820–839).
+
+It is a factual record, not legal advice. Questions or corrections: please open an issue.
+
+## Summary
+
+* All patches are changes to the Linux **b43** driver and are licensed **GPL-2.0**, like b43 itself.
+* They are based on open source code (Linux b43, brcmsmac, bcma, ssb, mac80211 and ath9k), on the
+  IEEE 802.11 standard, on source files Broadcom published under an open license, on patches by
+  Rosen Penev (credited, with his authorship kept), and on our own measurements.
+* The measurements are black-box observations of the hardware:
+  * reading the router's registers back while Broadcom's own driver runs;
+  * radio captures with an independent sniffer;
+  * throughput and latency tests.
+* **No decompiled or disassembled Broadcom code is used in rc7.** One earlier patch, 822 in
+  rc3–rc6, was ported from a decompiled Broadcom driver. For rc7 it was rewritten from open
+  sources and measurements only; the full account is below.
+* This repository does not contain, and will not publish:
+  * Broadcom's binary drivers;
+  * decompiled or disassembled code;
+  * firmware extracted by us;
+  * the calibration data of our routers.
+
+## Licenses of the sources
+
+| Source | License | Used for |
+|---|---|---|
+| Linux b43 driver | GPL-2.0 | the code base all patches change |
+| Linux brcmsmac (Broadcom's own open driver for older chips) | ISC | rates, TX headers, A-MPDU, block ack, duration rules, FIFO setup sequence |
+| Linux bcma, ssb | GPL-2.0 | names of ChipCommon and board-flag bits |
+| Linux mac80211, ath9k | GPL-2.0 | the mac80211 APIs; the block-ack window and power-save handling patterns |
+| Broadcom header and source files published under the ISC license (e.g. in router GPL source releases) | ISC | names and meanings of BCM4331 chip-control bits and board flags (patch 822) |
+| Rosen Penev's patches, openwrt/openwrt#25922 | GPL-2.0 (his Signed-off-by) | 839 (his patch, unchanged), 835 (based on his work) |
+
+ISC is a permissive license and may be combined with GPL-2.0 code. brcmsmac is already part of the
+Linux kernel under that license.
+
+## How information was obtained
+
+1. **Reading open source code**, mainly brcmsmac, which drives older Broadcom chips with the same
+   MAC design. The commit text of each patch names the brcmsmac functions it follows.
+2. **Reading the hardware state back** (black box). The router runs Broadcom's own driver: Netgear's
+   firmware or DD-WRT. A small tool of our own then reads the chip's registers and PHY tables
+   through `/dev/mem`. This shows *what values the hardware holds*, not how the driver computes
+   them; it involves no Broadcom code. b43 was historically developed this way too, by
+   comparing the hardware state against the vendor driver.
+3. **Radio measurements**: an independent monitor-mode sniffer (MediaTek), time-aligned with the
+   router's own receive log, plus iperf3 throughput tests, soak tests and phone tests.
+4. **Firmware**: b43 needs Broadcom's ucode. The images use OpenWrt's standard b43 firmware package:
+   at build time it downloads Broadcom's `broadcom-wl-5.100.138` driver release and extracts the
+   ucode (version 666.2) with `b43-fwcutter`, as every OpenWrt build with b43 does. We did not
+   modify or add firmware.
+
+## Sources per patch
+
+| Patch | Author | Based on (as named in its commit text) |
+|---|---|---|
+| 820 | Erik Conijn | b43 DMA code and the Linux DMA API; observed on the router |
+| 821 | Erik Conijn | b43 DMA code; brcmsmac's handling of frames that span several RX buffers |
+| 822 | Erik Conijn | see *Patch 822* below: Broadcom's ISC-licensed chip-control names, Linux bcma, hardware read-back |
+| 823 | Erik Conijn | b43's N-PHY table code and brcmsmac's `wlc_phy_read_table` (32-bit read order); read-back |
+| 824 | Erik Conijn | throughput measured per TX gain index on both routers; b43's TX gain table |
+| 825 | Erik Conijn | brcmsmac's MCS path (`brcms_c_d11hdrs_mac80211`, `mcs_table`); mac80211 |
+| 826 | Erik Conijn | brcmsmac `brcms_c_ampdu_macaddr_upd()`; sniffer capture of the empty BlockAck TA |
+| 827 | Erik Conijn | brcmsmac `ampdu.c`/`dma.c`; ath9k's block-ack window tracking; mac80211 |
+| 828 | Erik Conijn | brcmsmac's SGI bits and `mcs_table`; IEEE 802.11 |
+| 829 | Erik Conijn | brcmsmac `brcms_c_ampdu_finalize()`, `brcms_c_compute_rtscts_dur()` |
+| 830 | Erik Conijn | mac80211 power-save API; ath9k's pattern |
+| 831 | Erik Conijn | brcmsmac `brcms_c_compute_frame_dur()`; IEEE 802.11 duration rules; sniffer |
+| 832 | Erik Conijn | driver counters and an independent sniffer (RX descriptor underruns) |
+| 833 | Erik Conijn | sniffer time-aligned with the router's receive log |
+| 834 | Erik Conijn | mac80211 TXQ API (`wake_tx_queue`, `ieee80211_next_txq`) |
+| 835 | Erik Conijn | Rosen Penev's rate-control status patch (openwrt/openwrt#25922), credited |
+| 836 | Erik Conijn | brcmsmac `mcs_table` (two-stream rates); measurements incl. temperature |
+| 837 | Erik Conijn | brcmsmac `brcms_b_corerev_fifofixup()` (FIFO setup sequence); FIFO sizes found by experiment |
+| 838 | Erik Conijn | mac80211 rate-control API; own design, measured with a sniffer |
+| 839 | Rosen Penev | his patch from openwrt/openwrt#25922, unchanged |
+
+All patches by Erik Conijn carry `Assisted-by: Claude:claude-opus-5-5`. They were written with the
+help of an AI assistant (Anthropic's Claude), which also helped run the measurements and keep
+this record.
+
+## Patch 822: history and rework
+
+### What happened
+
+Patch 822 sets up the BCM4331's external front end on boards such as the Netgear R6400; without it
+the receiver is nearly deaf. Its first version (2026-10-13, published in rc3–rc6) was a port of a
+part of Broadcom's PHY initialisation. That part was taken from a decompilation of Broadcom's
+prebuilt wl 7.14.164.18 driver object, and its commit text said so. No other patch was written
+that way.
+
+On 2026-10-19 the patch was rewritten for rc7. Every value in it is now backed by an open source or
+by a measurement of the hardware. Values that could only be explained by the decompiled code were
+dropped.
+
+To be clear: the rework was done by the same people who had read the decompiled code. It is
+therefore **not a clean-room** reimplementation. What it does instead is make every value
+independently checkable, using the sources below.
+
+### Every value of the rc7 version
+
+| Part | rc7 value | Source |
+|---|---|---|
+| ChipCommon chip control: clear the digital external PA lines `EXTPA_EN` (bit 4) and `EXTPA_EN2` (bit 12) | bits cleared | Names: Linux `include/linux/bcma/bcma_driver_chipcommon.h`. Linux bcma sets both at boot for every BCM4331 (`bcma_pmu_workarounds()`), which is the deaf state. Broadcom's ISC-licensed `siutils.c` (`si_chipcontrl_epa4331`) clears the same bits to switch them off. |
+| Chip control: set analog PA control `EXTPA_ANA_EN` (bit 24) | set | Name and meaning: Broadcom's ISC-licensed `sbchipc.h` (`CCTRL4331_EXTPA_ANA_EN`). Not named in Linux. |
+| Chip control: external LNA on, `EXT_LNA` (bit 2), if the board has one | set if `BFL_EXTLNA` | Linux bcma (`BCMA_CHIPCTL_4331_EXT_LNA`) and ssb (`SSB_BFL_EXTLNA`) |
+| Resulting chip control on the R6400 v1 and v2 | 0x00001010 at power-on → **0x01000004** | Read back under Broadcom's driver: **0x01000004** under Netgear's firmware (wl 6.37.15.24) and under DD-WRT (wl 7.14.164.18), stable across channel changes, interface restarts and a cold boot |
+| PHY table 7 (RF sequencer) entry 0x90 | 0x08 → **0x46** | Read back under Broadcom's driver: 0x46. All other entries 0x10–0x1f and 0x90–0x9f already match with stock b43, except 0x98 (0x01 vs 0x74), which made no measurable difference in an A/B test and is not written |
+| PHY register 0x259 | 0x2024 → **0x2444** | Read back under Broadcom's driver: 0x2444 at 802.11g, HT20 and HT40 |
+| Condition | BCM4331, 2.4 GHz, board flag `BFL2_ANAPACTRL_2G`, chip package not 9 or 11 | Flag name and meaning ("2G ext PAs are controlled by analog PA ctrl lines"): Broadcom's ISC-licensed `bcmdevs.h`. Package split: Linux bcma (`bcma_chipco_bcm4331_ext_pa_lines_ctl()`), which wires the PA lines to GPIO 2/5 on packages 9 and 11 |
+
+Dropped from the rc3–rc6 version:
+* the PA reference LDO write: it wrote 0 to a field that reads 0 at power-on and under
+  Broadcom's driver, so it changed nothing;
+* the other RF sequencer writes: stock b43 already sets those entries to the same values;
+* three conditions that only the decompiled code supported (a device ID, a board-flag bit and
+  an `extpagain2g` value).
+
+### Checks
+
+* **Hardware state.** On both routers, from a cold start, the rc7 version leaves exactly the state
+  the rc3–rc6 version left (chip control, table 7, PHY 0x259, regulator), and the state Broadcom's
+  drivers set.
+* **Behaviour.** A 100-minute soak test (access point and client, both on rc7's 822) gave the same
+  throughput as rc5/rc6 (89.5 / 92.2 Mbit/s), with no stalls, hangs or receive errors.
+* **Commit text.** The new 822 cites only the sources in the table above.
+
+## Change log of this page
+
+* 2026-10-19: first version, with rc7.

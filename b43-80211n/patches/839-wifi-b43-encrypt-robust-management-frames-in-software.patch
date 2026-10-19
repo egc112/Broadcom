@@ -1,4 +1,4 @@
-From f9951f6817afaa5b357df07fad210c00725731ff Mon Sep 17 00:00:00 2001
+From 30503aedf34abd51a909302b16f078e340baac60 Mon Sep 17 00:00:00 2001
 From: Rosen Penev <rosenp@gmail.com>
 Date: Sat, 17 Oct 2026 14:20:59 -0700
 Subject: [PATCH] wifi: b43: encrypt robust management frames in software

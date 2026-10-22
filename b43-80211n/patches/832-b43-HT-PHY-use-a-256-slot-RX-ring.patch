@@ -26,10 +26,10 @@ Assisted-by: Claude:claude-opus-5-5
 Signed-off-by: Erik Conijn <egc112@msn.com>
 ---
 diff --git a/drivers/net/wireless/broadcom/b43/b43.h b/drivers/net/wireless/broadcom/b43/b43.h
-index 80abe6b..04ecb1d 100644
+index 107f863..ba87db0 100644
 --- a/drivers/net/wireless/broadcom/b43/b43.h
 +++ b/drivers/net/wireless/broadcom/b43/b43.h
-@@ -928,6 +928,7 @@ struct b43_ampdu_stats {
+@@ -929,6 +929,7 @@ struct b43_ampdu_stats {
  	/* RX path (b43_rx), before mac80211 */
  	u32 rx_garbage;		/* RX buffers with an impossible length */
  	u32 rx_skipped;		/* RX buffers the device did not fill (poison intact) */
@@ -68,7 +68,7 @@ index e9553ac..d029444 100644
  #define B43_DMA0_RX_FW351_BUFSIZE	(B43_DMA0_RX_FW351_FO + IEEE80211_MAX_FRAME_LEN)
  
 diff --git a/drivers/net/wireless/broadcom/b43/main.c b/drivers/net/wireless/broadcom/b43/main.c
-index 9449563..c169e95 100644
+index 973e2b6..f032f5c 100644
 --- a/drivers/net/wireless/broadcom/b43/main.c
 +++ b/drivers/net/wireless/broadcom/b43/main.c
 @@ -2132,6 +2132,7 @@ static void b43_do_interrupt_thread(struct b43_wldev *dev)
@@ -79,7 +79,7 @@ index 9449563..c169e95 100644
  		b43_dma_handle_rx_overflow(dev->dma.rx_ring);
  	}
  	if (dma_reason[0] & B43_DMAIRQ_RX_DONE) {
-@@ -3943,12 +3944,13 @@ static ssize_t b43_ampdu_stats_read(struct file *file, char __user *ubuf,
+@@ -3958,12 +3959,13 @@ static ssize_t b43_ampdu_stats_read(struct file *file, char __user *ubuf,
  			 "inflight_reset %u\nstalls         %u\nhangs          %u\n"
  			 "baw_blocked    %u\nbaw_reset      %u\n"
  			 "rx_giants      %u\nrx_garbage     %u\nrx_skipped     %u\n"

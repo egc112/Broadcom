@@ -25,10 +25,10 @@ Assisted-by: Claude:claude-opus-5-5
 Signed-off-by: Erik Conijn <egc112@msn.com>
 ---
 diff --git a/drivers/net/wireless/broadcom/b43/main.c b/drivers/net/wireless/broadcom/b43/main.c
-index da2844a..9266914 100644
+index 626bcf8..9403648 100644
 --- a/drivers/net/wireless/broadcom/b43/main.c
 +++ b/drivers/net/wireless/broadcom/b43/main.c
-@@ -6520,6 +6520,10 @@ static int b43_setup_bands(struct b43_wldev *dev,
+@@ -6535,6 +6535,10 @@ static int b43_setup_bands(struct b43_wldev *dev,
  		b43_band_2GHz_htphy.ht_cap.cap |= IEEE80211_HT_CAP_SGI_20;
  	else
  		b43_band_2GHz_htphy.ht_cap.cap &= ~IEEE80211_HT_CAP_SGI_20;

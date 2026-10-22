@@ -1,8 +1,8 @@
-# b43: 802.11n with A-MPDU for the BCM4331 (Netgear R6400) — TEST VERSION (rc7)
+# b43: 802.11n with A-MPDU for the BCM4331 (Netgear R6400) — TEST VERSION (rc8)
 
 > **Status: test version.** These patches work well on the author's Netgear R6400 v1
 > (many hours of soak tests, three clean overnight tests with two clients and a phone, daily use);
-> the R6400 v2 has been tested as a client (overnight) and as an access point with two streams. They are not in OpenWrt or the Linux kernel.
+> the R6400 v2 has been tested as a client (overnight) and as an access point (a 10-hour soak test with rc8). They are not in OpenWrt or the Linux kernel.
 > Please test and report back (see *Reporting problems*), and read *Known limitations* first.
 
 The 2.4 GHz radio of the Netgear R6400 is a **Broadcom BCM4331** (HT-PHY, "b43" driver).
@@ -15,7 +15,7 @@ about 10–12 Mbit/s download. These patches fix several b43 bugs and add 802.11
 | stock b43 (802.11g) | 10–12 Mbit/s | 20–22 Mbit/s |
 | front-end + TX gain fixes (802.11g) | 21–22 Mbit/s | 19–21 Mbit/s |
 | this series, one transmit stream (rc4) | ~49 Mbit/s | ~80 Mbit/s |
-| **this series, two transmit streams (rc5–rc7)** | **~85–90 Mbit/s** | **~90–105 Mbit/s** |
+| **this series, two transmit streams (rc5–rc8)** | **~85–90 Mbit/s** | **~90–105 Mbit/s** |
 
 Phone (Samsung S25 FE) link rates with this series: up to 144.4 Mbit/s in both directions
 (MCS 15, short GI).
@@ -24,7 +24,8 @@ Phone (Samsung S25 FE) link rates with this series: up to 144.4 Mbit/s in both d
 
 * **Netgear R6400 v1** (BCM4709 + BCM4331, external high-gain PA): tested.
 * **Netgear R6400 v2** (BCM4331 with FEM): tested as a client of an R6400 v1 (four overnight
-  tests; ~90 Mbit/s each way with rc5); as an access point only in shorter tests.
+  tests; ~90 Mbit/s each way with rc5); as an access point in a 10-hour soak test with rc8
+  (~99 Mbit/s download, ~108 Mbit/s upload to an ath11k client).
 * Other BCM4331 boards: patches 820/821 (DMA) and 823 (table reads) are generic b43
   fixes; 822 and 824 act only on boards with the matching front-end flags. Untested elsewhere.
 * **BCM4360 (AC-PHY) is not supported** — neither by stock b43 nor by these patches. That is the
@@ -42,7 +43,7 @@ Apply in this order (OpenWrt applies them by number).
 | 821 | DMA: drop RX frames spanning several buffers without losing ring sync |
 | 822 | HT-PHY: BCM4331 external front end with analog PA control (external LNA/PA lines); **rewritten in rc7** from open sources and measurements, see [PROVENANCE.md](PROVENANCE.md) |
 | 823 | HT-PHY: read 32-bit PHY table entries low half first |
-| 824 | HT-PHY: static TX gain instead of the TX power control loop |
+| 824 | HT-PHY: static TX gain instead of the TX power control loop, on boards with an external front end (BFL_FEM or BFL_HGPA) |
 | 825 | HT-PHY: 802.11n HT20, MCS 0–7 (one TX stream), RX block-ack sessions |
 | 826 | HT-PHY: fill in the transmitter address of the BlockAck template |
 | 827 | HT-PHY: A-MPDU TX aggregation with block-ack window tracking |
@@ -58,6 +59,17 @@ Apply in this order (OpenWrt applies them by number).
 | 837 | BCM4331: give the VI and VO TX FIFOs room, one hardware queue per WMM access category |
 | 838 | HT-PHY: send frames again at a lower rate after two failures (multi-rate retry) |
 | 839 | encrypt robust management frames in software, needed with WPA3/PMF — **patch by Rosen Penev**, from openwrt/openwrt#25922, unchanged |
+
+Changes since rc7:
+* 824 only acts on boards whose SPROM board flags show an external front end (BFL_FEM or
+  BFL_HGPA), the same check as in Rosen Penev's openwrt/openwrt#25922. On the R6400 nothing
+  changes: index 24 on the v1, 16 on the v2. The module parameter `ht_txgain_idx` is gone (see
+  *Transmit power*).
+* 827: the radio hang detector no longer restarts the radio of an idle access point on a quiet
+  channel. It now also watches the CRS glitch counter, which a working receiver keeps counting
+  when no frames arrive. The firmware's header format is checked after the firmware upload,
+  when it is known.
+* The other patches are unchanged in code; some differ in line offsets or context lines.
 
 Changes since rc6: 822 is rewritten. It now rests only on open sources and on measurements of the
 hardware, not on decompiled Broadcom code (see [PROVENANCE.md](PROVENANCE.md)); it sets the same
@@ -130,6 +142,13 @@ Access point: no stalls, no hangs, no RX ring errors, no reboot, memory stable, 
 The R6400 v2 client had one TX stall of about one second that recovered by itself, on rc4 and
 on rc5. The 192 frames given up on rc5 are out of 17 million aggregates.
 
+rc8 (R6400 v2 as access point, HT20 channel 9, an IPQ8074 router (ath11k) as client, plus a
+phone now and then): 10.3 hours, 18 load runs of 60 s download and 60 s upload every 30 minutes.
+Download 92–101 Mbit/s, upload 106–110 Mbit/s, link MCS 15 short GI. 14.6 million frames in
+991,000 aggregates; 76 frames given up; no stalls, hangs, block-ack window resets or receive
+errors; memory stable. The R6400 v1 uses the same gain index as with rc7 (24); rc8 was not
+soak-tested on it.
+
 rc7 changes only patch 822 (see *The patches*). On both routers it leaves exactly the hardware
 state of the rc6 version, also from a cold start, and a 100-minute soak test (R6400 v1 access point,
 R6400 v2 client, both on rc7's 822) gave the same results as rc5/rc6: 89.5 / 92.2 Mbit/s, no
@@ -145,14 +164,14 @@ are described under *Known limitations*.
 
 ## Test images (GitHub Releases)
 
-Ready-made OpenWrt images with this series are attached to the release **b43-80211n-rc7**
-(OpenWrt snapshot r37195-66ee7b6950, kernel 6.18). Pick the image by the router's board ID:
+Ready-made OpenWrt images with this series are attached to the release **b43-80211n-rc8**
+(OpenWrt snapshot r37507-4e16c2ed8f, kernel 6.18). Pick the image by the router's board ID:
 
 | Router | board ID | Image |
 |---|---|---|
-| R6400 v1 | U12H332T00_NETGEAR | `openwrt-r6400-v1-b43-80211n-rc7-squashfs.chk` |
-| R6400 v2 | U12H332T20_NETGEAR | `openwrt-r6400-v2-b43-80211n-rc7-squashfs.chk` |
-| R6400 v2 (OTP) | U12H332T30_NETGEAR | `openwrt-r6400-v2-otp-b43-80211n-rc7-squashfs.chk` |
+| R6400 v1 | U12H332T00_NETGEAR | `openwrt-r6400-v1-b43-80211n-rc8-squashfs.chk` |
+| R6400 v2 | U12H332T20_NETGEAR | `openwrt-r6400-v2-b43-80211n-rc8-squashfs.chk` |
+| R6400 v2 (OTP) | U12H332T30_NETGEAR | `openwrt-r6400-v2-otp-b43-80211n-rc8-squashfs.chk` |
 
 On OpenWrt the board ID is shown by `strings /dev/mtd1 | grep board_id` (the `nvram` partition).
 Netgear's own firmware only accepts a `.chk` with the router's own board ID.
@@ -226,7 +245,6 @@ change through `/etc/modules.d/b43` and a reboot.
 
 ```sh
 echo 1 > /sys/module/b43/parameters/ampdu_rts      # live
-echo 30 > /sys/module/b43/parameters/ht_txgain_idx && wifi   # wifi
 ```
 
 **Check** the values in use: `grep . /sys/module/b43/parameters/*`.
@@ -237,7 +255,6 @@ echo 30 > /sys/module/b43/parameters/ht_txgain_idx && wifi   # wifi
 |---|---|---|---|---|
 | `ht` | 1 | 1 = 802.11n HT20, 0 = 802.11g only | boot | 825 |
 | `ht_tx_streams` | 2 | 1 = one transmit stream (MCS 0–7), 2 = two streams (MCS 0–15); see *Two transmit streams* | boot | 836 |
-| `ht_txgain_idx` | -2 | -2 = auto (24 on boards with a high-gain amplifier such as the R6400 v1, else 16); 0–127 = fixed gain index, a higher index is less power (+6 ≈ 3 dB less per chain); -1 = the old hardware power control loop. This is the only power setting: the transmit power of LuCI and `iw` is ignored | wifi | 824 |
 | `ht_txcore` | 1 | transmit core mask for one-stream frames, 1–7 (1 = core 0) | live | 825 |
 | `ht_txcore2` | 3 | transmit core mask for two-stream frames: 3 (cores 0 + 1), 5 (0 + 2) or 6 (1 + 2) | live | 836 |
 | `ht_sgi` | 1 | announce the short guard interval to clients (1) or not (0) | boot | 828 |
@@ -245,7 +262,7 @@ echo 30 > /sys/module/b43/parameters/ht_txgain_idx && wifi   # wifi
 | `ht_rx_ampdu` | 1 | accept block-ack sessions from clients, i.e. receive aggregates (1) or refuse them (0) | wifi | 825 |
 | `ht_tx_ampdu` | 1 | send aggregates (A-MPDU) (1) or single frames only (0) | boot | 827 |
 | `ampdu_max_frames` | 16 | most frames per aggregate, 1–16 | live | 827 |
-| `ampdu_inflight` | 2 | aggregates handed to the hardware per queue before waiting for its status, 1 or 2 (1 lowers latency, costs ~12 % download) | live | 827 |
+| `ampdu_inflight` | 2 | aggregates handed to the hardware per queue before waiting for its status, 1 or 2; see *Low jitter* below | live | 827 |
 | `ampdu_rts` | -1 | RTS/CTS in front of aggregates: -1 = only when an aggregate is sent again, 1 = always, N > 1 = for aggregates of N bytes or more, 0 = never | live | 829 |
 | `ampdu_retry_mrr` | 1 | frames sent again: from the second re-send on at rate control's most reliable rate (1), or always at its first choice (0, the rc4 behaviour) | live | 838 |
 | `ht_txq_pull` | 1 | airtime fairness: take frames from mac80211's per-client queues when the hardware has room (1), or the old single driver queue (0) | boot | 834 |
@@ -255,6 +272,14 @@ echo 30 > /sys/module/b43/parameters/ht_txgain_idx && wifi   # wifi
 
 Leave these at their defaults unless you are testing something; the defaults are the
 settings that were measured best on the R6400 v1 and v2.
+
+**Low jitter.** With the default `ampdu_inflight=2` a client waiting behind another
+client's download usually sees 5–10 ms, but now and then 50–150 ms. With
+`ampdu_inflight=1` it never waited more than about 20 ms in our tests, at the cost of
+about 20 % throughput for a single download (R6400, two streams: ~89 → ~72 Mbit/s).
+Use 1 if calls or games matter more than the top download speed:
+`echo 1 > /sys/module/b43/parameters/ampdu_inflight` (live), or add `ampdu_inflight=1`
+to `/etc/modules.d/b43` to keep it after a reboot.
 
 ### Standard b43 parameters
 
@@ -266,7 +291,7 @@ Unchanged by these patches; listed for completeness.
 | `nohwcrypt` | 0 | 1 = encrypt and decrypt in software instead of in the hardware (slower; for testing) | boot |
 | `hwtkip` | 0 | 1 = TKIP (old WPA1) in hardware | boot |
 | `btcoex` | 1 | Bluetooth coexistence; the R6400 has no Bluetooth | boot |
-| `hwpctl` | 0 | hardware power control of the old G-PHY chips; no effect on the BCM4331 (see `ht_txgain_idx`) | boot |
+| `hwpctl` | 0 | hardware power control of the old G-PHY chips; no effect on the BCM4331 (see *Transmit power*) | boot |
 | `verbose` | 2 | kernel log detail: 0 = errors, 1 = warnings, 2 = info, 3 = debug | live |
 | `pio` | 0 | 1 = programmed I/O instead of DMA (slow; debugging only, not tested with these patches) | boot |
 | `gpiomask` | 15 | GPIO mask for the LED control (0x000F) | boot |
@@ -288,7 +313,6 @@ IPQ8074 client at close range (R6400 v1 as the access point):
 |---|---|---|
 | one stream, `ht_tx_streams=1` | 50 / 53 Mbit/s | 55.6 °C |
 | two streams (default) | 89 / 84 Mbit/s | 56.9 °C |
-| two streams, lower power, `ht_txgain_idx=30` | 89 / 83 Mbit/s | 56.9 °C |
 
 No stalls or hangs; the case stayed lukewarm near the antennas. The R6400 v2 (no external
 high-gain amplifiers) gave 53 → 70–83 Mbit/s with two streams.
@@ -310,20 +334,16 @@ reboot
 
 If the file already holds other parameters, add `ht_tx_streams=1` to that line instead.
 
-### Lower power with two streams
+### Transmit power
 
-If you prefer the two amplifiers together to send no more than one did, lower the gain by
-about 3 dB per chain with `ht_txgain_idx`. On the **R6400 v1** (auto index 24) that is 30:
+On the R6400 the BCM4331 sends with a fixed gain (patch 824): index 24 on the **R6400 v1**
+(high-gain amplifier) and 16 on the **R6400 v2**, chosen from the board flags in the SPROM.
+The hardware power control loop drove the external amplifiers into distortion and halved the
+throughput. There is no setting for this gain, and the transmit power of LuCI and `iw` has no
+effect. Check with `logread | grep "static TX gain"`.
 
-```sh
-echo "b43 ht_txgain_idx=30" > /etc/modules.d/b43
-reboot
-```
-
-At close range this gave the same throughput (table above), but every frame is sent with
-this gain, also one-stream and 802.11g frames, so the range is somewhat shorter. On the
-**R6400 v2** (auto index 16) the same step is `ht_txgain_idx=22`; that has not been
-measured. Check with `logread | grep "static TX gain"`.
+Before rc8 a module parameter `ht_txgain_idx` set this gain. It is gone: if
+`/etc/modules.d/b43` still holds it, remove it there (the kernel ignores it with a warning).
 
 Rate control (patch 835) moves to a lower rate on its own when the two-stream rates do not
 work; please report your results, with one and with two streams.
@@ -357,9 +377,8 @@ cat /sys/kernel/debug/ieee80211/phy*/netdev:*/stations/<client MAC>/rc_stats   #
 
 **Transmit power:** the BCM4331's HT-PHY does not use the transmit power setting of LuCI
 or `iw dev <wifi interface> set txpower`; changing it has no effect, and the value `iw`
-shows (e.g. "txpower 30.00 dBm") is not what the chip sends. The power is set by the static
-gain index `ht_txgain_idx` (see *Lower power with two streams*). This was already so in b43
-before these patches.
+shows (e.g. "txpower 30.00 dBm") is not what the chip sends. The power is set by a fixed gain
+(see *Transmit power*). This was already so in b43 before these patches.
 
 ## Reporting problems
 
@@ -382,7 +401,8 @@ an occasional `baw_reset` (a few per day) is a recovery and harmless.
   transmit streams*). With two streams the top rate (MCS 15) works well at some times and not at
   others; rate control then uses MCS 13–14.
 * 20 MHz only (no 40 MHz), 2.4 GHz only.
-* The transmit power setting of LuCI and `iw` is ignored; use `ht_txgain_idx` (see *Tools*).
+* The transmit power setting of LuCI and `iw` is ignored, and there is no setting to lower the
+  power (see *Transmit power*).
 * Airtime is shared fairly since patch 834 (two UDP downloads: equal airtime). With TCP, an
   R6400 used as a *client* still gets less than a modern client next to it (12 vs 39 Mbit/s),
   because it has a harder time sending its TCP acknowledgements; ordinary clients are not

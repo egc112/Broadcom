@@ -20,10 +20,10 @@ Assisted-by: Claude:claude-opus-5-5
 Signed-off-by: Erik Conijn <egc112@msn.com>
 ---
 diff --git a/drivers/net/wireless/broadcom/b43/b43.h b/drivers/net/wireless/broadcom/b43/b43.h
-index 81befe6..b1d8a42 100644
+index 95450bd..28d422a 100644
 --- a/drivers/net/wireless/broadcom/b43/b43.h
 +++ b/drivers/net/wireless/broadcom/b43/b43.h
-@@ -917,6 +917,7 @@ struct b43_ampdu_stats {
+@@ -918,6 +918,7 @@ struct b43_ampdu_stats {
  	u32 no_ba;		/* aggregates without a block ack */
  	u32 acked;		/* MPDUs acknowledged */
  	u32 retried;		/* MPDUs queued again */
@@ -80,7 +80,7 @@ index feea9dc..f9415e8 100644
  		} else {
  			wl->ampdu_stats.notack[cause]++;
 diff --git a/drivers/net/wireless/broadcom/b43/main.c b/drivers/net/wireless/broadcom/b43/main.c
-index 8251e5f..9563cc2 100644
+index da59fdb..4d5003d 100644
 --- a/drivers/net/wireless/broadcom/b43/main.c
 +++ b/drivers/net/wireless/broadcom/b43/main.c
 @@ -151,6 +151,12 @@ int b43_ampdu_inflight = 2;
@@ -96,7 +96,7 @@ index 8251e5f..9563cc2 100644
  /* Debugging: log the next N A-MPDUs and their TX status reports */
  int b43_ampdu_dbg;
  module_param_named(ampdu_dbg, b43_ampdu_dbg, int, 0644);
-@@ -3997,7 +4003,7 @@ static ssize_t b43_ampdu_stats_read(struct file *file, char __user *ubuf,
+@@ -4012,7 +4018,7 @@ static ssize_t b43_ampdu_stats_read(struct file *file, char __user *ubuf,
  	len += scnprintf(buf + len, size - len,
  			 "aggregates     %u\nframes         %u\n"
  			 "statuses       %u\nno_ba          %u\n"
@@ -105,7 +105,7 @@ index 8251e5f..9563cc2 100644
  			 "dropped        %u\nplain_status   %u\n"
  			 "ignored_status %u\nbroken         %u\n"
  			 "inflight_reset %u\nstalls         %u\nhangs          %u\n"
-@@ -4005,7 +4011,7 @@ static ssize_t b43_ampdu_stats_read(struct file *file, char __user *ubuf,
+@@ -4020,7 +4026,7 @@ static ssize_t b43_ampdu_stats_read(struct file *file, char __user *ubuf,
  			 "rx_giants      %u\nrx_garbage     %u\nrx_skipped     %u\n"
  			 "rx_uflow       %u\nsize_hist     ",
  			 st->aggregates, st->frames, st->statuses, st->no_ba,

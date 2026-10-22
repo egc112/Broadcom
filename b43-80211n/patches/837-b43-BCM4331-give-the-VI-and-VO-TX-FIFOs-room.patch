@@ -30,7 +30,7 @@ Assisted-by: Claude:claude-opus-5-5
 Signed-off-by: Erik Conijn <egc112@msn.com>
 ---
 diff --git a/drivers/net/wireless/broadcom/b43/b43.h b/drivers/net/wireless/broadcom/b43/b43.h
-index ebe37b0..81befe6 100644
+index a94c58a..95450bd 100644
 --- a/drivers/net/wireless/broadcom/b43/b43.h
 +++ b/drivers/net/wireless/broadcom/b43/b43.h
 @@ -129,6 +129,8 @@
@@ -43,7 +43,7 @@ index ebe37b0..81befe6 100644
  #define B43_MMIO_XMTFIFOTHRESH		0x544
  #define B43_MMIO_XMTFIFORDY		0x546
 diff --git a/drivers/net/wireless/broadcom/b43/main.c b/drivers/net/wireless/broadcom/b43/main.c
-index 9266914..8251e5f 100644
+index 9403648..da59fdb 100644
 --- a/drivers/net/wireless/broadcom/b43/main.c
 +++ b/drivers/net/wireless/broadcom/b43/main.c
 @@ -123,6 +123,10 @@ MODULE_PARM_DESC(ht_cck_rx, "HT-PHY: receive CCK (802.11b) frames: -1 only when
@@ -74,9 +74,9 @@ index 9266914..8251e5f 100644
 -			    wl->hw->queues > 1;
 +			    wl->hw->queues > 1 && !b43_modparam_ht_qos_fifos;
  
- 	/* A-MPDU TX needs the 598 TX header (pre-rev-40 ucode), QoS and DMA */
- 	dev->ht_tx_ampdu = b43_modparam_ht && b43_modparam_ht_tx_ampdu &&
-@@ -3406,6 +3410,42 @@ static void b43_chip_exit(struct b43_wldev *dev)
+ 	/*
+ 	 * A-MPDU TX needs QoS, DMA and the 598 TX header (pre-rev-40 ucode).
+@@ -3413,6 +3417,42 @@ static void b43_chip_exit(struct b43_wldev *dev)
  /* Initialize the chip
   * https://bcm-specs.sipsolutions.net/ChipInit
   */
@@ -119,7 +119,7 @@ index 9266914..8251e5f 100644
  static int b43_chip_init(struct b43_wldev *dev)
  {
  	struct b43_phy *phy = &dev->phy;
-@@ -3436,6 +3476,8 @@ static int b43_chip_init(struct b43_wldev *dev)
+@@ -3443,6 +3483,8 @@ static int b43_chip_init(struct b43_wldev *dev)
  	if (err)
  		goto err_gpio_clean;
  
@@ -128,7 +128,7 @@ index 9266914..8251e5f 100644
  	/* Turn the Analog on and initialize the PHY. */
  	phy->ops->switch_analog(dev, 1);
  	err = b43_phy_init(dev);
-@@ -6384,13 +6426,13 @@ static int b43_op_ampdu_action(struct ieee80211_hw *hw,
+@@ -6399,13 +6441,13 @@ static int b43_op_ampdu_action(struct ieee80211_hw *hw,
  		return -EOPNOTSUPP;
  	case IEEE80211_AMPDU_TX_START:
  		/*

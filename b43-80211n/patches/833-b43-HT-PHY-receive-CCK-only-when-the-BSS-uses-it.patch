@@ -33,10 +33,10 @@ Assisted-by: Claude:claude-opus-5-5
 Signed-off-by: Erik Conijn <egc112@msn.com>
 ---
 diff --git a/drivers/net/wireless/broadcom/b43/b43.h b/drivers/net/wireless/broadcom/b43/b43.h
-index 04ecb1d..8364b9f 100644
+index ba87db0..044ea20 100644
 --- a/drivers/net/wireless/broadcom/b43/b43.h
 +++ b/drivers/net/wireless/broadcom/b43/b43.h
-@@ -981,6 +981,8 @@ struct b43_wl {
+@@ -982,6 +982,8 @@ struct b43_wl {
  #endif /* CPTCFG_B43_HWRNG */
  
  	bool radiotap_enabled;
@@ -46,7 +46,7 @@ index 04ecb1d..8364b9f 100644
  
  	/* The beacon we are currently using (AP or IBSS mode). */
 diff --git a/drivers/net/wireless/broadcom/b43/main.c b/drivers/net/wireless/broadcom/b43/main.c
-index c169e95..e6f696f 100644
+index f032f5c..b413bb7 100644
 --- a/drivers/net/wireless/broadcom/b43/main.c
 +++ b/drivers/net/wireless/broadcom/b43/main.c
 @@ -39,6 +39,7 @@
@@ -68,7 +68,7 @@ index c169e95..e6f696f 100644
  static int b43_modparam_ht_rx_ampdu = 1;
  module_param_named(ht_rx_ampdu, b43_modparam_ht_rx_ampdu, int, 0644);
  MODULE_PARM_DESC(ht_rx_ampdu, "HT-PHY: accept A-MPDU RX block ack sessions (1, default) or refuse them (0)");
-@@ -3986,6 +3991,9 @@ static ssize_t b43_ampdu_stats_read(struct file *file, char __user *ubuf,
+@@ -4001,6 +4006,9 @@ static ssize_t b43_ampdu_stats_read(struct file *file, char __user *ubuf,
  						 rings[i]->used_slots,
  						 skb_queue_len(&wl->tx_queue[i]),
  						 wl->tx_queue_stopped[i] ? ", stopped" : "");
@@ -78,7 +78,7 @@ index c169e95..e6f696f 100644
  	}
  	mutex_unlock(&wl->mutex);
  
-@@ -4624,6 +4632,41 @@ static void b43_set_retry_limits(struct b43_wldev *dev,
+@@ -4639,6 +4647,41 @@ static void b43_set_retry_limits(struct b43_wldev *dev,
  			long_retry);
  }
  
@@ -120,7 +120,7 @@ index c169e95..e6f696f 100644
  static int b43_op_config(struct ieee80211_hw *hw, int radio_idx, u32 changed)
  {
  	struct b43_wl *wl = hw_to_b43_wl(hw);
-@@ -4661,6 +4704,7 @@ static int b43_op_config(struct ieee80211_hw *hw, int radio_idx, u32 changed)
+@@ -4676,6 +4719,7 @@ static int b43_op_config(struct ieee80211_hw *hw, int radio_idx, u32 changed)
  		goto out_mac_enable;
  
  	dev->wl->radiotap_enabled = !!(conf->flags & IEEE80211_CONF_MONITOR);
@@ -128,7 +128,7 @@ index c169e95..e6f696f 100644
  
  	/* Adjust the desired TX power level. */
  	if (conf->power_level != 0) {
-@@ -4789,6 +4833,8 @@ static void b43_op_bss_info_changed(struct ieee80211_hw *hw,
+@@ -4804,6 +4848,8 @@ static void b43_op_bss_info_changed(struct ieee80211_hw *hw,
  
  	if (changed & BSS_CHANGED_BASIC_RATES)
  		b43_update_basic_rates(dev, conf->basic_rates);
@@ -137,7 +137,7 @@ index c169e95..e6f696f 100644
  
  	if (changed & BSS_CHANGED_ERP_SLOT) {
  		if (conf->use_short_slot)
-@@ -5867,6 +5913,8 @@ static void b43_op_sw_scan_start_notifier(struct ieee80211_hw *hw,
+@@ -5882,6 +5928,8 @@ static void b43_op_sw_scan_start_notifier(struct ieee80211_hw *hw,
  	if (dev && (b43_status(dev) >= B43_STAT_INITIALIZED)) {
  		/* Disable CFP update during scan on other channels. */
  		b43_hf_write(dev, b43_hf_read(dev) | B43_HF_SKCFPUP);
@@ -146,7 +146,7 @@ index c169e95..e6f696f 100644
  	}
  	mutex_unlock(&wl->mutex);
  }
-@@ -5882,6 +5930,8 @@ static void b43_op_sw_scan_complete_notifier(struct ieee80211_hw *hw,
+@@ -5897,6 +5945,8 @@ static void b43_op_sw_scan_complete_notifier(struct ieee80211_hw *hw,
  	if (dev && (b43_status(dev) >= B43_STAT_INITIALIZED)) {
  		/* Re-enable CFP update. */
  		b43_hf_write(dev, b43_hf_read(dev) & ~B43_HF_SKCFPUP);
@@ -156,10 +156,10 @@ index c169e95..e6f696f 100644
  	mutex_unlock(&wl->mutex);
  }
 diff --git a/drivers/net/wireless/broadcom/b43/phy_ht.c b/drivers/net/wireless/broadcom/b43/phy_ht.c
-index 58c6762..b7f3394 100644
+index b85f89b..05f7627 100644
 --- a/drivers/net/wireless/broadcom/b43/phy_ht.c
 +++ b/drivers/net/wireless/broadcom/b43/phy_ht.c
-@@ -261,6 +261,20 @@ static u16 b43_phy_ht_classifier(struct b43_wldev *dev, u16 mask, u16 val)
+@@ -265,6 +265,20 @@ static u16 b43_phy_ht_classifier(struct b43_wldev *dev, u16 mask, u16 val)
  	return tmp;
  }
  
@@ -180,7 +180,7 @@ index 58c6762..b7f3394 100644
  static void b43_phy_ht_reset_cca(struct b43_wldev *dev)
  {
  	u16 bbcfg;
-@@ -935,6 +949,7 @@ static int b43_phy_ht_op_init(struct b43_wldev *dev)
+@@ -942,6 +956,7 @@ static int b43_phy_ht_op_init(struct b43_wldev *dev)
  		b43_phy_ht_classifier(dev, B43_PHY_HT_CLASS_CTL_CCK_EN, 0);
  	else
  		b43_phy_ht_classifier(dev, B43_PHY_HT_CLASS_CTL_CCK_EN,

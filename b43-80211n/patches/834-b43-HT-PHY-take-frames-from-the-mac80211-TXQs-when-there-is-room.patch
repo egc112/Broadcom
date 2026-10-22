@@ -38,10 +38,10 @@ Assisted-by: Claude:claude-opus-5-5
 Signed-off-by: Erik Conijn <egc112@msn.com>
 ---
 diff --git a/drivers/net/wireless/broadcom/b43/b43.h b/drivers/net/wireless/broadcom/b43/b43.h
-index 8364b9f..ebe37b0 100644
+index 044ea20..a94c58a 100644
 --- a/drivers/net/wireless/broadcom/b43/b43.h
 +++ b/drivers/net/wireless/broadcom/b43/b43.h
-@@ -929,6 +929,10 @@ struct b43_ampdu_stats {
+@@ -930,6 +930,10 @@ struct b43_ampdu_stats {
  	u32 rx_garbage;		/* RX buffers with an impossible length */
  	u32 rx_skipped;		/* RX buffers the device did not fill (poison intact) */
  	u32 rx_uflow;		/* RX descriptor underruns: frames dropped */
@@ -52,7 +52,7 @@ index 8364b9f..ebe37b0 100644
  	/* item 2 diagnostics: why frames fail */
  	u32 ack_tries[6];	/* acked frames by earlier driver re-sends (0..5) */
  	u32 notack[4];		/* not acked: no BA / bit 0 in window / behind BA SSN / >= 64 ahead */
-@@ -981,6 +985,10 @@ struct b43_wl {
+@@ -982,6 +986,10 @@ struct b43_wl {
  #endif /* CPTCFG_B43_HWRNG */
  
  	bool radiotap_enabled;
@@ -141,7 +141,7 @@ index 616a254..190e879 100644
  			if (frame_succeed)
  				ring->nr_succeed_tx_packets++;
 diff --git a/drivers/net/wireless/broadcom/b43/main.c b/drivers/net/wireless/broadcom/b43/main.c
-index e6f696f..da2844a 100644
+index b413bb7..626bcf8 100644
 --- a/drivers/net/wireless/broadcom/b43/main.c
 +++ b/drivers/net/wireless/broadcom/b43/main.c
 @@ -121,6 +121,10 @@ static int b43_modparam_ht_cck_rx = -1;
@@ -155,9 +155,9 @@ index e6f696f..da2844a 100644
  static int b43_modparam_ht_rx_ampdu = 1;
  module_param_named(ht_rx_ampdu, b43_modparam_ht_rx_ampdu, int, 0644);
  MODULE_PARM_DESC(ht_rx_ampdu, "HT-PHY: accept A-MPDU RX block ack sessions (1, default) or refuse them (0)");
-@@ -2732,6 +2736,14 @@ start_ieee80211:
+@@ -2735,6 +2739,14 @@ start_ieee80211:
+ 	dev->ht_tx_ampdu = b43_modparam_ht && b43_modparam_ht_tx_ampdu &&
  			   dev->phy.type == B43_PHYTYPE_HT &&
- 			   dev->fw.hdr_format == B43_FW_HDR_598 &&
  			   wl->hw->queues > 1 && !b43_modparam_pio;
 +	wl->txq_pull = dev->ht_tx_ampdu && b43_modparam_ht_txq_pull;
 +	if (wl->txq_pull) {
@@ -170,7 +170,7 @@ index e6f696f..da2844a 100644
  	if (dev->ht_tx_ampdu) {
  		ieee80211_hw_set(wl->hw, AMPDU_AGGREGATION);
  		wl->hw->max_tx_aggregation_subframes = B43_AMPDU_BA_WSIZE;
-@@ -3994,6 +4006,13 @@ static ssize_t b43_ampdu_stats_read(struct file *file, char __user *ubuf,
+@@ -4009,6 +4021,13 @@ static ssize_t b43_ampdu_stats_read(struct file *file, char __user *ubuf,
  		if (dev->phy.type == B43_PHYTYPE_HT)
  			len += scnprintf(buf + len, size - len, "cck_rx %s\n",
  					 dev->phy.ht->cck_rx_off ? "off" : "on");
@@ -184,7 +184,7 @@ index e6f696f..da2844a 100644
  	}
  	mutex_unlock(&wl->mutex);
  
-@@ -4076,6 +4095,113 @@ static void b43_ps_report_tids(struct ieee80211_sta *sta, struct b43_sta *bsta)
+@@ -4091,6 +4110,113 @@ static void b43_ps_report_tids(struct ieee80211_sta *sta, struct b43_sta *bsta)
  	bsta->ps_tids = tids;
  }
  
@@ -298,7 +298,7 @@ index e6f696f..da2844a 100644
  /* Hold a frame for a dozing station (wl->mutex held, RCU read side) */
  void b43_ps_hold(struct b43_wl *wl, struct ieee80211_sta *sta,
  		 struct sk_buff *skb)
-@@ -4096,6 +4222,16 @@ void b43_ps_hold(struct b43_wl *wl, struct ieee80211_sta *sta,
+@@ -4111,6 +4237,16 @@ void b43_ps_hold(struct b43_wl *wl, struct ieee80211_sta *sta,
  	/* the bounce buffer pointer shares the vif's slot */
  	info->control.vif = wl->vif;
  
@@ -315,7 +315,7 @@ index e6f696f..da2844a 100644
  	if (list_empty(&bsta->ps_list))
  		list_add_tail(&bsta->ps_list, &wl->ps_stas);
  	skb_queue_tail(&bsta->psq, skb);
-@@ -4212,13 +4348,252 @@ static bool b43_ps_check(struct b43_wl *wl, struct sk_buff_head *q,
+@@ -4227,13 +4363,252 @@ static bool b43_ps_check(struct b43_wl *wl, struct sk_buff_head *q,
  	return held;
  }
  
@@ -570,7 +570,7 @@ index e6f696f..da2844a 100644
  
  	mutex_lock(&wl->mutex);
  	dev = wl->current_dev;
-@@ -4229,50 +4604,12 @@ static void b43_tx_work(struct work_struct *work)
+@@ -4244,50 +4619,12 @@ static void b43_tx_work(struct work_struct *work)
  
  	if (!list_empty(&wl->ps_stas))
  		b43_ps_work(wl);
@@ -627,7 +627,7 @@ index e6f696f..da2844a 100644
  
  #if B43_DEBUG
  	dev->tx_count++;
-@@ -4280,6 +4617,19 @@ static void b43_tx_work(struct work_struct *work)
+@@ -4295,6 +4632,19 @@ static void b43_tx_work(struct work_struct *work)
  	mutex_unlock(&wl->mutex);
  }
  
@@ -647,7 +647,7 @@ index e6f696f..da2844a 100644
  static void b43_op_tx(struct ieee80211_hw *hw,
  		      struct ieee80211_tx_control *control,
  		      struct sk_buff *skb)
-@@ -5846,6 +6196,8 @@ static void b43_op_sta_notify(struct ieee80211_hw *hw,
+@@ -5861,6 +6211,8 @@ static void b43_op_sta_notify(struct ieee80211_hw *hw,
  		WRITE_ONCE(bsta->asleep, false);
  		break;
  	}
@@ -656,7 +656,7 @@ index e6f696f..da2844a 100644
  	ieee80211_queue_work(hw, &wl->tx_work);
  }
  
-@@ -5858,15 +6210,18 @@ static void b43_op_release_buffered_frames(struct ieee80211_hw *hw,
+@@ -5873,15 +6225,18 @@ static void b43_op_release_buffered_frames(struct ieee80211_hw *hw,
  	struct b43_wl *wl = hw_to_b43_wl(hw);
  	struct b43_sta *bsta = (struct b43_sta *)sta->drv_priv;
  
@@ -677,7 +677,7 @@ index e6f696f..da2844a 100644
  	ieee80211_queue_work(hw, &wl->tx_work);
  }
  
-@@ -5897,6 +6252,17 @@ static int b43_op_sta_remove(struct ieee80211_hw *hw, struct ieee80211_vif *vif,
+@@ -5912,6 +6267,17 @@ static int b43_op_sta_remove(struct ieee80211_hw *hw, struct ieee80211_vif *vif,
  	bsta->ps_init = false;
  	list_del_init(&bsta->ps_list);
  	ieee80211_purge_tx_queue(hw, &bsta->psq);
@@ -695,7 +695,7 @@ index e6f696f..da2844a 100644
  	mutex_unlock(&wl->mutex);
  	return 0;
  }
-@@ -6053,7 +6419,7 @@ static const struct ieee80211_ops b43_hw_ops = {
+@@ -6068,7 +6434,7 @@ static const struct ieee80211_ops b43_hw_ops = {
  	.change_chanctx = ieee80211_emulate_change_chanctx,
  	.switch_vif_chanctx = ieee80211_emulate_switch_vif_chanctx,
  	.tx			= b43_op_tx,
@@ -704,7 +704,7 @@ index e6f696f..da2844a 100644
  	.conf_tx		= b43_op_conf_tx,
  	.add_interface		= b43_op_add_interface,
  	.remove_interface	= b43_op_remove_interface,
-@@ -6484,6 +6850,7 @@ static struct b43_wl *b43_wireless_init(struct b43_bus_dev *dev)
+@@ -6499,6 +6865,7 @@ static struct b43_wl *b43_wireless_init(struct b43_bus_dev *dev)
  	wl->hw_registered = false;
  	hw->max_rates = 2;
  	hw->sta_data_size = sizeof(struct b43_sta);
@@ -712,7 +712,7 @@ index e6f696f..da2844a 100644
  	SET_IEEE80211_DEV(hw, dev->dev);
  	if (is_valid_ether_addr(sprom->et1mac))
  		SET_IEEE80211_PERM_ADDR(hw, sprom->et1mac);
-@@ -6506,6 +6873,8 @@ static struct b43_wl *b43_wireless_init(struct b43_bus_dev *dev)
+@@ -6521,6 +6888,8 @@ static struct b43_wl *b43_wireless_init(struct b43_bus_dev *dev)
  		wl->tx_queue_stopped[queue_num] = false;
  	}
  	INIT_LIST_HEAD(&wl->ps_stas);

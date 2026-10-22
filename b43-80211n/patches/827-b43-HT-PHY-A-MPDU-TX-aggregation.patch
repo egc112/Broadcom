@@ -28,8 +28,12 @@ header), after brcmsmac's ampdu.c and dma.c:
 - The TX header fix-up is synced to the device with DMA_TO_DEVICE
   (sync_descbuffer_for_device() is for RX buffers and would discard it).
 - A watchdog warns when an aggregate gets no status for a second; in AP
-  mode a radio whose beacon or RX-start counter stands still for 15 s is
-  restarted.
+  mode a radio whose beacon counter, or both its RX-start and CRS-glitch
+  counters, stand still for 15 s is restarted. (An idle AP on a quiet
+  channel can go 15 s without an RX start; its receiver still counts
+  hundreds of CRS glitches per second.)
+- The ucode's TX header format is only known after the upload: A-MPDU TX
+  is turned off again there if the ucode is older than rev 598.
 - debugfs ieee80211/phyN/b43_ampdu shows the aggregation counters (write
   to it to reset them).
 
@@ -45,7 +49,7 @@ Assisted-by: Claude:claude-opus-5-5
 Signed-off-by: Erik Conijn <egc112@msn.com>
 ---
 diff --git a/drivers/net/wireless/broadcom/b43/b43.h b/drivers/net/wireless/broadcom/b43/b43.h
-index 946cfe5..5558ac6 100644
+index 946cfe5..da70c98 100644
 --- a/drivers/net/wireless/broadcom/b43/b43.h
 +++ b/drivers/net/wireless/broadcom/b43/b43.h
 @@ -308,6 +308,8 @@ enum {
@@ -57,7 +61,7 @@ index 946cfe5..5558ac6 100644
  #define B43_SHM_SH_PRMAXTIME		0x0074	/* Probe Response max time */
  #define B43_SHM_SH_PRPHYCTL		0x0188	/* Probe Response PHY TX control word */
  /* SHM_SHARED rate tables */
-@@ -838,6 +840,12 @@ struct b43_wldev {
+@@ -838,6 +840,13 @@ struct b43_wldev {
  	bool dfq_valid;		/* Directed frame queue valid (IBSS PS mode, ATIM) */
  	bool radio_hw_enable;	/* saved state of radio hardware enabled state */
  	bool qos_enabled;		/* TRUE, if QoS is used. */
@@ -67,10 +71,11 @@ index 946cfe5..5558ac6 100644
 +	bool hang_armed;
 +	u16 hang_last_bcn;
 +	u16 hang_last_rxstrt;
++	u16 hang_last_glitch;
  	bool hwcrypto_enabled;		/* TRUE, if HW crypto acceleration is enabled. */
  	bool use_pio;			/* TRUE if next init should use PIO */
  	int gpiomask;			/* GPIO LED mask as a module parameter */
-@@ -898,6 +906,34 @@ struct b43_wldev {
+@@ -898,6 +907,34 @@ struct b43_wldev {
  };
  
  /* Data structure for the WLAN parts (802.11 cores) of the b43 chip. */
@@ -105,7 +110,7 @@ index 946cfe5..5558ac6 100644
  struct b43_wl {
  	/* Pointer to the active wireless device on this chip */
  	struct b43_wldev *current_dev;
-@@ -960,6 +996,10 @@ struct b43_wl {
+@@ -960,6 +997,10 @@ struct b43_wl {
  	/* Packet transmit work */
  	struct work_struct tx_work;
  
@@ -653,7 +658,7 @@ index d7f7b9f..e9553ac 100644
  			     const struct b43_txstatus *status);
  
 diff --git a/drivers/net/wireless/broadcom/b43/main.c b/drivers/net/wireless/broadcom/b43/main.c
-index fabfc46..b17a2d9 100644
+index fabfc46..e3b34da 100644
 --- a/drivers/net/wireless/broadcom/b43/main.c
 +++ b/drivers/net/wireless/broadcom/b43/main.c
 @@ -31,6 +31,7 @@
@@ -725,7 +730,7 @@ index fabfc46..b17a2d9 100644
  
  		b43_handle_txstatus(dev, &stat);
  	}
-@@ -2657,10 +2696,33 @@ start_ieee80211:
+@@ -2657,10 +2696,36 @@ start_ieee80211:
  	     !(b43_modparam_ht && dev->phy.type == B43_PHYTYPE_HT)))
  		wl->hw->queues = 1;
  
@@ -738,10 +743,13 @@ index fabfc46..b17a2d9 100644
 +	dev->qos_one_fifo = dev->dev->chip_id == BCMA_CHIP_ID_BCM4331 &&
 +			    wl->hw->queues > 1;
 +
-+	/* A-MPDU TX needs the 598 TX header (pre-rev-40 ucode), QoS and DMA */
++	/*
++	 * A-MPDU TX needs QoS, DMA and the 598 TX header (pre-rev-40 ucode).
++	 * The ucode's header format is only known after the upload:
++	 * b43_upload_microcode() turns A-MPDU TX off again for an older one.
++	 */
 +	dev->ht_tx_ampdu = b43_modparam_ht && b43_modparam_ht_tx_ampdu &&
 +			   dev->phy.type == B43_PHYTYPE_HT &&
-+			   dev->fw.hdr_format == B43_FW_HDR_598 &&
 +			   wl->hw->queues > 1 && !b43_modparam_pio;
 +	if (dev->ht_tx_ampdu) {
 +		ieee80211_hw_set(wl->hw, AMPDU_AGGREGATION);
@@ -759,7 +767,18 @@ index fabfc46..b17a2d9 100644
  	b43_leds_register(wl->current_dev);
  
  	/* Register HW RNG driver */
-@@ -3482,10 +3544,46 @@ static void b43_periodic_every15sec(struct b43_wldev *dev)
+@@ -2760,6 +2825,10 @@ static int b43_upload_microcode(struct b43_wldev *dev)
+ 	else
+ 		dev->fw.hdr_format = B43_FW_HDR_351;
+ 	WARN_ON(dev->fw.opensource != (fwdate == 0xFFFF));
++	if (dev->ht_tx_ampdu && dev->fw.hdr_format != B43_FW_HDR_598) {
++		b43warn(dev->wl, "A-MPDU TX needs firmware rev 598 or newer, disabled\n");
++		dev->ht_tx_ampdu = false;
++	}
+ 
+ 	dev->qos_enabled = dev->wl->hw->queues > 1;
+ 	/* Default to firmware/hardware crypto acceleration. */
+@@ -3482,10 +3551,54 @@ static void b43_periodic_every15sec(struct b43_wldev *dev)
  #endif
  }
  
@@ -768,23 +787,30 @@ index fabfc46..b17a2d9 100644
 + * no error reported; seen once in a one-hour soak). The ucode's MAC
 + * statistics show it: in AP mode the beacon counter (txbcnfrm, shm 0xea)
 + * rises ~10/s and the RX start counter (rxstrt, shm 0x110) with every
-+ * frame on the channel. If either stands still for 15 s, log the state
-+ * and restart the controller.
++ * frame on the channel. An idle AP on a quiet channel can go 15 s without
++ * an RX start, but a working receiver still counts CRS glitches
++ * (rxcrsglitch, shm 0x10e, hundreds per second); a deaf one counts
++ * neither. If the beacons stand still for 15 s, or both RX counters do,
++ * log the state and restart the controller.
 + */
 +static void b43_ht_hang_check(struct b43_wldev *dev)
 +{
-+	u16 bcn, rxstrt;
++	u16 bcn, rxstrt, glitch;
 +
 +	if (dev->phy.type != B43_PHYTYPE_HT || !b43_modparam_ht ||
 +	    !b43_is_mode(dev->wl, NL80211_IFTYPE_AP))
 +		return;
 +	bcn = b43_shm_read16(dev, B43_SHM_SHARED, 0xea);
 +	rxstrt = b43_shm_read16(dev, B43_SHM_SHARED, 0x110);
++	glitch = b43_shm_read16(dev, B43_SHM_SHARED, 0x10e);
 +	if (dev->hang_armed &&
-+	    (bcn == dev->hang_last_bcn || rxstrt == dev->hang_last_rxstrt)) {
++	    (bcn == dev->hang_last_bcn ||
++	     (rxstrt == dev->hang_last_rxstrt &&
++	      glitch == dev->hang_last_glitch))) {
 +		dev->wl->ampdu_stats.hangs++;
-+		b43err(dev->wl, "radio hang: in 15 s beacons %u -> %u, rx starts %u -> %u; txallfrm %u, txphyerr %u, macctl 0x%08x; restarting\n",
++		b43err(dev->wl, "radio hang: in 15 s beacons %u -> %u, rx starts %u -> %u, crs glitches %u -> %u; txallfrm %u, txphyerr %u, macctl 0x%08x; restarting\n",
 +		       dev->hang_last_bcn, bcn, dev->hang_last_rxstrt, rxstrt,
++		       dev->hang_last_glitch, glitch,
 +		       b43_shm_read16(dev, B43_SHM_SHARED, 0xe0),
 +		       b43_shm_read16(dev, B43_SHM_SHARED, 0xfe),
 +		       b43_read32(dev, B43_MMIO_MACCTL));
@@ -794,6 +820,7 @@ index fabfc46..b17a2d9 100644
 +	}
 +	dev->hang_last_bcn = bcn;
 +	dev->hang_last_rxstrt = rxstrt;
++	dev->hang_last_glitch = glitch;
 +	dev->hang_armed = true;
 +}
 +
@@ -806,7 +833,7 @@ index fabfc46..b17a2d9 100644
  	state = dev->periodic_state;
  	if (state % 4 == 0)
  		b43_periodic_every60sec(dev);
-@@ -3654,6 +3752,231 @@ static int b43_rng_init(struct b43_wl *wl)
+@@ -3654,6 +3767,231 @@ static int b43_rng_init(struct b43_wl *wl)
  	return err;
  }
  
@@ -1038,7 +1065,7 @@ index fabfc46..b17a2d9 100644
  static void b43_tx_work(struct work_struct *work)
  {
  	struct b43_wl *wl = container_of(work, struct b43_wl, tx_work);
-@@ -3670,8 +3993,28 @@ static void b43_tx_work(struct work_struct *work)
+@@ -3670,8 +4008,28 @@ static void b43_tx_work(struct work_struct *work)
  	}
  
  	for (queue_num = 0; queue_num < B43_QOS_QUEUE_NUM; queue_num++) {
@@ -1068,7 +1095,7 @@ index fabfc46..b17a2d9 100644
  			if (b43_using_pio_transfers(dev))
  				err = b43_pio_tx(dev, skb);
  			else
-@@ -4410,6 +4753,7 @@ redo:
+@@ -4410,6 +4768,7 @@ redo:
  	mutex_unlock(&wl->mutex);
  	cancel_delayed_work_sync(&dev->periodic_work);
  	cancel_work_sync(&wl->tx_work);
@@ -1076,7 +1103,7 @@ index fabfc46..b17a2d9 100644
  	b43_leds_stop(dev);
  	mutex_lock(&wl->mutex);
  	dev = wl->current_dev;
-@@ -4994,6 +5338,16 @@ static int b43_wireless_core_init(struct b43_wldev *dev)
+@@ -4994,6 +5353,16 @@ static int b43_wireless_core_init(struct b43_wldev *dev)
  	b43_shm_write16(dev, B43_SHM_SHARED, B43_SHM_SH_PHYTYPE, phy->type);
  	b43_shm_write16(dev, B43_SHM_SHARED, B43_SHM_SH_PHYVER, phy->rev);
  
@@ -1093,7 +1120,7 @@ index fabfc46..b17a2d9 100644
  	if (b43_bus_host_is_pcmcia(dev->dev) ||
  	    b43_bus_host_is_sdio(dev->dev)) {
  		dev->__using_pio_transfers = true;
-@@ -5310,6 +5664,31 @@ static int b43_op_ampdu_action(struct ieee80211_hw *hw,
+@@ -5310,6 +5679,31 @@ static int b43_op_ampdu_action(struct ieee80211_hw *hw,
  		    b43_modparam_ht_rx_ampdu)
  			return 0;
  		return -EOPNOTSUPP;
@@ -1125,7 +1152,7 @@ index fabfc46..b17a2d9 100644
  	default:
  		return -EOPNOTSUPP;
  	}
-@@ -5745,6 +6124,7 @@ static struct b43_wl *b43_wireless_init(struct b43_bus_dev *dev)
+@@ -5745,6 +6139,7 @@ static struct b43_wl *b43_wireless_init(struct b43_bus_dev *dev)
  
  	wl->hw_registered = false;
  	hw->max_rates = 2;
@@ -1133,7 +1160,7 @@ index fabfc46..b17a2d9 100644
  	SET_IEEE80211_DEV(hw, dev->dev);
  	if (is_valid_ether_addr(sprom->et1mac))
  		SET_IEEE80211_PERM_ADDR(hw, sprom->et1mac);
-@@ -5759,6 +6139,7 @@ static struct b43_wl *b43_wireless_init(struct b43_bus_dev *dev)
+@@ -5759,6 +6154,7 @@ static struct b43_wl *b43_wireless_init(struct b43_bus_dev *dev)
  	INIT_WORK(&wl->beacon_update_trigger, b43_beacon_update_trigger_work);
  	INIT_WORK(&wl->txpower_adjust_work, b43_phy_txpower_adjust_work);
  	INIT_WORK(&wl->tx_work, b43_tx_work);

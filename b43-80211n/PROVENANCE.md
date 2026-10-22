@@ -1,7 +1,7 @@
 # Provenance and legal notes
 
 This page explains where every part of the b43-80211n patch series comes from and how the
-information was obtained. Anyone can check it. It covers the series as of **rc7** (patches 820–839).
+information was obtained. Anyone can check it. It covers the series as of **rc8** (patches 820–839).
 
 It is a factual record, not legal advice. Questions or corrections: please open an issue.
 
@@ -15,7 +15,7 @@ It is a factual record, not legal advice. Questions or corrections: please open 
   * reading the router's registers back while Broadcom's own driver runs;
   * radio captures with an independent sniffer;
   * throughput and latency tests.
-* **No decompiled or disassembled Broadcom code is used in rc7.** One earlier patch, 822 in
+* **No decompiled or disassembled Broadcom code is used since rc7.** One earlier patch, 822 in
   rc3–rc6, was ported from a decompiled Broadcom driver. For rc7 it was rewritten from open
   sources and measurements only; the full account is below.
 * This repository does not contain, and will not publish:
@@ -62,10 +62,10 @@ Linux kernel under that license.
 | 821 | Erik Conijn | b43 DMA code; brcmsmac's handling of frames that span several RX buffers |
 | 822 | Erik Conijn | see *Patch 822* below: Broadcom's ISC-licensed chip-control names, Linux bcma, hardware read-back |
 | 823 | Erik Conijn | b43's N-PHY table code and brcmsmac's `wlc_phy_read_table` (32-bit read order); read-back |
-| 824 | Erik Conijn | throughput measured per TX gain index on both routers; b43's TX gain table |
+| 824 | Erik Conijn | throughput measured per TX gain index on both routers; b43's TX gain table; since rc8 the board-flag check (BFL_FEM or BFL_HGPA) and its wording as in Rosen Penev's version of this patch in openwrt/openwrt#25922 |
 | 825 | Erik Conijn | brcmsmac's MCS path (`brcms_c_d11hdrs_mac80211`, `mcs_table`); mac80211 |
 | 826 | Erik Conijn | brcmsmac `brcms_c_ampdu_macaddr_upd()`; sniffer capture of the empty BlockAck TA |
-| 827 | Erik Conijn | brcmsmac `ampdu.c`/`dma.c`; ath9k's block-ack window tracking; mac80211 |
+| 827 | Erik Conijn | brcmsmac `ampdu.c`/`dma.c`; ath9k's block-ack window tracking; mac80211; the radio hang check reads the ucode's MAC statistics laid out as in brcmsmac's `struct macstat` (`d11.h`) |
 | 828 | Erik Conijn | brcmsmac's SGI bits and `mcs_table`; IEEE 802.11 |
 | 829 | Erik Conijn | brcmsmac `brcms_c_ampdu_finalize()`, `brcms_c_compute_rtscts_dur()` |
 | 830 | Erik Conijn | mac80211 power-save API; ath9k's pattern |
@@ -132,3 +132,4 @@ Dropped from the rc3–rc6 version:
 ## Change log of this page
 
 * 2026-10-19: first version, with rc7.
+* 2026-10-22: rc8 (824 board-flag check, 827 hang check counters).

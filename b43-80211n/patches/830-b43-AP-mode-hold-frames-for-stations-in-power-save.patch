@@ -33,10 +33,10 @@ Assisted-by: Claude:claude-opus-5-5
 Signed-off-by: Erik Conijn <egc112@msn.com>
 ---
 diff --git a/drivers/net/wireless/broadcom/b43/b43.h b/drivers/net/wireless/broadcom/b43/b43.h
-index 5558ac6..80abe6b 100644
+index da70c98..107f863 100644
 --- a/drivers/net/wireless/broadcom/b43/b43.h
 +++ b/drivers/net/wireless/broadcom/b43/b43.h
-@@ -932,6 +932,11 @@ struct b43_ampdu_stats {
+@@ -933,6 +933,11 @@ struct b43_ampdu_stats {
  	u32 ack_tries[6];	/* acked frames by earlier driver re-sends (0..5) */
  	u32 notack[4];		/* not acked: no BA / bit 0 in window / behind BA SSN / >= 64 ahead */
  	u32 drop_cause[4];	/* finally dropped, same causes as notack */
@@ -48,7 +48,7 @@ index 5558ac6..80abe6b 100644
  };
  
  struct b43_wl {
-@@ -1006,6 +1011,11 @@ struct b43_wl {
+@@ -1007,6 +1012,11 @@ struct b43_wl {
  	/* Flag that implement the queues stopping. */
  	bool tx_queue_stopped[B43_QOS_QUEUE_NUM];
  
@@ -97,10 +97,10 @@ index a1b2b0f..7c349a0 100644
  			if (frame_succeed)
  				ring->nr_succeed_tx_packets++;
 diff --git a/drivers/net/wireless/broadcom/b43/main.c b/drivers/net/wireless/broadcom/b43/main.c
-index 4a344cd..9449563 100644
+index 29780bf..973e2b6 100644
 --- a/drivers/net/wireless/broadcom/b43/main.c
 +++ b/drivers/net/wireless/broadcom/b43/main.c
-@@ -3839,6 +3839,8 @@ static int b43_tx_ampdu(struct b43_wldev *dev, int queue_num)
+@@ -3854,6 +3854,8 @@ static int b43_tx_ampdu(struct b43_wldev *dev, int queue_num)
  		info = IEEE80211_SKB_CB(skb);
  		hdr = (struct ieee80211_hdr *)skb->data;
  		if (!(info->flags & IEEE80211_TX_CTL_AMPDU) ||
@@ -109,7 +109,7 @@ index 4a344cd..9449563 100644
  		    !ieee80211_is_data_qos(hdr->frame_control) ||
  		    !ether_addr_equal(hdr->addr1, ra) ||
  		    ieee80211_get_tid(hdr) != tid ||
-@@ -3958,6 +3960,10 @@ static ssize_t b43_ampdu_stats_read(struct file *file, char __user *ubuf,
+@@ -3973,6 +3975,10 @@ static ssize_t b43_ampdu_stats_read(struct file *file, char __user *ubuf,
  	len += scnprintf(buf + len, size - len, "\ndrop_cause    ");
  	for (i = 0; i < ARRAY_SIZE(st->drop_cause); i++)
  		len += scnprintf(buf + len, size - len, " %u", st->drop_cause[i]);
@@ -120,7 +120,7 @@ index 4a344cd..9449563 100644
  	len += scnprintf(buf + len, size - len, "\n");
  
  	mutex_lock(&wl->mutex);
-@@ -4002,6 +4008,200 @@ static const struct file_operations b43_ampdu_stats_fops = {
+@@ -4017,6 +4023,200 @@ static const struct file_operations b43_ampdu_stats_fops = {
  	.llseek = default_llseek,
  };
  
@@ -321,7 +321,7 @@ index 4a344cd..9449563 100644
  static void b43_tx_work(struct work_struct *work)
  {
  	struct b43_wl *wl = container_of(work, struct b43_wl, tx_work);
-@@ -4017,8 +4217,13 @@ static void b43_tx_work(struct work_struct *work)
+@@ -4032,8 +4232,13 @@ static void b43_tx_work(struct work_struct *work)
  		return;
  	}
  
@@ -335,7 +335,7 @@ index 4a344cd..9449563 100644
  			if (dev->ht_tx_ampdu &&
  			    (IEEE80211_SKB_CB(skb)->flags & IEEE80211_TX_CTL_AMPDU) &&
  			    ieee80211_is_data_qos(((struct ieee80211_hdr *)skb->data)->frame_control) &&
-@@ -5574,8 +5779,78 @@ static void b43_op_sta_notify(struct ieee80211_hw *hw,
+@@ -5589,8 +5794,78 @@ static void b43_op_sta_notify(struct ieee80211_hw *hw,
  			      struct ieee80211_sta *sta)
  {
  	struct b43_wl *wl = hw_to_b43_wl(hw);
@@ -414,7 +414,7 @@ index 4a344cd..9449563 100644
  }
  
  static void b43_op_sw_scan_start_notifier(struct ieee80211_hw *hw,
-@@ -5742,6 +6017,9 @@ static const struct ieee80211_ops b43_hw_ops = {
+@@ -5757,6 +6032,9 @@ static const struct ieee80211_ops b43_hw_ops = {
  	.stop			= b43_op_stop,
  	.set_tim		= b43_op_beacon_set_tim,
  	.sta_notify		= b43_op_sta_notify,
@@ -424,7 +424,7 @@ index 4a344cd..9449563 100644
  	.sw_scan_start		= b43_op_sw_scan_start_notifier,
  	.sw_scan_complete	= b43_op_sw_scan_complete_notifier,
  	.get_survey		= b43_op_get_survey,
-@@ -6175,6 +6453,7 @@ static struct b43_wl *b43_wireless_init(struct b43_bus_dev *dev)
+@@ -6190,6 +6468,7 @@ static struct b43_wl *b43_wireless_init(struct b43_bus_dev *dev)
  		skb_queue_head_init(&wl->tx_queue[queue_num]);
  		wl->tx_queue_stopped[queue_num] = false;
  	}

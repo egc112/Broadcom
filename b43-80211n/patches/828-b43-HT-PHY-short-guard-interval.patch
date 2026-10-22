@@ -19,7 +19,7 @@ Assisted-by: Claude:claude-opus-5-5
 Signed-off-by: Erik Conijn <egc112@msn.com>
 ---
 diff --git a/drivers/net/wireless/broadcom/b43/main.c b/drivers/net/wireless/broadcom/b43/main.c
-index b17a2d9..8bdcf2d 100644
+index e3b34da..acaffc0 100644
 --- a/drivers/net/wireless/broadcom/b43/main.c
 +++ b/drivers/net/wireless/broadcom/b43/main.c
 @@ -107,6 +107,15 @@ int b43_modparam_ht = 1;
@@ -38,7 +38,7 @@ index b17a2d9..8bdcf2d 100644
  static int b43_modparam_ht_rx_ampdu = 1;
  module_param_named(ht_rx_ampdu, b43_modparam_ht_rx_ampdu, int, 0644);
  MODULE_PARM_DESC(ht_rx_ampdu, "HT-PHY: accept A-MPDU RX block ack sessions (1, default) or refuse them (0)");
-@@ -5795,6 +5804,10 @@ static int b43_setup_bands(struct b43_wldev *dev,
+@@ -5810,6 +5819,10 @@ static int b43_setup_bands(struct b43_wldev *dev,
  	limited_5g = phy->radio_ver == 0x2057 &&
  		     phy->radio_rev == 9;
  

@@ -1,4 +1,4 @@
-From 30503aedf34abd51a909302b16f078e340baac60 Mon Sep 17 00:00:00 2001
+From 72140eeb416d75256503d912d1633feff7eabe4a Mon Sep 17 00:00:00 2001
 From: Rosen Penev <rosenp@gmail.com>
 Date: Sat, 17 Oct 2026 14:20:59 -0700
 Subject: [PATCH] wifi: b43: encrypt robust management frames in software
@@ -34,10 +34,10 @@ Signed-off-by: Rosen Penev <rosenp@gmail.com>
  1 file changed, 6 insertions(+)
 
 diff --git a/drivers/net/wireless/broadcom/b43/main.c b/drivers/net/wireless/broadcom/b43/main.c
-index 9563cc2..a5cdbc1 100644
+index 4d5003d..9f906d9 100644
 --- a/drivers/net/wireless/broadcom/b43/main.c
 +++ b/drivers/net/wireless/broadcom/b43/main.c
-@@ -5347,6 +5347,12 @@ static int b43_op_set_key(struct ieee80211_hw *hw, enum set_key_cmd cmd,
+@@ -5362,6 +5362,12 @@ static int b43_op_set_key(struct ieee80211_hw *hw, enum set_key_cmd cmd,
  		key->flags |= IEEE80211_KEY_FLAG_GENERATE_IV;
  		if (algorithm == B43_SEC_ALGO_TKIP)
  			key->flags |= IEEE80211_KEY_FLAG_GENERATE_MMIC;

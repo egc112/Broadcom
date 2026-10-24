@@ -1,0 +1,225 @@
+diff --git a/target/linux/bcm53xx/base-files/etc/board.d/01_leds b/target/linux/bcm53xx/base-files/etc/board.d/01_leds
+index caed389..6c02024 100644
+--- a/target/linux/bcm53xx/base-files/etc/board.d/01_leds
++++ b/target/linux/bcm53xx/base-files/etc/board.d/01_leds
+@@ -4,6 +4,9 @@
+ board_config_update
+ 
+ case "$(board_name)" in
++linksys,ea6900)
++	ucidef_set_led_netdev "wan" "WAN" "white:wan" "wan" "link"
++	;;
+ meraki,mx64|\
+ meraki,mx64-a0)
+ 	ucidef_set_led_netdev "wan" "WAN Port" "green:activity-9" "wan"
+diff --git a/target/linux/bcm53xx/base-files/etc/board.d/02_network b/target/linux/bcm53xx/base-files/etc/board.d/02_network
+index 1b7ecc8..9480e8c 100644
+--- a/target/linux/bcm53xx/base-files/etc/board.d/02_network
++++ b/target/linux/bcm53xx/base-files/etc/board.d/02_network
+@@ -70,6 +70,7 @@ bcm53xx_setup_macs()
+ 	buffalo,wzr-1750dhp|\
+ 	dlink,dir-890l|\
+ 	linksys,ea6500-v2|\
++	linksys,ea6900|\
+ 	netgear,r6250-v1|\
+ 	netgear,r6300-v2|\
+ 	netgear,r6400-v1|\
+diff --git a/target/linux/bcm53xx/image/Makefile b/target/linux/bcm53xx/image/Makefile
+index a459595..cbbc02d 100644
+--- a/target/linux/bcm53xx/image/Makefile
++++ b/target/linux/bcm53xx/image/Makefile
+@@ -340,6 +340,13 @@ define Device/linksys_ea6500-v2
+ endef
+ TARGET_DEVICES += linksys_ea6500-v2
+ 
++define Device/linksys_ea6900
++  DEVICE_VENDOR := Linksys
++  DEVICE_MODEL := EA6900
++  DEVICE_PACKAGES := $(USB3_PACKAGES)
++endef
++TARGET_DEVICES += linksys_ea6900
++
+ define Device/linksys_ea9200
+   DEVICE_VENDOR := Linksys
+   DEVICE_MODEL := EA9200
+diff --git a/target/linux/bcm53xx/patches-6.18/327-ARM-dts-BCM5301X-add-Linksys-EA6900.patch b/target/linux/bcm53xx/patches-6.18/327-ARM-dts-BCM5301X-add-Linksys-EA6900.patch
+new file mode 100644
+index 0000000..63b23ea
+--- /dev/null
++++ b/target/linux/bcm53xx/patches-6.18/327-ARM-dts-BCM5301X-add-Linksys-EA6900.patch
+@@ -0,0 +1,175 @@
++From: Erik Conijn <egc112@msn.com>
++Subject: [PATCH] ARM: dts: BCM5301X: add Linksys EA6900
++
++Linksys EA6900: BCM4708A0, 256 MiB RAM, 128 MiB NAND (BCH-8), two
++BCM4360 radios (2.4 GHz and 5 GHz) on PCIe, WAN on switch port 0 and
++LAN 1-4 on ports 1-4.
++
++GPIOs from the CFE default nvram: WPS button 7, reset button 11, USB
++VBUS 9 (usbport1 = the USB 3.0 socket) and 10 (usbport2 = the USB 2.0
++socket), active high. The USB 3.0 socket's VBUS must hang on the USB 3.0
++core, or a SuperSpeed stick present at boot gets stuck in link training.
++The logo LED has two drivers: GPIO 6 (active low, the power/status LED)
++and GPIO 8 (active high, used as the WAN LED), found by testing.
++
++Local, not upstreamed: tested only on a unit with the Asus-style CFE.
++
++Assisted-by: Claude:claude-opus-5-5
++Signed-off-by: Erik Conijn <egc112@msn.com>
++---
++--- a/arch/arm/boot/dts/broadcom/Makefile
+++++ b/arch/arm/boot/dts/broadcom/Makefile
++@@ -57,6 +57,7 @@
++ 	bcm4708-buffalo-wzr-1166dhp2.dtb \
++ 	bcm4708-linksys-ea6300-v1.dtb \
++ 	bcm4708-linksys-ea6500-v2.dtb \
+++	bcm4708-linksys-ea6900.dtb \
++ 	bcm4708-luxul-xap-1510.dtb \
++ 	bcm4708-luxul-xwc-1000.dtb \
++ 	bcm4708-netgear-r6250.dtb \
++--- /dev/null
+++++ b/arch/arm/boot/dts/broadcom/bcm4708-linksys-ea6900.dts
++@@ -0,0 +1,143 @@
+++// SPDX-License-Identifier: GPL-2.0-or-later OR MIT
+++/*
+++ * Broadcom BCM470X / BCM5301X ARM platform code.
+++ * DTS for Linksys EA6900
+++ *
+++ * BCM4708A0, 256 MiB RAM, 128 MiB NAND (BCH-8), two BCM4360 radios
+++ * (2.4 GHz and 5 GHz) on PCIe. Switch: WAN on port 0, LAN 1-4 on
+++ * ports 1-4.
+++ */
+++
+++/dts-v1/;
+++
+++#include <dt-bindings/leds/common.h>
+++
+++#include "bcm4708.dtsi"
+++#include "bcm5301x-nand-cs0-bch8.dtsi"
+++
+++/ {
+++	compatible = "linksys,ea6900", "brcm,bcm4708";
+++	model = "Linksys EA6900";
+++
+++	chosen {
+++		bootargs = "console=ttyS0,115200";
+++	};
+++
+++	memory@0 {
+++		device_type = "memory";
+++		reg = <0x00000000 0x08000000>,
+++		      <0x88000000 0x08000000>;
+++	};
+++
+++	leds {
+++		compatible = "gpio-leds";
+++
+++		led-power {
+++			color = <LED_COLOR_ID_WHITE>;
+++			function = LED_FUNCTION_POWER;
+++			gpios = <&chipcommon 6 GPIO_ACTIVE_LOW>;
+++			linux,default-trigger = "default-on";
+++		};
+++
+++		/*
+++		 * Lights the same logo LED as led-power. Undriven, the pin
+++		 * floats high and keeps the logo lit, which hides the status
+++		 * blinking of led-power.
+++		 */
+++		led-wan {
+++			color = <LED_COLOR_ID_WHITE>;
+++			function = LED_FUNCTION_WAN;
+++			gpios = <&chipcommon 8 GPIO_ACTIVE_HIGH>;
+++		};
+++	};
+++
+++	gpio-keys {
+++		compatible = "gpio-keys";
+++
+++		button-wps {
+++			label = "WPS";
+++			linux,code = <KEY_WPS_BUTTON>;
+++			gpios = <&chipcommon 7 GPIO_ACTIVE_LOW>;
+++		};
+++
+++		button-restart {
+++			label = "Reset";
+++			linux,code = <KEY_RESTART>;
+++			gpios = <&chipcommon 11 GPIO_ACTIVE_LOW>;
+++		};
+++	};
+++
+++	/* GPIO 10 = VBUS of the USB 2.0 socket (port 2) */
+++	usb2_power: regulator-usb2 {
+++		compatible = "regulator-fixed";
+++		regulator-name = "usb2-vcc";
+++		regulator-min-microvolt = <5000000>;
+++		regulator-max-microvolt = <5000000>;
+++		gpios = <&chipcommon 10 GPIO_ACTIVE_HIGH>;
+++		enable-active-high;
+++	};
+++
+++	/*
+++	 * GPIO 9 = VBUS of the USB 3.0 socket (port 1). It must follow the
+++	 * USB 3.0 core, or a SuperSpeed device powered before xHCI is ready
+++	 * gets stuck in link training at boot.
+++	 */
+++	usb3_power: regulator-usb3 {
+++		compatible = "regulator-fixed";
+++		regulator-name = "usb3-vcc";
+++		regulator-min-microvolt = <5000000>;
+++		regulator-max-microvolt = <5000000>;
+++		gpios = <&chipcommon 9 GPIO_ACTIVE_HIGH>;
+++		enable-active-high;
+++	};
+++};
+++
+++&usb2 {
+++	vbus-supply = <&usb2_power>;
+++};
+++
+++&usb3 {
+++	vbus-supply = <&usb3_power>;
+++};
+++
+++&usb3_phy {
+++	status = "okay";
+++};
+++
+++&srab {
+++	status = "okay";
+++
+++	ports {
+++		port@0 {
+++			label = "wan";
+++		};
+++
+++		port@1 {
+++			label = "lan1";
+++		};
+++
+++		port@2 {
+++			label = "lan2";
+++		};
+++
+++		port@3 {
+++			label = "lan3";
+++		};
+++
+++		port@4 {
+++			label = "lan4";
+++		};
+++
+++		port@5 {
+++			label = "cpu";
+++		};
+++
+++		port@7 {
+++			status = "disabled";
+++		};
+++
+++		port@8 {
+++			status = "disabled";
+++		};
+++	};
+++};

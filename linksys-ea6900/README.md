@@ -71,8 +71,10 @@ from stock-CFE units are welcome.
 | USB 3.0 stick **present at boot** | **unreliable**: sometimes detected after 30–50 s, sometimes not at all; replug it (see *Known limitations*) |
 | Logo LED: blinks during boot/failsafe/upgrade, solid when up; WAN link LED on GPIO 8 | works |
 | WPS button | works |
-| Reset button | defined (GPIO 11), press not tested yet |
-| sysupgrade with settings kept | works (without keeping settings: not tested) |
+| Reset button: short press reboots, hold 5 s or longer resets to defaults | works |
+| Failsafe: tap Reset or WPS while the logo blinks during boot | works (LAN port 1 only) |
+| sysupgrade, with and without keeping settings | works |
+| Mini CFE web recovery | works (see *Install or recover with the mini CFE*) |
 | **Wireless** | **no**: stock OpenWrt's b43 does not support the BCM4360 (AC-PHY): `b43-phy0 ERROR: FOUND UNSUPPORTED PHY (Analog 12, Type 11 (AC))`; brcmfmac does not support this chip either |
 
 ## Before you start
@@ -116,13 +118,32 @@ from stock-CFE units are welcome.
 
 ## Install or recover with the mini CFE
 
-From the CFE guide (not re-tested with OpenWrt): switch the router off, hold the **Reset** button,
-switch it on, and keep holding for about 10 seconds, until the logo LED dims. Give your computer the
-static address 192.168.1.2/24 (gateway 192.168.1.1), open **http**://192.168.1.1 (not https; a private
-browser window helps) and upload the image:
+**The mini CFE does not always use 192.168.1.1.** It takes its address from nvram (`lan_ipaddr`), so
+after DD-WRT it is usually your last DD-WRT LAN address. OpenWrt never changes nvram. Check it
+beforehand, in OpenWrt or DD-WRT:
 
-* the OpenWrt `squashfs.trx` (or `initramfs.trx`) to install OpenWrt;
-* DD-WRT's `linksys-ea6900-webflash.bin` (or your dump) to go back to DD-WRT.
+```sh
+nvram get lan_ipaddr
+nvram get lan_netmask
+```
+
+1. Switch the router off, hold the **Reset** button, switch it on and keep holding until the logo
+   LED goes off (about 8 seconds), then let go. In rescue mode the logo blinks slowly on and off.
+   This is not a boot loop.
+2. Connect the computer to **LAN port 1** and give it a static address in that subnet,
+   for example 192.168.1.2/24 for `lan_ipaddr=192.168.1.1`. `ping` answers with TTL 100 (the CFE).
+3. Open `http://<lan_ipaddr>` (plain http, not https) and upload the image. If the upload stays at
+   "uploading" and the router keeps blinking slowly, nothing was written: try another browser (in our
+   test one browser hung, Edge worked). When the upload is complete, the router reboots by itself.
+
+What to upload:
+
+* **To recover OpenWrt:** the `initramfs.trx`. It runs from RAM, at 192.168.1.1 with no password.
+  Then flash the `squashfs.trx` from it with sysupgrade or LuCI (without keeping settings) and
+  restore your settings backup. This route is tested.
+* Uploading the `squashfs.trx` directly is not tested yet. The CFE writes it raw over the old
+  flash contents; use the initramfs route until someone confirms it.
+* **Back to DD-WRT:** DD-WRT's `linksys-ea6900-webflash.bin` (or your dump).
 
 Your CFE needs `boot_wait=on` in nvram for the TFTP rescue route; keep it.
 

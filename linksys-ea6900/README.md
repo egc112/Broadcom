@@ -41,6 +41,12 @@ partition (no `linux2`).
 With this CFE the dual boot is gone: OpenWrt sees one firmware partition from 0x200000 to the end of
 flash (126 MiB), so the overlay gets about 92 MiB.
 
+Losing the dual boot is not a loss: the mini CFE web recovery (see below) can always put a new
+image on the router, whatever state the firmware is in, because it lives in the CFE, which OpenWrt
+never writes. In return you get twice the firmware space (126 MiB instead of about 62 MiB). The
+only difference: the stock dual boot falls back to the other image by itself, while the mini CFE
+needs a computer on a LAN port.
+
 **Stock Linksys CFE (untested):** the device tree has no fixed partitions, so OpenWrt's partition
 parser also finds the stock dual-boot layout (images at 0x200000 and 0x4000000) and uses the one that
 `bootpartition` points to, about 62 MiB (overlay roughly 45 MiB, not measured). The stock CFE counts

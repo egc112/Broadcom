@@ -4,17 +4,21 @@
 > Tested on one EA6900 v1 that was converted to the **Asus-style (XVortex) CFE** and ran DD-WRT
 > before. Units with the stock Linksys CFE (dual boot) are **not** covered and not tested.
 > **There is no wireless yet** (see *What works*).
+> **EA6900 v1 only.** The EA6900 v2 is a different router (MediaTek MT7621) and needs other firmware.
 
 ## Hardware
 
 | | |
 |---|---|
+| FCC / IC ID | Q87-EA6900 / 3839A-EA6900 |
+| Power supply | 12 V DC, 3.5 A |
 | SoC | Broadcom BCM4708A0 (chip 53010 rev 0), 800 MHz, 2 cores |
 | RAM / flash | 256 MiB / 128 MiB NAND (Spansion S34ML01G1, BCH-8) |
 | Switch | BCM53011 (rev 3): WAN on port 0, LAN 1–4 on ports 1–4 |
 | Wireless | **two BCM4360** (AC-PHY, 3x3): 2.4 GHz (nvram `0:devid=0x43A1`) and 5 GHz (`1:devid=0x43A2`), both PCI 14e4:4360, no SPROM: the calibration is in nvram |
 | Front ends | external power amplifiers: 3× Skyworks SE2623L (2.4 GHz), 3× Skyworks SE5003L1 (5 GHz) ([SmallNetBuilder](https://www.smallnetbuilder.com/wireless/wireless-reviews/linksys-ea6900-wireless-ac-router-smart-wi-fi-dual-band-ac1900-reviewed/)) |
 | Antennas | 3 external dual-band antennas, detachable (RP-SMA) |
+| Serial | 6-pin header inside (pinout not documented here; not used for this port) |
 | USB | port 1 = USB 3.0 (VBUS on GPIO 9), port 2 = USB 2.0 (VBUS on GPIO 10) |
 | LEDs | one white Linksys logo LED with **two** drivers: GPIO 6 (active low) and GPIO 8 (active high); the port LEDs belong to the switch |
 | Buttons | WPS = GPIO 7, Reset = GPIO 11 (both active low) |
@@ -43,14 +47,17 @@ flash (126 MiB), so the overlay gets about 92 MiB.
 
 Losing the dual boot is not a loss: the mini CFE web recovery (see below) can always put a new
 image on the router, whatever state the firmware is in, because it lives in the CFE, which OpenWrt
-never writes. In return you get twice the firmware space (126 MiB instead of about 62 MiB). The
+never writes. In return you get four times the firmware space (126 MiB instead of about 31 MiB). The
 only difference: the stock dual boot falls back to the other image by itself, while the mini CFE
 needs a computer on a LAN port.
 
-**Stock Linksys CFE (untested):** the device tree has no fixed partitions, so OpenWrt's partition
-parser also finds the stock dual-boot layout (images at 0x200000 and 0x4000000) and uses the one that
-`bootpartition` points to, about 62 MiB (overlay roughly 45 MiB, not measured). The stock CFE counts
-boots in nvram (`partialboots`, `maxpartialboots`) and may switch to the other image when the
+**Stock Linksys CFE (untested):** the stock layout keeps two images of about 31 MiB each in the
+first 64 MiB of flash, at 0x200000 and 0x2100000 (see the
+[DD-WRT wiki](https://wiki.dd-wrt.com/wiki/Linksys_EA6900); the upper 64 MiB is not used by the
+stock firmware). The device tree has no fixed partitions, so OpenWrt's partition parser finds both
+images and uses the one that `bootpartition` points to. The first image ends where the second
+begins (31 MiB); the second runs to the end of the flash. The stock CFE counts incomplete boots in
+nvram (`partialboots`, `maxpartialboots`, default 3) and switches to the other image when the
 firmware does not reset that counter. DD-WRT resets it on every boot; OpenWrt does not. Reports
 from stock-CFE units are welcome.
 
@@ -78,7 +85,9 @@ from stock-CFE units are welcome.
    nvram show > /tmp/nvram-show.txt   # contains your passwords and wifi keys
    ```
 
-2. **Keep a DD-WRT `.trx` for the EA6900** as the way back. You can dump the running one:
+2. **Keep a DD-WRT image for the EA6900** as the way back: the `linksys-ea6900-webflash.bin` you
+   installed (DD-WRT names it `.bin`, but it is a TRX file, the same format as OpenWrt's `.trx`).
+   You can also dump the running one:
    read the TRX length from bytes 4–7 of `/dev/mtd2` (little endian), then
    `dd if=/dev/mtd2 bs=131072 count=<length/131072, rounded up>` and cut the file to that length.
    Check it with `otrx check` from an OpenWrt build tree before you rely on it.
@@ -99,7 +108,7 @@ from stock-CFE units are welcome.
    `openwrt-bcm53xx-generic-linksys_ea6900-squashfs.trx`. Choose **not** to reset to defaults.
    (DD-WRT writes EA6900 images to the `linux` partition when `bootpartition` is empty or 0, and checks
    only the TRX header and CRC.) If the web upgrade fails (after the CFE swap the partition layout
-   differs from stock), copy the file to `/tmp` and run `write /tmp/<file>.trx linux` over SSH, or
+   differs from stock), copy the file to `/tmp` and run `write /tmp/<file> linux` over SSH, or
    use the mini CFE (below).
 2. The first boot takes a few minutes: UBI is formatted and DD-WRT's `/jffs` area is erased.
    Do not power-cycle. The logo LED blinks while it boots and is solid when it is up.
@@ -110,10 +119,10 @@ from stock-CFE units are welcome.
 From the CFE guide (not re-tested with OpenWrt): switch the router off, hold the **Reset** button,
 switch it on, and keep holding for about 10 seconds, until the logo LED dims. Give your computer the
 static address 192.168.1.2/24 (gateway 192.168.1.1), open **http**://192.168.1.1 (not https; a private
-browser window helps) and upload a `.trx`:
+browser window helps) and upload the image:
 
 * the OpenWrt `squashfs.trx` (or `initramfs.trx`) to install OpenWrt;
-* your DD-WRT `.trx` to go back to DD-WRT.
+* DD-WRT's `linksys-ea6900-webflash.bin` (or your dump) to go back to DD-WRT.
 
 Your CFE needs `boot_wait=on` in nvram for the TFTP rescue route; keep it.
 

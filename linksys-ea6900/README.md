@@ -35,6 +35,13 @@ partition (no `linux2`).
 With this CFE the dual boot is gone: OpenWrt sees one firmware partition from 0x200000 to the end of
 flash (126 MiB), so the overlay gets about 92 MiB.
 
+**Stock Linksys CFE (untested):** the device tree has no fixed partitions, so OpenWrt's partition
+parser also finds the stock dual-boot layout (images at 0x200000 and 0x4000000) and uses the one that
+`bootpartition` points to, about 62 MiB (overlay roughly 45 MiB, not measured). The stock CFE counts
+boots in nvram (`partialboots`, `maxpartialboots`) and may switch to the other image when the
+firmware does not reset that counter. DD-WRT resets it on every boot; OpenWrt does not. Reports
+from stock-CFE units are welcome.
+
 ## What works
 
 | | |
@@ -66,7 +73,13 @@ flash (126 MiB), so the overlay gets about 92 MiB.
 
 3. OpenWrt does **not** use nvram for its settings (they live in `/etc/config` on the UBI
    overlay). It only reads nvram: the MACs, and later the radio calibration. Do **not** erase
-   nvram: the calibration is only there.
+   nvram, and do **not** erase the Linksys `devinfo` area at 0x180000 (see *Flash layout*): it
+   holds the factory radio calibration. After installing OpenWrt, back it up as well (it is
+   `mtd2` there):
+
+   ```sh
+   dd if=/dev/mtd2 of=/tmp/mtd2-devinfo.bin bs=131072   # contains your serial number and WPS PIN
+   ```
 
 ## Install from DD-WRT
 
@@ -133,7 +146,7 @@ You need an OpenWrt build tree (tested with OpenWrt main r37507-4e16c2ed8f, kern
 |---|---|---|---|
 | 0x0000000 | 512 KiB | boot | the CFE |
 | 0x0080000 | 1 MiB | nvram | live nvram (64 KiB used) |
-| 0x0180000 | 512 KiB | nvram | an older, separate nvram image with Linksys stock values; not used, not written |
+| 0x0180000 | 512 KiB | nvram | Linksys **devinfo** (OpenWrt names it a second "nvram"): the unit's factory radio calibration, MAC, model, serial number, WPS PIN and default passphrase. OpenWrt does not use or write it. **Never erase it.** |
 | 0x0200000 | 126 MiB | firmware | TRX: kernel (4 MiB) + UBI (rootfs + rootfs_data) |
 
 ## Known limitations

@@ -281,6 +281,40 @@ Use 1 if calls or games matter more than the top download speed:
 `echo 1 > /sys/module/b43/parameters/ampdu_inflight` (live), or add `ampdu_inflight=1`
 to `/etc/modules.d/b43` to keep it after a reboot.
 
+**Traffic in both directions: set a 2 ms burst.** When a client uploads and downloads at
+the same time (a backup while streaming, a big upload while browsing), the download from
+the R6400 can drop to a few Mbit/s while the upload keeps 100. The R6400 sends at most 16
+frames per turn on the air and most of them are the small TCP acknowledgements of the
+upload; a busy client fills its own turns with large frames. Letting the router send for
+up to 2 ms per turn fixes most of it. This is a wireless setting, not a module parameter:
+in the `wifi-device` section of the b43 radio in `/etc/config/wireless` add
+
+```
+	option tx_queue_data2_burst '2.0'
+```
+
+and run `wifi`. Measured on the R6400 v2 (rc8 module, client a DL-WRX36, traffic routed
+through the R6400, runs alternated with the default):
+
+| | default | with the burst |
+|---|---|---|
+| upload + download at once | 101–103 / 3.3–5.1 Mbit/s | 89–94 / 15–19 Mbit/s |
+| upload only | 106–108 | 108–109 |
+| download only | ~100 | 108 |
+| ping during a download | 7–8 ms | 7–8 ms |
+
+On the R6400 v1 (same test) the download with traffic both ways went from 10–17 to
+28–31 Mbit/s, and single-direction speeds and ping were unchanged.
+
+A third client does not wait longer: its ping during another client's download stayed the
+same, and during traffic both ways it went down (v1, rc8: average 14–16 → 11–12 ms, no
+pings above 50 ms instead of a few). The burst gives the router a larger share of the
+airtime; with a client that is itself slow to send, the balance can tip towards the
+router's direction.
+
+OpenWrt already uses this value by default for 5 GHz 802.11ac access points; for 2.4 GHz
+it stays at 0.
+
 ### Standard b43 parameters
 
 Unchanged by these patches; listed for completeness.

@@ -1,0 +1,73 @@
+From d3a2c9fbf51006c000f013bc75de14856c9a24ec Mon Sep 17 00:00:00 2001
+From: Erik Conijn <egc112@msn.com>
+Date: Fri, 23 Oct 2026 14:26:10 +0200
+Subject: [PATCH] wifi: b43: HT-PHY: receive A-MPDUs of up to 64 KiB
+
+Advertise a maximum A-MPDU length of 64 KiB on HT-PHY and raise the
+ucode's limits for it as brcms_c_ampdu_shm_upd() does for that factor:
+the watchdog (M_WATCHDOG_8TU, SHM 0x3c) to 10 and the longest PSDU
+(M_MIMO_MAXSYM, SHM 0xba) to 0xffff. N-PHY keeps 32 KiB.
+
+Upload from an ath11k client, the two versions alternated run by run
+(30 s each): Netgear R6400 v2 92.2 and 88.8 Mbit/s with 32 KiB, 107 and
+105 Mbit/s with 64 KiB (+17 %); R6400 v1 91.4 and 88.2 against 82.2 and
+93.2 Mbit/s (no clear difference).
+
+Assisted-by: Claude:claude-opus-5-5
+Signed-off-by: Erik Conijn <egc112@msn.com>
+---
+ drivers/net/wireless/broadcom/b43/b43.h  |  2 ++
+ drivers/net/wireless/broadcom/b43/main.c | 13 +++++++++++++
+ 2 files changed, 15 insertions(+)
+
+diff --git a/drivers/net/wireless/broadcom/b43/b43.h b/drivers/net/wireless/broadcom/b43/b43.h
+index 173405c..dd9181e 100644
+--- a/drivers/net/wireless/broadcom/b43/b43.h
++++ b/drivers/net/wireless/broadcom/b43/b43.h
+@@ -245,6 +245,7 @@ enum {
+ #define B43_SHM_SH_WLCOREREV		0x0016	/* 802.11 core revision */
+ #define B43_SHM_SH_PCTLWDPOS		0x0008
+ #define B43_SHM_SH_RXPADOFF		0x0034	/* RX Padding data offset (PIO only) */
++#define B43_SHM_SH_WATCHDOG_8TU		0x003C	/* ucode watchdog in 8 TU (A-MPDU RX) */
+ #define B43_SHM_SH_FWCAPA		0x0042	/* Firmware capabilities (Opensource firmware only) */
+ #define B43_SHM_SH_PHYVER		0x0050	/* PHY version */
+ #define B43_SHM_SH_PHYTYPE		0x0052	/* PHY type */
+@@ -260,6 +261,7 @@ enum {
+ #define B43_SHM_SH_CHAN			0x00A0	/* Current channel (low 8bit only) */
+ #define  B43_SHM_SH_CHAN_5GHZ		0x0100	/* Bit set, if 5 Ghz channel */
+ #define  B43_SHM_SH_CHAN_40MHZ		0x0200	/* Bit set, if 40 Mhz channel width */
++#define B43_SHM_SH_MIMO_MAXSYM		0x00BA	/* longest PSDU received (A-MPDU RX) */
+ #define B43_SHM_SH_MACHW_L		0x00C0	/* Location where the ucode expects the MAC capabilities */
+ #define B43_SHM_SH_MACHW_H		0x00C2	/* Location where the ucode expects the MAC capabilities */
+ #define B43_SHM_SH_HOSTF5		0x00D4	/* Hostflags 5 for ucode options */
+diff --git a/drivers/net/wireless/broadcom/b43/main.c b/drivers/net/wireless/broadcom/b43/main.c
+index 6e39d81..9028bb5 100644
+--- a/drivers/net/wireless/broadcom/b43/main.c
++++ b/drivers/net/wireless/broadcom/b43/main.c
+@@ -5820,6 +5820,15 @@ static int b43_wireless_core_init(struct b43_wldev *dev)
+ 	b43_shm_write16(dev, B43_SHM_SHARED, B43_SHM_SH_PHYTYPE, phy->type);
+ 	b43_shm_write16(dev, B43_SHM_SHARED, B43_SHM_SH_PHYVER, phy->rev);
+ 
++	/*
++	 * 64 KiB A-MPDUs on HT-PHY: the ucode watchdog and the longest PSDU
++	 * it receives, as brcms_c_ampdu_shm_upd() sets them for that factor
++	 */
++	if (phy->type == B43_PHYTYPE_HT) {
++		b43_shm_write16(dev, B43_SHM_SHARED, B43_SHM_SH_WATCHDOG_8TU, 10);
++		b43_shm_write16(dev, B43_SHM_SHARED, B43_SHM_SH_MIMO_MAXSYM, 0xffff);
++	}
++
+ 	if (b43_bus_host_is_pcmcia(dev->dev) ||
+ 	    b43_bus_host_is_sdio(dev->dev)) {
+ 		dev->__using_pio_transfers = true;
+@@ -6411,6 +6420,10 @@ static void b43_ht_cap_set_chains(struct b43_wldev *dev,
+ 		ht_cap->mcs.tx_params |= IEEE80211_HT_MCS_TX_RX_DIFF |
+ 			((tx_ss - 1) << IEEE80211_HT_MCS_TX_MAX_STREAMS_SHIFT);
+ 
++	/* HT-PHY: 64 KiB A-MPDUs, with the ucode limits raised in b43_wireless_core_init() */
++	if (dev->phy.type == B43_PHYTYPE_HT)
++		ht_cap->ampdu_factor = IEEE80211_HT_MAX_AMPDU_64K;
++
+ 	b43dbg(dev->wl, "HT with %d TX and %d RX chains, %d/%d streams\n",
+ 	       tx, rx, tx_ss, rx_ss);
+ }

@@ -1,13 +1,16 @@
 # Provenance and legal notes
 
 This page explains where every part of the b43-80211n patch series comes from and how the
-information was obtained. Anyone can check it. It covers the series as of **rc8** (patches 820–839).
+information was obtained. Anyone can check it. It covers **rc9** (patches 862–867 and a
+wifi-scripts patch, on top of Rosen Penev's openwrt/openwrt#25922) and the older stand-alone
+series **rc8** (patches 820–839, in [patches-rc8](patches-rc8/)).
 
 It is a factual record, not legal advice. Questions or corrections: please open an issue.
 
 ## Summary
 
-* All patches are changes to the Linux **b43** driver and are licensed **GPL-2.0**, like b43 itself.
+* The patches of this repository are changes to the Linux **b43** driver (and, in rc9, one change
+  to OpenWrt's wifi-scripts) and are licensed **GPL-2.0**, like the code they change.
 * They are based on open source code (Linux b43, brcmsmac, bcma, ssb, mac80211 and ath9k), on the
   IEEE 802.11 standard, on source files Broadcom published under an open license, on patches by
   Rosen Penev (credited, with his authorship kept), and on our own measurements.
@@ -33,7 +36,8 @@ It is a factual record, not legal advice. Questions or corrections: please open 
 | Linux bcma, ssb | GPL-2.0 | names of ChipCommon and board-flag bits |
 | Linux mac80211, ath9k | GPL-2.0 | the mac80211 APIs; the block-ack window and power-save handling patterns |
 | Broadcom header and source files published under the ISC license (e.g. in router GPL source releases) | ISC | names and meanings of BCM4331 chip-control bits and board flags (patch 822) |
-| Rosen Penev's patches, openwrt/openwrt#25922 | GPL-2.0 (his Signed-off-by) | 839 (his patch, unchanged), 835 (based on his work) |
+| Rosen Penev's patches, openwrt/openwrt#25922 | GPL-2.0 (his Signed-off-by) | rc9: the base, not part of this repository; rc8: 839 (his patch, unchanged), 835 (based on his work) |
+| OpenWrt wifi-scripts (`hostapd.uc`) | GPL-2.0 | rc9: the frame bursting default follows the existing 5 GHz (VHT) default there |
 
 ISC is a permissive license and may be combined with GPL-2.0 code. brcmsmac is already part of the
 Linux kernel under that license.
@@ -54,7 +58,50 @@ Linux kernel under that license.
    ucode (version 666.2) with `b43-fwcutter`, as every OpenWrt build with b43 does. We did not
    modify or add firmware.
 
-## Sources per patch
+## Sources per patch (rc9)
+
+rc9 is applied on top of openwrt/openwrt#25922 at 0615bc0150, by Rosen Penev. His series is not
+part of this repository; its sources are his to document. It contains his own versions of
+several rc8 patches (821, 822, 823, 824, 826, 830, 831, 833, 837, 838), whose sources are
+listed in the rc8 table below.
+
+| Patch | Author | Based on |
+|---|---|---|
+| 862 | Erik Conijn | b43's own NAPI code in his series; the point was raised by the openwrt-ai review of openwrt/openwrt#25922 |
+| 863 | Erik Conijn | hardware read-back of PHY table 9 under Broadcom's driver (DD-WRT) on the R6400 v1; throughput and signal measured with and without the upload; board flags from Linux ssb/bcma |
+| 864 | Erik Conijn | b43 code only (removes a module parameter) |
+| 865 | Erik Conijn | b43 code only; the gain indices are the ones measured for rc8's 824 |
+| 866 | Erik Conijn | see *Patch 866* below: b43's open N-PHY calibration code, and measurements on the hardware |
+| 867 | Erik Conijn | brcmsmac `brcms_c_ampdu_shm_upd()` (the ucode limits for a 64 KiB A-MPDU) and the shared-memory names in brcmsmac's `d11.h`; throughput measurements |
+| wifi-scripts | Erik Conijn | OpenWrt's `hostapd.uc`, which already sets `tx_queue_data2_burst` 2.0 for VHT; throughput and latency measurements |
+
+All carry `Assisted-by: Claude:claude-opus-5-5`. They were written with the help of an AI
+assistant (Anthropic's Claude), which also helped run the measurements and keep this record.
+
+## Patch 866: RX I/Q calibration
+
+866 estimates the I/Q imbalance of each of the BCM4331's three receive chains and writes a
+compensation, at every channel switch. It uses only the receiver: no test tone, no loopback, no
+radio register writes.
+
+| Part | Source |
+|---|---|
+| The estimator (start, wait time, sample count, then I power, Q power and I/Q product per chain) | Linux b43 `phy_n.c`, `b43_nphy_rx_iq_est()`, and the N-PHY register names in `phy_n.h` (`B43_NPHY_IQEST_*`, 0x129–0x12B; chain 1 at 0x12C, chain 2 at 0x134). The same estimator exists in brcmsmac (`wlc_phy_rx_iq_est_nphy`) |
+| The coefficients a and b from an estimate | Linux b43 `b43_nphy_calc_rx_iq_comp()` for PHY rev ≥ 3 (a → COMPA, b → COMPB); the same in brcmsmac (`wlc_phy_calc_rx_iq_comp_nphy`). 866 does the same arithmetic in 64 bits |
+| The compensation registers of chains 1 and 2 (0x09A/0x09B, 0x09C/0x09D) | Linux b43 `phy_n.h` (`B43_NPHY_C1_RXIQ_COMPA0` … `B43_NPHY_C2_RXIQ_COMPB1`) |
+| The third chain: estimator results at 0x13A–0x13F, compensation at 0x09E/0x09F | Measured on the hardware (R6400 v1 and v2): the six registers after chain 2's hold a third, independent estimate in the same layout; the coefficients computed from it, written to 0x09E/0x09F (the next pair after chain 2's), bring that chain's image rejection from 25–27 dB to 48–52 dB, and the MCS 15 frame loss falls with it (below) |
+| Use the quietest 8 of 32 estimates per chain | Own design, from 200 single estimates on the hardware: estimates taken while frames are on the air scatter by 5–12°, the quietest agree within 0.7° |
+| Skip the calibration before the PHY is initialized; keep the stored result during a scan | Own design, from b43's own init order and logs on the hardware |
+| The effect | Measured: MPDU loss of a client at a fixed MCS 15, alternated blocks of 20 s, ~1 million frames per state (R6400 v1, channel 6: 32.8 % without, 2.1 % with); TCP throughput; residual image rejection in a 9.5-hour soak (42–70 dB) |
+
+As for 822: the authors had earlier studied Broadcom's wl driver privately, and the address of
+the third chain's registers was first noticed there. Every part of 866 can nevertheless be
+checked without that study, and no value in 866 comes from it: the method and the
+arithmetic are b43's own N-PHY code, and the third chain's registers are a fact anyone can
+measure on the hardware as described above. No Broadcom calibration code, data or loopback
+method is used.
+
+## Sources per patch (rc8)
 
 | Patch | Author | Based on (as named in its commit text) |
 |---|---|---|
@@ -97,9 +144,9 @@ On 2026-10-19 the patch was rewritten for rc7. Every value in it is now backed b
 by a measurement of the hardware. Values that could only be explained by the decompiled code were
 dropped.
 
-To be clear: the rework was done by the same people who had read the decompiled code. It is
-therefore **not a clean-room** reimplementation. What it does instead is make every value
-independently checkable, using the sources below.
+To be clear: the rework was done by the same people who had read the decompiled code. Every
+value of the rc7 version can nevertheless be checked without that code, using the sources
+below.
 
 ### Every value of the rc7 version
 
@@ -133,3 +180,5 @@ Dropped from the rc3–rc6 version:
 
 * 2026-10-19: first version, with rc7.
 * 2026-10-22: rc8 (824 board-flag check, 827 hang check counters).
+* 2026-10-26: rc9 (patches 862–867 and the wifi-scripts patch on top of openwrt/openwrt#25922;
+  patch 866); the 822 account reworded, same facts.

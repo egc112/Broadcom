@@ -1,0 +1,35 @@
+From: Erik Conijn <egc112@msn.com>
+Subject: [PATCH] wifi-scripts: best effort frame bursting by default on b43
+
+OpenWrt sets tx_queue_data2_burst 2.0 by default for VHT (5 GHz)
+access points. Do the same for b43 802.11n radios: on a Netgear R6400
+(BCM4331) it shares the air fairer between upload and download (with
+traffic both ways the download from the router rose from 3-5 to 15-19
+Mbit/s on the v2 and from 10-17 to 28-31 Mbit/s on the v1; single
+direction speeds and ping unchanged). The uci option still overrides it.
+
+This is a patch to the OpenWrt tree (package/network/config/wifi-scripts),
+not to the mac80211 package.
+
+Assisted-by: Claude:claude-opus-5-5
+Signed-off-by: Erik Conijn <egc112@msn.com>
+---
+diff --git a/package/network/config/wifi-scripts/files-ucode/usr/share/ucode/wifi/hostapd.uc b/package/network/config/wifi-scripts/files-ucode/usr/share/ucode/wifi/hostapd.uc
+index 8f05691..8f37b4b 100644
+--- a/package/network/config/wifi-scripts/files-ucode/usr/share/ucode/wifi/hostapd.uc
++++ b/package/network/config/wifi-scripts/files-ucode/usr/share/ucode/wifi/hostapd.uc
+@@ -474,6 +474,14 @@ function device_htmode_append(config) {
+ 			append_vars(config, [ 'eht_oper_chwidth', 'eht_oper_centr_freq_seg0_idx' ]);
+ 	}
+ 
++	/*
++	 * b43 (BCM4331 HT-PHY measured): best effort frame bursting, as for
++	 * VHT above; it shares the air fairer between upload and download
++	 */
++	if (config.ieee80211n && config.hw_mode == 'g' &&
++	    match(fs.readlink(`/sys/class/ieee80211/${config.phy}/device/driver`) ?? '', /\/b43$/))
++		set_default(config, 'tx_queue_data2_burst', '2.0');
++
+ 	append_vars(config, [ 'tx_queue_data2_burst', 'stationary_ap' ]);
+ }
+ 

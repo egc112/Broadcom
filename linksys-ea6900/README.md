@@ -13,6 +13,8 @@
 | RAM / flash | 256 MiB / 128 MiB NAND (Spansion S34ML01G1, BCH-8) |
 | Switch | BCM53011 (rev 3): WAN on port 0, LAN 1–4 on ports 1–4 |
 | Wireless | **two BCM4360** (AC-PHY, 3x3): 2.4 GHz (nvram `0:devid=0x43A1`) and 5 GHz (`1:devid=0x43A2`), both PCI 14e4:4360, no SPROM: the calibration is in nvram |
+| Front ends | external power amplifiers: 3× Skyworks SE2623L (2.4 GHz), 3× Skyworks SE5003L1 (5 GHz) ([SmallNetBuilder](https://www.smallnetbuilder.com/wireless/wireless-reviews/linksys-ea6900-wireless-ac-router-smart-wi-fi-dual-band-ac1900-reviewed/)) |
+| Antennas | 3 external dual-band antennas, detachable (RP-SMA) |
 | USB | port 1 = USB 3.0 (VBUS on GPIO 9), port 2 = USB 2.0 (VBUS on GPIO 10) |
 | LEDs | one white Linksys logo LED with **two** drivers: GPIO 6 (active low) and GPIO 8 (active high); the port LEDs belong to the switch |
 | Buttons | WPS = GPIO 7, Reset = GPIO 11 (both active low) |
@@ -27,7 +29,11 @@ visible function was found; OpenWrt leaves them alone.
 The stock Linksys CFE has the 32 KiB nvram limit and a dual-boot layout (`linux` / `linux2`).
 Many EA6900 owners replaced it with an Asus RT-AC68U-based CFE (by XVortex), which has 64 KiB
 nvram and the Asus **mini-CFE web recovery**. This guide assumes that CFE. Replacing the CFE is
-**not** covered here; see the DD-WRT forum.
+**not** covered here; see the guide by Crashman and egc in the
+[DD-WRT forum](https://forum.dd-wrt.com/phpBB2/viewtopic.php?t=291230) (credits: @Xvortex, @Cybrnook,
+@Crashman, @RMerlin). In short: dump the stock CFE and nvram, put your own `et0macaddr`,
+`0:macaddr`, `1:macaddr` and `secret_code` (WPS PIN) into the Xvortex CFE with CFEEdit, and write it
+to `mtd0`.
 
 Check on DD-WRT: `nvram get nvram_space` gives `65536`, and `cat /proc/mtd` shows a single `linux`
 partition (no `linux2`).
@@ -86,21 +92,28 @@ from stock-CFE units are welcome.
 1. DD-WRT → Administration → Firmware Upgrade: upload
    `openwrt-bcm53xx-generic-linksys_ea6900-squashfs.trx`. Choose **not** to reset to defaults.
    (DD-WRT writes EA6900 images to the `linux` partition when `bootpartition` is empty or 0, and checks
-   only the TRX header and CRC.)
+   only the TRX header and CRC.) If the web upgrade fails (after the CFE swap the partition layout
+   differs from stock), copy the file to `/tmp` and run `write /tmp/<file>.trx linux` over SSH, or
+   use the mini CFE (below).
 2. The first boot takes a few minutes: UBI is formatted and DD-WRT's `/jffs` area is erased.
    Do not power-cycle. The logo LED blinks while it boots and is solid when it is up.
 3. Connect to a LAN port: OpenWrt is at **192.168.1.1**, user `root`, no password. Set a password.
 
 ## Install or recover with the mini CFE
 
-The usual Asus CFE rescue procedure (not re-tested for this guide): switch the router off, hold the
-**Reset** button, switch it on, and keep holding until the logo LED flashes slowly. Give your computer
-the static address 192.168.1.2/24, open http://192.168.1.1 and upload a `.trx`:
+From the CFE guide (not re-tested with OpenWrt): switch the router off, hold the **Reset** button,
+switch it on, and keep holding for about 10 seconds, until the logo LED dims. Give your computer the
+static address 192.168.1.2/24 (gateway 192.168.1.1), open **http**://192.168.1.1 (not https; a private
+browser window helps) and upload a `.trx`:
 
 * the OpenWrt `squashfs.trx` (or `initramfs.trx`) to install OpenWrt;
 * your DD-WRT `.trx` to go back to DD-WRT.
 
 Your CFE needs `boot_wait=on` in nvram for the TFTP rescue route; keep it.
+
+**Do not hold WPS while switching on.** Holding WPS at power-on for about 20 seconds (until the logo
+flashes) makes the CFE reset nvram to its defaults. The MACs come back from the CFE (if they were
+set with CFEEdit), but anything else in nvram, including radio calibration added later, is gone.
 
 ## Upgrading OpenWrt
 

@@ -111,21 +111,16 @@ uci commit system; /etc/init.d/led restart
 
 You need an OpenWrt build tree (tested with OpenWrt main r37507-4e16c2ed8f, kernel 6.18).
 
-1. Apply the patches at the root of the tree:
+1. Apply the patch at the root of the tree:
 
    ```sh
    cd <openwrt>
    patch -p1 < patches/EA6900.patch
-   patch -p1 < patches/usb-bcma-load-after-xhci.patch
    ```
 
-   * `EA6900.patch`: the device tree (`327-ARM-dts-BCM5301X-add-Linksys-EA6900.patch`), the image
-     definition `linksys_ea6900`, the MAC setup (`02_network`) and the WAN LED (`01_leds`). It also
-     applies on top of the Netgear R6400 v2 patches.
-   * `usb-bcma-load-after-xhci.patch`: loads `bcma-hcd` (which switches USB power on) after the xHCI
-     driver instead of before it. This is a generic bcm53xx change; without it a USB 3.0 stick present
-     at boot gets power before the USB 3.0 controller is running. It helps, but does not fix the boot
-     problem completely (see *Known limitations*).
+   `EA6900.patch` adds the device tree (`327-ARM-dts-BCM5301X-add-Linksys-EA6900.patch`), the image
+   definition `linksys_ea6900`, the MAC setup (`02_network`) and the WAN LED (`01_leds`). It also
+   applies on top of the Netgear R6400 v2 patches.
 
 2. `make menuconfig`: Target System **Broadcom BCM47xx/53xx (ARM)**, Subtarget **Generic**,
    Target Profile **Linksys EA6900**. Add LuCI and anything else you want.
@@ -144,9 +139,12 @@ You need an OpenWrt build tree (tested with OpenWrt main r37507-4e16c2ed8f, kern
 ## Known limitations
 
 * **No wireless** (BCM4360, AC-PHY; see *What works*).
-* **USB 3.0 stick present at boot**: the stick gets power before the USB 3.0 link can be trained,
-  falls back to USB 2.0 and fails there (`usb usb2-port1: Cannot enable`, `error -71`). It
-  sometimes recovers after 30–50 s. Workaround: replug the stick after boot. Hot-plugging is fine.
+* **USB 3.0 stick present at boot**: its first USB 3.0 link training fails, the xHCI port stays in
+  `Link:Polling`, and the stick keeps switching to USB 2.0 and back (`usb usb2-port1: Cannot enable`,
+  `error -71`). It sometimes recovers after 30–60 s. Until its power is cut, the stick does not train
+  again. Switching USB power on later (after xHCI, after the USB 2.0 core, with up to 2 s extra wait)
+  did not help in 24 test boots, so the cause is not the power-on order. Workaround: replug the stick
+  after boot. Hot-plugging is fine.
 * Both logo LED drivers light the same LED, so after boot a WAN link change is not visible on its own.
 * Do not `rmmod` the USB host drivers on this kernel: on the test unit that hung the router, which
   then rebooted.

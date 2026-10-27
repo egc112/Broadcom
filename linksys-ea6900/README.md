@@ -104,6 +104,12 @@ from stock-CFE units are welcome.
    dd if=/dev/mtd2 of=/tmp/mtd2-devinfo.bin bs=131072   # contains your serial number and WPS PIN
    ```
 
+4. **Give the mini CFE a known address.** The mini CFE uses the LAN address in nvram
+   (`lan_ipaddr`), and DD-WRT stores its own LAN address there. If you changed DD-WRT's LAN address,
+   set it back to 192.168.1.1 before you install (Setup → Basic Setup → Local IP Address, save and
+   apply). A reset to defaults also does it, but that erases all of nvram. Without this step, the
+   mini CFE answers on your old DD-WRT address, not on 192.168.1.1.
+
 ## Install from DD-WRT
 
 1. DD-WRT → Administration → Firmware Upgrade: upload
@@ -119,7 +125,7 @@ from stock-CFE units are welcome.
 ## Install or recover with the mini CFE
 
 **The mini CFE does not always use 192.168.1.1.** It takes its address from nvram (`lan_ipaddr`), so
-after DD-WRT it is usually your last DD-WRT LAN address. OpenWrt never changes nvram. Check it
+after DD-WRT it is usually your last DD-WRT LAN address. OpenWrt itself never changes nvram. Check it
 beforehand, in OpenWrt or DD-WRT:
 
 ```sh
@@ -127,14 +133,32 @@ nvram get lan_ipaddr
 nvram get lan_netmask
 ```
 
+To set it to 192.168.1.1 from OpenWrt (the `nvram` tool is in the default image; it writes the
+`nvram` partition, not the `devinfo` area):
+
+```sh
+nvram set lan_ipaddr=192.168.1.1
+nvram set lan_netmask=255.255.255.0
+nvram commit
+```
+
+Do not switch the router off during the commit. OpenWrt does not use these values, so nothing else
+changes. Tested on our router: the mini CFE answered on 192.168.1.1 afterwards.
+
+If the router no longer boots and you do not know the address: give the computer a wide netmask
+(for example 192.168.0.2 / 255.255.0.0), enter the mini CFE and run an ARP scan of that range
+(`nmap -sn 192.168.0.0/16` or `arp-scan`; not tested yet). A normal ping scan only reaches the
+computer's own subnet.
+
 1. Switch the router off, hold the **Reset** button, switch it on and keep holding until the logo
-   LED goes off (about 8 seconds), then let go. In rescue mode the logo blinks slowly on and off.
-   This is not a boot loop.
+   LED goes off (8 to 12 seconds in our tests), then let go. In rescue mode the logo blinks very
+   slowly: about 25 seconds on, 25 seconds off. This is not a boot loop.
 2. Connect the computer to **LAN port 1** and give it a static address in that subnet,
    for example 192.168.1.2/24 for `lan_ipaddr=192.168.1.1`. `ping` answers with TTL 100 (the CFE).
-3. Open `http://<lan_ipaddr>` (plain http, not https) and upload the image. If the upload stays at
-   "uploading" and the router keeps blinking slowly, nothing was written: try another browser (in our
-   test one browser hung, Edge worked). When the upload is complete, the router reboots by itself.
+3. Open `http://<lan_ipaddr>` (plain http, not https) in a **private (incognito) window**; in a normal
+   window the page sometimes does not show. Upload the image. If the upload stays at "uploading" and
+   the router keeps blinking slowly, nothing was written: try another browser (in our test one
+   browser hung, Edge worked). When the upload is complete, the router reboots by itself.
 
 What to upload:
 

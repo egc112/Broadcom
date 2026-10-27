@@ -242,6 +242,14 @@ frames: most of those get through when they are sent again.
   about 25 ms longer. Not tested at 5 GHz (other BCM4331 boards).
 * The b43 receiver reports the signal about 20 dB too high (no RSSI calibration in b43's
   HT-PHY code).
+* With CCK (802.11b) reception off, the access point does not hear the 1 Mbit/s probe requests
+  that phones send while scanning, so it never answers them. Phones then see the network only
+  when they catch a beacon, and in a scan list or a WiFi analyzer app it comes and goes.
+  Connecting is not affected. Enabling 802.11b rates (`option legacy_rates '1'` on the radio)
+  turns CCK reception back on and the network answers probe requests again, but it brings back
+  some of the lost client frames (on channel 11: 3.5 % of first attempts retried instead of 1.9 %).
+  The open-source B-PHY registers offer no detection threshold to keep CCK on for nearby
+  stations only.
 
 ## Credits
 

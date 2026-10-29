@@ -77,6 +77,27 @@ from stock-CFE units are welcome.
 | Mini CFE web recovery | works (see *Install or recover with the mini CFE*) |
 | **Wireless** | **no**: stock OpenWrt's b43 does not support the BCM4360 (AC-PHY): `b43-phy0 ERROR: FOUND UNSUPPORTED PHY (Analog 12, Type 11 (AC))`; brcmfmac does not support this chip either |
 
+## Recommended: irqbalance
+
+Install and enable **irqbalance**. The EA6900 has two CPU cores, but OpenWrt does not spread
+interrupts on this target (bcm53xx): Ethernet and both radios are handled by core 0, and core
+1 gets none. With the experimental b43 AC-PHY driver this matters: a busy 5 GHz radio left so
+little time on core 0 for the 2.4 GHz radio that its receive ring overflowed. For 30 to 90
+seconds it then acknowledged nothing, so a client that checked the link disconnected, while
+the beacons kept going out. irqbalance moves one radio to core 1.
+
+The package comes disabled, so enable it after installing:
+
+```sh
+apk add irqbalance            # OpenWrt 24.10: opkg update && opkg install irqbalance
+uci set irqbalance.irqbalance.enabled='1'
+uci commit irqbalance
+service irqbalance restart
+```
+
+Check with `cat /proc/interrupts` after some traffic: the two b43 lines should count on
+different CPUs.
+
 ## Before you start
 
 1. **Back up the CFE and nvram** (on DD-WRT, then copy the files off the router):
@@ -209,7 +230,8 @@ You need an OpenWrt build tree (tested with OpenWrt main r37507-4e16c2ed8f, kern
    applies on top of the Netgear R6400 v2 patches.
 
 2. `make menuconfig`: Target System **Broadcom BCM47xx/53xx (ARM)**, Subtarget **Generic**,
-   Target Profile **Linksys EA6900**. Add LuCI and anything else you want.
+   Target Profile **Linksys EA6900**. Add LuCI, `irqbalance` (Utilities; enable it after the first
+   boot, see *Recommended: irqbalance*) and anything else you want.
 3. `make -j$(nproc)`. The images are in `bin/targets/bcm53xx/generic/`:
    `openwrt-bcm53xx-generic-linksys_ea6900-squashfs.trx` (install/upgrade) and `-initramfs.trx`.
 

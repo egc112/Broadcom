@@ -112,6 +112,29 @@ Measured with an upload and a download to the same client at once (Mbit/s, up / 
 Single direction speeds and the ping during a download stayed the same, and a third client
 did not wait longer (during traffic both ways its ping went down).
 
+## Interrupt balancing (irqbalance)
+
+Install and enable **irqbalance**. The R6400 has two CPU cores, but OpenWrt does not spread
+interrupts on this target (bcm53xx): Ethernet and the b43 radio are both handled by core 0,
+and core 1 gets none (checked on an R6400 v2). On the Linksys EA6900, the same SoC family
+with the same kernel, a busy 5 GHz radio left so little time on core 0 for the 2.4 GHz radio
+that its receive ring overflowed: for 30 to 90 seconds it acknowledged nothing, so clients
+that checked the link disconnected, while the beacons kept going out. irqbalance spreads the
+interrupts over both cores.
+
+The package comes disabled, so enable it after installing:
+
+```sh
+apk add irqbalance            # OpenWrt 24.10: opkg update && opkg install irqbalance
+uci set irqbalance.irqbalance.enabled='1'
+uci commit irqbalance
+service irqbalance restart
+```
+
+Check with `cat /proc/interrupts` after some traffic: the b43 and Ethernet lines should no
+longer all count on CPU0 only. When building your own image, select `irqbalance` (Utilities)
+and add the `uci set` line in a uci-defaults file.
+
 ## Test images (GitHub Releases)
 
 Ready-made OpenWrt images with rc9 are attached to the release **b43-80211n-rc9**
@@ -181,7 +204,8 @@ and r37744-7d0bf92bee (kernel 6.18, mac80211 backports 7.2).
    Copying a module onto a router only works if the router runs an image from the **same** build
    tree (same kernel and backports); otherwise flash the image.
 
-No configuration is needed: the defaults are the tested settings.
+No b43 configuration is needed: the defaults are the tested settings. Do enable irqbalance
+(see *Interrupt balancing*).
 
 ## Module parameters
 

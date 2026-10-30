@@ -1,8 +1,8 @@
-From c38f29664f881fa9f9b0b67f1eb20b807f88ba61 Mon Sep 17 00:00:00 2001
+From 8556ea19188f770e535739e09eb9fc9a265b5b8c Mon Sep 17 00:00:00 2001
 From: Erik Conijn <egc112@msn.com>
 Date: Mon, 26 Oct 2026 07:25:29 +0100
-Subject: [PATCH] wifi: b43: HT-PHY: calibrate the RX I/Q imbalance on channel
- switch
+Subject: [PATCH] wifi: b43: HT-PHY: calibrate the RX I/Q imbalance on
+ channel switch
 
 b43 never sets the HT-PHY RX I/Q compensation, so it stays at zero and
 every receive chain keeps its full amplitude and phase imbalance. On a
@@ -19,13 +19,18 @@ only the 8 with the lowest power are averaged, per chain. On the R6400
 v1 that brings the residual image rejection to 45-57 dB on all chains,
 also when the calibration runs at interface start. If an estimate fails
 or gives an implausible result, the compensation stays at zero, as
-before. It is skipped while the PHY is not initialized yet: b43_phy_init()
-switches the channel once before the PHY init, when the estimator does
-not yet see the I/Q layout the initialized PHY uses. A channel switch
-takes about 25 ms longer. A scan is not slowed down: on the channels it
-visits the compensation is zero, as before (it only needs the low
-rates), and when it returns to the operating channel the stored result
-is written back.
+before.
+
+Only the operating channel is calibrated, once per PHY init; a later
+switch back to it writes the stored result again. While no interface is
+up, on the channels a scan visits, and on the default channel mac80211
+uses while an interface starts or stops (IEEE80211_CONF_OFFCHANNEL), the
+compensation stays at zero, as before: a scan only needs the low rates
+and is not slowed down. The calibration is also skipped while the PHY is
+not initialized yet: b43_phy_init() switches the channel once before the
+PHY init, when the estimator does not yet see the I/Q layout the
+initialized PHY uses. It runs on 2.4 GHz only, where it was measured,
+and takes about 25 ms.
 
 Netgear R6400 v1, channel 6, MPDU loss at a fixed MCS 15 from a client,
 alternated 20 s blocks: 32.8 % without, 2.1 % with the calibration;
@@ -38,12 +43,12 @@ calibration, the residual image rejection stays at 44-76 dB.
 Assisted-by: Claude:claude-opus-5-5
 Signed-off-by: Erik Conijn <egc112@msn.com>
 ---
- drivers/net/wireless/broadcom/b43/phy_ht.c | 233 +++++++++++++++++++++
+ drivers/net/wireless/broadcom/b43/phy_ht.c | 244 +++++++++++++++++++++
  drivers/net/wireless/broadcom/b43/phy_ht.h |  16 ++
- 2 files changed, 249 insertions(+)
+ 2 files changed, 260 insertions(+)
 
 diff --git a/drivers/net/wireless/broadcom/b43/phy_ht.c b/drivers/net/wireless/broadcom/b43/phy_ht.c
-index 53afd23..797a07a 100644
+index 53afd23..15da7b3 100644
 --- a/drivers/net/wireless/broadcom/b43/phy_ht.c
 +++ b/drivers/net/wireless/broadcom/b43/phy_ht.c
 @@ -10,6 +10,7 @@
@@ -54,7 +59,7 @@ index 53afd23..797a07a 100644
  
  #include "b43.h"
  #include "phy_ht.h"
-@@ -948,6 +949,237 @@ static void b43_phy_ht_channel_setup(struct b43_wldev *dev,
+@@ -948,6 +949,245 @@ static void b43_phy_ht_channel_setup(struct b43_wldev *dev,
  	b43_phy_write(dev, 0x017e, 0x3830);
  }
  
@@ -192,36 +197,44 @@ index 53afd23..797a07a 100644
 + * after every channel switch. Receive only: the callers of the channel
 + * switch suspend the MAC, so the device's own transmissions, which bias the
 + * estimates much more than other stations' frames, stay out. On an error
-+ * the compensation stays at zero, as before. During a scan the visited
-+ * channels stay uncompensated, and the stored result of the operating
-+ * channel is written back when the scan returns to it.
++ * the compensation stays at zero, as before.
++ *
++ * Only the operating channel is calibrated: while no interface is up, on a
++ * scan channel, and on the default channel used while no interface has a
++ * channel context (when an interface starts or stops, where mac80211 sets
++ * IEEE80211_CONF_OFFCHANNEL), the compensation stays at zero. Until the
++ * next PHY init, a switch back to the channel of the stored result writes
++ * it back instead of calibrating again. Only 2.4 GHz is calibrated, where
++ * it was measured.
 + */
-+static void b43_phy_ht_rx_iq_cal(struct b43_wldev *dev, u16 freq)
++static void b43_phy_ht_rx_iq_cal(struct b43_wldev *dev,
++				 struct ieee80211_channel *channel)
 +{
 +	struct b43_phy_ht *phy_ht = dev->phy.ht;
 +	struct b43_phy_ht_iq_est (*est)[3];
++	u16 freq = channel->center_freq;
 +	u16 a[3], b[3];
 +	int i, k, core, err;
 +
 +	/*
 +	 * b43_phy_init() switches the radio on, and with it the channel,
 +	 * before the PHY init; estimates taken then do not match the
-+	 * initialized PHY. The channel switch after the init calibrates.
++	 * initialized PHY. A channel switch after the init calibrates.
 +	 */
 +	if (dev->phy.do_full_init)
 +		return;
 +
-+	/*
-+	 * A scan visits each channel briefly and only needs the low rates:
-+	 * do not spend the calibration time there, and put back the result
-+	 * of the operating channel when the scan returns to it.
-+	 */
-+	if (dev->wl->cck_scanning) {
-+		b43_phy_ht_rx_iq_comp_set(dev, freq != phy_ht->rxiq_comp_freq);
++	if (freq == phy_ht->rxiq_comp_freq) {
++		b43_phy_ht_rx_iq_comp_set(dev, false);
 +		return;
 +	}
 +
-+	phy_ht->rxiq_comp_freq = 0;
++	if (channel->band != NL80211_BAND_2GHZ || !dev->wl->operating ||
++	    (dev->wl->hw->conf.flags & IEEE80211_CONF_OFFCHANNEL)) {
++		b43_phy_ht_rx_iq_comp_set(dev, true);
++		return;
++	}
++
 +	b43_phy_ht_rx_iq_comp_set(dev, true);
 +
 +	est = kcalloc(B43_PHY_HT_RXIQ_EST_COUNT, sizeof(*est), GFP_KERNEL);
@@ -292,14 +305,24 @@ index 53afd23..797a07a 100644
  static int b43_phy_ht_set_channel(struct b43_wldev *dev,
  				  struct ieee80211_channel *channel,
  				  enum nl80211_channel_type channel_type)
-@@ -971,6 +1203,7 @@ static int b43_phy_ht_set_channel(struct b43_wldev *dev,
+@@ -971,6 +1211,7 @@ static int b43_phy_ht_set_channel(struct b43_wldev *dev,
  		b43_radio_2059_channel_setup(dev, chent_r2059);
  		b43_phy_ht_channel_setup(dev, &(chent_r2059->phy_regs),
  					 channel);
-+		b43_phy_ht_rx_iq_cal(dev, channel->center_freq);
++		b43_phy_ht_rx_iq_cal(dev, channel);
  	} else {
  		return -ESRCH;
  	}
+@@ -1075,6 +1316,9 @@ static int b43_phy_ht_op_init(struct b43_wldev *dev)
+ 
+ 	b43_phy_ht_tables_init(dev);
+ 
++	/* A new PHY init needs a new RX I/Q calibration */
++	phy_ht->rxiq_comp_freq = 0;
++
+ 	b43_phy_mask(dev, 0x0be, ~0x2);
+ 	b43_phy_set(dev, 0x23f, 0x7ff);
+ 	b43_phy_set(dev, 0x240, 0x7ff);
 diff --git a/drivers/net/wireless/broadcom/b43/phy_ht.h b/drivers/net/wireless/broadcom/b43/phy_ht.h
 index ed041f7..18e243b 100644
 --- a/drivers/net/wireless/broadcom/b43/phy_ht.h

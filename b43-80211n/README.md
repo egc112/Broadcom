@@ -1,10 +1,11 @@
-# b43: 802.11n with A-MPDU for the BCM4331 (Netgear R6400) — TEST VERSION (rc9)
+# b43: 802.11n with A-MPDU for the BCM4331 (Netgear R6400) — TEST VERSION (rc10)
 
 > **Status: test version.** Since rc9 this series is a small set of patches **on top of Rosen
 > Penev's b43 802.11n series**, openwrt/openwrt#25922, which brings 802.11n to b43 upstream
-> and already contains most of what rc2–rc8 did. rc9 adds six fixes and improvements for the
-> R6400 that are not (yet) in his series. Tested on the author's Netgear R6400 v1 and v2 in a
-> 9.5-hour soak test with two clients and a phone. Not in OpenWrt or the Linux kernel yet.
+> and already contains most of what rc2–rc8 did. rc10 adds seven fixes and improvements for the
+> R6400 that are not (yet) in his series. Tested on the author's Netgear R6400 v1 and v2: rc9
+> in a 9.5-hour soak test with two clients and a phone, the rc10 changes in the tests below.
+> Not in OpenWrt or the Linux kernel yet.
 > Please test and report back (see *Reporting problems*), and read *Known limitations* first.
 >
 > The older stand-alone series (rc8, patches 820–839) is kept in [patches-rc8](patches-rc8/)
@@ -19,11 +20,11 @@ about 10–12 Mbit/s download. With Rosen Penev's series and these patches it ru
 |---|---|---|
 | stock b43 (802.11g), v1 | 10–12 Mbit/s | 20–22 Mbit/s |
 | rc8 (our old series), v1 | ~85–90 Mbit/s | ~90–105 Mbit/s |
-| **rc9 = openwrt/openwrt#25922 + these patches**, v1 (soak test) | **96–111 Mbit/s, avg 107** | **90–111 Mbit/s, avg 107** |
+| **rc9 = openwrt/openwrt#25922 + these patches**, v1 (soak test; rc10 is the same speed) | **96–111 Mbit/s, avg 107** | **90–111 Mbit/s, avg 107** |
 
-## What is in rc9
+## What is in rc10
 
-rc9 = OpenWrt main + **openwrt/openwrt#25922 as of 0615bc0150** (Rosen Penev, patches 813 and
+rc10 = OpenWrt main + **openwrt/openwrt#25922 as of 0615bc0150** (Rosen Penev, patches 813 and
 820–861 in `package/kernel/mac80211/patches/brcm/`) + the patches in [patches](patches/):
 
 | Patch | What it does | Why |
@@ -32,8 +33,9 @@ rc9 = OpenWrt main + **openwrt/openwrt#25922 as of 0615bc0150** (Rosen Penev, pa
 | 863 | HT-PHY: do not upload table 9 on FEM and HGPA boards | On the R6400 v1 the table 9 upload costs about 10 dB of transmit power: download 109–111 → 68–70 Mbit/s. Broadcom's own driver leaves the table as b43 has it without the upload. No difference on the v2 |
 | 864 | HT-PHY: drop the `ht_cck_rx` module parameter | CCK reception follows the network alone (see *Module parameters*) |
 | 865 | HT-PHY: optional `ht_txgain_idx` module parameter | For own builds: override the fixed transmit gain (see *Transmit power*). Not meant for upstream |
-| 866 | HT-PHY: calibrate the RX I/Q imbalance on channel switch | b43 never set the receiver's I/Q compensation. On the R6400 v1, channel 6, up to a third of the frames a client sent at the top rate (MCS 15) were lost: 32.8 % → 2.1 %, upload 79.5 → 90.8 Mbit/s. Neutral on the v2. See [PROVENANCE.md](PROVENANCE.md#patch-866-rx-iq-calibration) |
+| 866 | HT-PHY: calibrate the RX I/Q imbalance on channel switch | b43 never set the receiver's I/Q compensation. On the R6400 v1, channel 6, up to a third of the frames a client sent at the top rate (MCS 15) were lost: 32.8 % → 2.1 %, upload 79.5 → 90.8 Mbit/s. Neutral on the v2. Since rc10 it calibrates only the operating channel, once per start of the radio, and only at 2.4 GHz (see *Changes in rc10*). See [PROVENANCE.md](PROVENANCE.md#patch-866-rx-iq-calibration) |
 | 867 | HT-PHY: receive A-MPDUs of up to 64 KiB | Upload from an ath11k client to the R6400 v2: 89–92 → 105–107 Mbit/s (+17 %); no clear difference on the v1 |
+| 868 | drop the A-MSDU subframes the MAC splits off | New in rc10. b43 passed them on as whole frames; with hardware encryption mac80211 then read a random packet number from them and dropped every later frame of that traffic class as a replay. On a Linksys EA6900 (BCM4360) with an ath11k client this stopped a 5 GHz upload within minutes. On the R6400 it is a precaution: none of our clients sent A-MSDUs to it (0 of 2.3 million frames in a 20-hour test on the v1). brcmsmac drops them the same way |
 | [wifi-scripts](patches/wifi-scripts-b43-best-effort-frame-bursting.patch) | best effort frame bursting (`tx_queue_data2_burst 2.0`) by default on b43 802.11n radios | Shares the air fairer when a client uploads and downloads at once (see *Traffic in both directions*). A patch to the OpenWrt tree, not to the mac80211 package |
 
 All of them are by Erik Conijn and carry `Assisted-by: Claude:claude-opus-5-5`: they were
@@ -54,13 +56,48 @@ Thanks to him for the work and for taking our patches in.
   access point.
 * **Netgear R6400 v2** (BCM4331 with FEM, `BFL_FEM`): tested as a client and as an access point.
 * Other BCM4331 boards: 863 and 865 act only on boards with an external front end
-  (`BFL_FEM` or `BFL_HGPA`); 866 runs on every HT-PHY board, but was only tested on these two
-  and only at 2.4 GHz. 862 matters only for SDIO devices.
+  (`BFL_FEM` or `BFL_HGPA`); 866 runs on every HT-PHY board at 2.4 GHz, but was only tested
+  on these two. 862 matters only for SDIO devices; 868 applies to every b43 device.
 * **BCM4360 (AC-PHY) is not supported**, neither by stock b43 nor by these patches: that is the
   5 GHz radio of the R6400 and both radios of the Netgear R7000. b43 logs
   `FOUND UNSUPPORTED PHY (Analog 12, Type 11 (AC))` for it; that line is expected.
 
 ## Test results
+
+### Changes in rc10
+
+rc10 is rc9 with patch 866 reworked and patch 868 added; Rosen Penev's series is the same
+(0615bc0150).
+
+* **866** now calibrates only the operating channel of a running access point or client, once
+  each time the radio starts; switching back to that channel writes the stored result again.
+  rc9 also calibrated on the channels mac80211 sets while an interface starts or stops, which
+  gave an odd result at interface stop on the v1 and up to four calibrations each time the
+  radio started. Scan channels stay uncompensated, as in rc9, and the calibration no
+  longer runs at 5 GHz, where it was never measured. It no longer depends on a scan flag of
+  Rosen Penev's series.
+* **868** is new (see the table above).
+
+Tests 2026-10-30 on the R6400 v2 as access point (channel 6), with a DL-WRX36 (ath11k) as
+client:
+
+* Calibrations: rc10 does 1 per `wifi` up, none at `wifi` down and none during a scan; rc9 did
+  up to 4 each time the radio started.
+* rc10 against rc9, alternated (rc10, rc9, rc9, rc10), iperf3 TCP and UDP at a fixed rate:
+  upload 96–97 Mbit/s and download 100–102 Mbit/s for both; MCS 15 UDP loss 1.7–1.9 % (rc10)
+  and 1.4–2.0 % (rc9): the same.
+* A 43-minute soak with rc10: 12 cycles of download, upload and a scan, a `wifi` restart every
+  third cycle: 100–102 Mbit/s down, 97.5–98.7 up, no b43 errors, no replays, memory stable;
+  of 2574 pings, 16 were lost in the 4 restarts and 14 in the scans (the access point leaves its
+  channel to scan), none otherwise.
+* As a client: the R6400 v2 switching back and forth between the v1 (channel 11) and a test
+  access point (channel 1) without restarting the radio calibrated once per switch, never
+  during 9 scans, and never re-initialized. On channel 1, MCS 15 loss straight after a
+  calibration was 0.5–1.4 % and after scans (stored result written back) 0.8–1.2 %: the same.
+* 868: 20 hours on the R6400 v1 (rc9 + 868, with a counter for the dropped frames) as the
+  access point for a phone: no A-MSDU arrived, no errors.
+
+### rc9 soak test
 
 Soak test 2026-10-26, 09:35–19:25: R6400 v1 as access point (rc9 code, channel 6, HT20,
 the burst on), two clients that take turns and also upload together: an R6400 v2 (rc9, as a
@@ -137,14 +174,14 @@ and add the `uci set` line in a uci-defaults file.
 
 ## Test images (GitHub Releases)
 
-Ready-made OpenWrt images with rc9 are attached to the release **b43-80211n-rc9**
-(OpenWrt snapshot r37744-7d0bf92bee, kernel 6.18). Pick the image by the router's board ID:
+Ready-made OpenWrt images with rc10 are attached to the release **b43-80211n-rc10**
+(OpenWrt snapshot r37930-a1788e6156, kernel 6.18.55). Pick the image by the router's board ID:
 
 | Router | board ID | Image |
 |---|---|---|
-| R6400 v1 | U12H332T00_NETGEAR | `openwrt-r6400-v1-b43-80211n-rc9-squashfs.chk` |
-| R6400 v2 | U12H332T20_NETGEAR | `openwrt-r6400-v2-b43-80211n-rc9-squashfs.chk` |
-| R6400 v2 (OTP) | U12H332T30_NETGEAR | `openwrt-r6400-v2-otp-b43-80211n-rc9-squashfs.chk` |
+| R6400 v1 | U12H332T00_NETGEAR | `openwrt-r6400-v1-b43-80211n-rc10-squashfs.chk` |
+| R6400 v2 | U12H332T20_NETGEAR | `openwrt-r6400-v2-b43-80211n-rc10-squashfs.chk` |
+| R6400 v2 (OTP) | U12H332T30_NETGEAR | `openwrt-r6400-v2-otp-b43-80211n-rc10-squashfs.chk` |
 
 On OpenWrt the board ID is shown by `strings /dev/mtd1 | grep board_id` (the `nvram` partition).
 Netgear's own firmware only accepts a `.chk` with the router's own board ID. The **R6700 v3**
@@ -164,14 +201,16 @@ b43 has no `htmode` for the 2.4 GHz radio, and the radio then stays 802.11g. Che
 uci set wireless.radio0.htmode='HT20'; uci commit wireless; wifi
 ```
 
+**Upgrading from rc9:** nothing to change; the settings stay valid.
+
 **Upgrading from rc8 with settings kept:** the rc8 module parameters are gone (see *Module
 parameters*); remove them from `/etc/modules.d/b43`, which should hold just `b43`.
 
 ## Building
 
 You need an OpenWrt main build tree for the bcm53xx target (R6400 support is in OpenWrt main
-for the v1; for the v2 see openwrt/openwrt#25929). Tested with OpenWrt main r37507-4e16c2ed8f
-and r37744-7d0bf92bee (kernel 6.18, mac80211 backports 7.2).
+for the v1; for the v2 see openwrt/openwrt#25929). Tested with OpenWrt main r37507-4e16c2ed8f,
+r37744-7d0bf92bee and r37930-a1788e6156 (kernel 6.18, mac80211 backports 7.2).
 
 1. Apply Rosen Penev's series, openwrt/openwrt#25922 at 0615bc0150, in the OpenWrt tree:
 
@@ -249,7 +288,9 @@ cat /sys/module/b43/parameters/ht_txgain_idx
 
 and what the clients were doing (download/upload, which device, which channel). With
 `verbose=3` in `/etc/modules.d/b43` b43 also logs the transmit gain, the CCK reception
-switch and the RX I/Q calibration result per channel switch (`RX I/Q comp …`).
+switch and the RX I/Q calibration result (`RX I/Q comp …`). It also turns on b43's
+`PHY transmission error` message, which then shows up dozens of times per 30 s while a client
+uploads, with rc9 as with rc10: it is not a new fault and does not lower the speed.
 
 `tx failed` in the station dump counts send attempts that got no acknowledgement, not lost
 frames: most of those get through when they are sent again.
@@ -262,8 +303,9 @@ frames: most of those get through when they are sent again.
 * Two clients uploading at the same time do not share the air evenly: an R6400 v2 as a client
   got 7–17 Mbit/s next to an ath11k client's 70–99. Each alone gets ~100. Not investigated
   yet; it is between the clients, not in the access point.
-* 866 calibrates at every channel switch (interface start, channel change); during a scan the visited channels run uncompensated, as before. A channel switch takes
-  about 25 ms longer. Not tested at 5 GHz (other BCM4331 boards).
+* 866 calibrates the operating channel once per start of the radio (about 25 ms); the channels
+  a scan visits run uncompensated, as before. At 5 GHz (other BCM4331 boards) the
+  compensation stays at zero, as in stock b43.
 * The b43 receiver reports the signal about 20 dB too high (no RSSI calibration in b43's
   HT-PHY code).
 * With CCK (802.11b) reception off, the access point does not hear the 1 Mbit/s probe requests
@@ -277,8 +319,8 @@ frames: most of those get through when they are sent again.
 
 ## Credits
 
-Rosen Penev (@neheb) for openwrt/openwrt#25922, the base of rc9, which includes several of our
-earlier patches. The openwrt-ai review of his PR for the point fixed in 862.
+Rosen Penev (@neheb) for openwrt/openwrt#25922, the base of rc9 and rc10, which includes
+several of our earlier patches. The openwrt-ai review of his PR for the point fixed in 862.
 
 ## License
 

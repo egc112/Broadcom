@@ -75,7 +75,7 @@ from stock-CFE units are welcome.
 | Failsafe: tap Reset or WPS while the logo blinks during boot | works (LAN port 1 only) |
 | sysupgrade, with and without keeping settings | works |
 | Mini CFE web recovery | works (see *Install or recover with the mini CFE*) |
-| **Wireless** | **no**: stock OpenWrt's b43 does not support the BCM4360 (AC-PHY): `b43-phy0 ERROR: FOUND UNSUPPORTED PHY (Analog 12, Type 11 (AC))`; brcmfmac does not support this chip either |
+| **Wireless** | **no**: stock OpenWrt's b43 does not support the BCM4360 (AC-PHY): `b43-phy0 ERROR: FOUND UNSUPPORTED PHY (Analog 12, Type 11 (AC))`; brcmfmac does not support this chip either. Experimental: our patches for the b43 AC-PHY driver of [aleferri/b43-ac-wip](https://github.com/aleferri/b43-ac-wip) are in [b43-ac/](b43-ac/) |
 
 ## Recommended: irqbalance
 
@@ -97,6 +97,42 @@ service irqbalance restart
 
 Check with `cat /proc/interrupts` after some traffic: the two b43 lines should count on
 different CPUs.
+
+### Images with the CPU on switch port 8
+
+Since 2026-10-31 the board support (openwrt/openwrt#26316) uses switch port 8 as the CPU port,
+so the Ethernet interface the switch hangs off is `eth2` instead of `eth0`. irqbalance places
+the two radios on a core each, but it leaves `eth2` on both cores, which on this router means
+core 0. It judges load by the interrupt count, and `eth2` raises few interrupts even when busy.
+When the 5 GHz radio is also on core 0, a 5 GHz download from a LAN host drops from about 360
+to about 310 Mbit/s. Running irqbalance longer does not change this.
+
+Pinning fixes it. Tell irqbalance to leave the three interrupts alone (the numbers are from
+`/proc/interrupts`; check yours):
+
+```sh
+uci add_list irqbalance.irqbalance.banirq='36'   # eth2
+uci add_list irqbalance.irqbalance.banirq='44'   # b43, 2.4 GHz
+uci add_list irqbalance.irqbalance.banirq='45'   # b43, 5 GHz
+uci commit irqbalance
+service irqbalance restart
+```
+
+and pin them in `/etc/rc.local`, before `exit 0`. This finds them by name and hardware line, so
+it does not depend on the interrupt numbers:
+
+```sh
+# eth2 and the 2.4 GHz radio on core 1, the 5 GHz radio on core 0
+pin() {
+	i=$(awk -v p="$1" '$0 ~ p { sub(":", "", $1); print $1; exit }' /proc/interrupts)
+	[ -n "$i" ] && echo "$2" > /proc/irq/$i/smp_affinity
+}
+pin " eth2$" 2
+pin "GIC-0 163 Level" 2   # 2.4 GHz radio
+pin "GIC-0 169 Level" 1   # 5 GHz radio
+```
+
+With this layout the 5 GHz download is back at about 360 Mbit/s.
 
 ## Before you start
 

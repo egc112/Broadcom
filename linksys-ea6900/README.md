@@ -271,6 +271,21 @@ You need an OpenWrt build tree (tested with OpenWrt main r37507-4e16c2ed8f, kern
 3. `make -j$(nproc)`. The images are in `bin/targets/bcm53xx/generic/`:
    `openwrt-bcm53xx-generic-linksys_ea6900-squashfs.trx` (install/upgrade) and `-initramfs.trx`.
 
+## Experimental Wi-Fi (b43 AC-PHY)
+
+Both radios run on our test router with Alessio Ferri's experimental b43 AC-PHY driver,
+[aleferri/b43-ac-wip](https://github.com/aleferri/b43-ac-wip), our patches in [b43-ac/](b43-ac/)
+(sources in [b43-ac/PROVENANCE.md](b43-ac/PROVENANCE.md)) and a few build helpers of our own. With a
+WRX36 as the client and a wired LAN host, TCP: 2.4 GHz HT20 (3 streams) about 143 down / 157 up,
+5 GHz VHT80 about 362 down / 379 up Mbit/s, the averages of a 16-hour soak of our current build (a client on
+each band, 2026-10-31) that passed without errors.
+
+This is not a ready-made build yet. Besides OpenWrt, `EA6900.patch` and b43-ac-wip with our patches it
+also needs the AC-PHY firmware and build option of
+[openwrt/openwrt#25788](https://github.com/openwrt/openwrt/pull/25788) (Russell Ballestrini) and the SROM
+rev 11 values from nvram, which b43-ac-wip's own bcma patch provides. A tested recipe from public parts
+only will follow here.
+
 ## Flash layout (Asus-style CFE, as OpenWrt sees it)
 
 | Offset | Size | Name | |

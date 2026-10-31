@@ -1,0 +1,271 @@
+From e31e2e25789a4f0c232f1a8dfd2aff3b599a348e Mon Sep 17 00:00:00 2001
+From: Erik Conijn <egc112@msn.com>
+Date: Sat, 31 Oct 2026 13:52:28 +0100
+Subject: [PATCH] b43: AC-PHY: femctrl 3 FEM tables (sub 0 and sub 3)
+
+The Netgear R7000, the Linksys EA6900 and the 5 GHz radio of the R6400
+have femctrl 3, and set_regtbl_on_femctrl() finds no table for it: sub
+3 on the 2.4 GHz radios, sub 0 on the 5 GHz radios.
+
+Sub 0: the R7000 writes the table in both passes of its 5 GHz MMIO
+capture (records #6714-#6815, #24771-#24872), and PHY 0x040a = 0x0090
+just before (#6704). A read-back on an R6400 v1 gives the same table.
+
+Sub 3: the 2.4 GHz capture has no write of the table, so it is read
+back from the R7000 with wl up, at ch 11 and ch 6, all passes identical
+(router-data/r7000/fem-table-2g-ch6.txt, new). PHY 0x040a reads 0x0090
+there too.
+
+Both take a pre hook: PHY 0x040a bit 8 clear, and PMU regctl 0 bit 2
+set, which the R7000 reads back with wl up (0x00200004). The PMU is
+outside the capture window, so on an EA6900 with the tables in place:
+with bit 2 cleared neither radio sends anything a client can receive
+(no beacon in a scan, no client connects, twice); with it set both
+work.
+
+Tested on an EA6900 (femctrl 3, sub 3 + sub 0), WRX36 client to a
+wired LAN host, 20 s TCP: 2.4 GHz HT20 139 down / 154 up, 5 GHz VHT80
+359 down / 382 up Mbit/s, no b43 warnings. This patch is in the build
+that passed a 16 h soak (two clients, both bands, 0 b43 errors, 0
+replays): 2.4 GHz 143 down / 157 up, 5 GHz 362 / 379 on average.
+
+Assisted-by: Claude:claude-opus-5-5
+Signed-off-by: Erik Conijn <egc112@msn.com>
+---
+ b43/phy_ac.c                           |  84 ++++++++++++++++++-
+ router-data/r7000/README.md            |   1 +
+ router-data/r7000/fem-table-2g-ch6.txt | 107 +++++++++++++++++++++++++
+ 3 files changed, 191 insertions(+), 1 deletion(-)
+ create mode 100644 router-data/r7000/fem-table-2g-ch6.txt
+
+diff --git a/b43/phy_ac.c b/b43/phy_ac.c
+index 865ae2f..135211c 100644
+--- a/b43/phy_ac.c
++++ b/b43/phy_ac.c
+@@ -3098,7 +3098,12 @@ static const u32 b43_acphy_txv_for_spexp[243] = {
+  *                     (b43_phy_ac_fem_040a_set()): archer-t5e
+  *                     (router-data/archer-t5e/mmiotrace.zip, #7128-#7234).
+  *                     The same 6.30.223 as the MacBook's sets that bit
+- *                     after its table; the routers never touch 0x040a.
++ *                     after its table.
++ *   femctrl 3, sub 0  fc3_sub0_c0/c1/c2, plus b43_phy_ac_fem3_pre(): the
++ *                     5 GHz radio of the R7000, the EA6900 and the R6400.
++ *   femctrl 3, sub 3  fc3_sub3_c0/c1/c2, plus b43_phy_ac_fem3_pre(): the
++ *                     2.4 GHz radio of the R7000 and the EA6900. No
++ *                     capture has this write; the table is a read-back.
+  *
+  * TODO: femctrl 2 sub 2 (femctrl2_sub2_c0 on core 0, femctrl2_sub2_c12 on
+  * cores 1 and 2) needs a capture of a board with it.
+@@ -3157,7 +3162,84 @@ static void b43_phy_ac_fem2_sub1_setup(struct b43_wldev *dev)
+ 	b43_phy_ac_chipctl_set(dev, 0x00000008);
+ }
+ 
++/*
++ * femctrl 3 sub 3, the 2.4 GHz radio of the Netgear R7000 and the Linksys
++ * EA6900. The 2.4 GHz MMIO capture has no write of it, so it is read back
++ * from the R7000 with wl 7.14.164.18 up: at ch 11 and at ch 6, two passes
++ * each, all identical. Core 0 differs from cores 1 and 2.
++ * [read-back: router-data/r7000/fem-table-2g-ch6.txt]
++ */
++static const u8 b43_phy_ac_fem_fc3_sub3_c0[32] = {
++	0x02, 0x04, 0x03, 0x02, 0x02, 0x04, 0x03, 0x02,
++	0x22, 0x24, 0x23, 0x25, 0x22, 0x24, 0x23, 0x25,
++	0x02, 0x04, 0x03, 0x02, 0x02, 0x04, 0x03, 0x02,
++	0x22, 0x24, 0x23, 0x25, 0x22, 0x24, 0x23, 0x25,
++};
++
++static const u8 b43_phy_ac_fem_fc3_sub3_c1[32] = {
++	0x02, 0x01, 0x06, 0x02, 0x02, 0x01, 0x06, 0x02,
++	0x22, 0x21, 0x26, 0x25, 0x22, 0x21, 0x26, 0x25,
++	0x02, 0x01, 0x06, 0x02, 0x02, 0x01, 0x06, 0x02,
++	0x22, 0x21, 0x26, 0x25, 0x22, 0x21, 0x26, 0x25,
++};
++
++static const u8 b43_phy_ac_fem_fc3_sub3_c2[32] = {
++	0x04, 0x01, 0x06, 0x04, 0x04, 0x01, 0x06, 0x04,
++	0x24, 0x21, 0x26, 0x23, 0x24, 0x21, 0x26, 0x23,
++	0x04, 0x01, 0x06, 0x04, 0x04, 0x01, 0x06, 0x04,
++	0x24, 0x21, 0x26, 0x23, 0x24, 0x21, 0x26, 0x23,
++};
++
++/*
++ * femctrl 3 sub 0, the 5 GHz radio of the R7000, the EA6900 and the R6400:
++ * the R7000 writes it in both passes of its 5 GHz capture; the first 16
++ * entries of each core stay 0. A read-back on an R6400 v1 gives the same.
++ * [capture-ref: router-data/r7000/mmio-cold-5g36-80.zip; records
++ *   #6714-#6815, #24771-#24872]
++ */
++static const u8 b43_phy_ac_fem_fc3_sub0_c0[32] = {
++	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
++	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
++	0x02, 0x0c, 0x03, 0x0b, 0x02, 0x0c, 0x03, 0x0b,
++	0x02, 0x2c, 0x03, 0x2d, 0x02, 0x2c, 0x03, 0x2d,
++};
++
++static const u8 b43_phy_ac_fem_fc3_sub0_c1[32] = {
++	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
++	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
++	0x02, 0x09, 0x06, 0x0e, 0x02, 0x09, 0x06, 0x0e,
++	0x02, 0x29, 0x06, 0x2d, 0x02, 0x29, 0x06, 0x2d,
++};
++
++static const u8 b43_phy_ac_fem_fc3_sub0_c2[32] = {
++	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
++	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
++	0x04, 0x09, 0x06, 0x0e, 0x04, 0x09, 0x06, 0x0e,
++	0x04, 0x29, 0x06, 0x2b, 0x04, 0x29, 0x06, 0x2b,
++};
++
++/*
++ * Before the table, both femctrl 3 sub-types:
++ * - PHY 0x040a bit 8 clear: the R7000 writes 0x0090 just before the table
++ *   [capture-ref: router-data/r7000/mmio-cold-5g36-80.zip; record #6704],
++ *   and reads back 0x0090 on 2.4 GHz.
++ * - PMU regctl 0 bit 2 set: the R7000 reads back 0x00200004 with wl up
++ *   (the chip-dependent field [24:20] = 2, set in pmu_regctl_gpio, plus bit
++ *   2). The PMU is outside the capture window. Without the bit an EA6900
++ *   sends nothing a client can receive on either radio (no beacon is heard,
++ *   no client connects); with it both work.
++ */
++static void b43_phy_ac_fem3_pre(struct b43_wldev *dev)
++{
++	b43_phy_mask(dev, 0x040a, (u16)~0x0100);
++	bcma_chipco_regctl_maskset(&dev->dev->bdev->bus->drv_cc, 0, ~0x4u, 0x4);
++}
++
+ static const struct b43_phy_ac_fem b43_phy_ac_fems[] = {
++	{ 3, 3, { b43_phy_ac_fem_fc3_sub3_c0, b43_phy_ac_fem_fc3_sub3_c1,
++		  b43_phy_ac_fem_fc3_sub3_c2 }, b43_phy_ac_fem3_pre, NULL },
++	{ 3, 0, { b43_phy_ac_fem_fc3_sub0_c0, b43_phy_ac_fem_fc3_sub0_c1,
++		  b43_phy_ac_fem_fc3_sub0_c2 }, b43_phy_ac_fem3_pre, NULL },
+ 	{ 6, 0, { b43_phy_ac_fem_femctrl6, b43_phy_ac_fem_femctrl6,
+ 		  b43_phy_ac_fem_femctrl6 }, NULL, NULL },
+ 	{ 2, 1, { b43_phy_ac_fem_fem5516_fc1, b43_phy_ac_fem_x29c_c1_fc2_sub1,
+diff --git a/router-data/r7000/README.md b/router-data/r7000/README.md
+index b1d5eff..b5c6075 100644
+--- a/router-data/r7000/README.md
++++ b/router-data/r7000/README.md
+@@ -29,6 +29,7 @@ the Netgear R6400 ([`docs/northstar-guide.md`](../../docs/northstar-guide.md)).
+ | `txrx-no-traffic.zip` | three earlier `capture_txrx.sh` attempts without usable traffic (a WPA2 BSS with `nas` stopped, an open BSS without a DHCPv4 lease), for completeness |
+ | `mmio-cold-2g6.zip` | `wl-mmio-trap` (`4-4-arm`) on `eth1`, cold to beaconing on 2g6/20: 52 621 MMIO accesses + 7 marks, the raw stream, `mmio2ops.py` output, the run log |
+ | `mmio-cold-5g36-80.zip` | the same on `eth2`, 5g36/80: 141 979 accesses + 7 marks |
++| `fem-table-2g-ch6.txt` | PHY table 0x0a (FEM control) of `eth1` read back with `wl` up on 2g6/20, two identical passes: the femctrl 3 sub 3 table, which `mmio-cold-2g6.zip` does not contain |
+ | `revinfo.txt` | `wl revinfo` of both radios |
+ | `wl-info.txt` | `wl ver`, `cap`, `phylist`, `bands`, `chanspec(s)` of both radios |
+ | `nvram-radios.txt` | the `pci/1/1/` and `pci/2/1/` nvram (the SROM values), MAC addresses removed |
+diff --git a/router-data/r7000/fem-table-2g-ch6.txt b/router-data/r7000/fem-table-2g-ch6.txt
+new file mode 100644
+index 0000000..c190e72
+--- /dev/null
++++ b/router-data/r7000/fem-table-2g-ch6.txt
+@@ -0,0 +1,107 @@
++# R7000 eth1 (2.4 GHz, BCM4360, femctrl 3, boardflags3 sub 3): PHY table 0x0a (FEM control) read back
++# with wl 7.14.164.18 up, AP on ch 6/20, 2026-10-30. Read through the PHY table address/data
++# registers in the chip's register window (BAR0 0x08000000, chip id 0x15134360 checked first), read
++# only otherwise. Two passes, identical. 96 entries, 8 bits, 32 per core at 0x20 * core.
++# An earlier read-back at ch 11 (2026-10-27) gave the same values.
++
++core 0: 02 04 03 02 02 04 03 02 22 24 23 25 22 24 23 25 02 04 03 02 02 04 03 02 22 24 23 25 22 24 23 25
++core 1: 02 01 06 02 02 01 06 02 22 21 26 25 22 21 26 25 02 01 06 02 02 01 06 02 22 21 26 25 22 21 26 25
++core 2: 04 01 06 04 04 01 06 04 24 21 26 23 24 21 26 23 04 01 06 04 04 01 06 04 24 21 26 23 24 21 26 23
++
++# offset value (pass 1)
++0a:000 0002
++0a:001 0004
++0a:002 0003
++0a:003 0002
++0a:004 0002
++0a:005 0004
++0a:006 0003
++0a:007 0002
++0a:008 0022
++0a:009 0024
++0a:00a 0023
++0a:00b 0025
++0a:00c 0022
++0a:00d 0024
++0a:00e 0023
++0a:00f 0025
++0a:010 0002
++0a:011 0004
++0a:012 0003
++0a:013 0002
++0a:014 0002
++0a:015 0004
++0a:016 0003
++0a:017 0002
++0a:018 0022
++0a:019 0024
++0a:01a 0023
++0a:01b 0025
++0a:01c 0022
++0a:01d 0024
++0a:01e 0023
++0a:01f 0025
++0a:020 0002
++0a:021 0001
++0a:022 0006
++0a:023 0002
++0a:024 0002
++0a:025 0001
++0a:026 0006
++0a:027 0002
++0a:028 0022
++0a:029 0021
++0a:02a 0026
++0a:02b 0025
++0a:02c 0022
++0a:02d 0021
++0a:02e 0026
++0a:02f 0025
++0a:030 0002
++0a:031 0001
++0a:032 0006
++0a:033 0002
++0a:034 0002
++0a:035 0001
++0a:036 0006
++0a:037 0002
++0a:038 0022
++0a:039 0021
++0a:03a 0026
++0a:03b 0025
++0a:03c 0022
++0a:03d 0021
++0a:03e 0026
++0a:03f 0025
++0a:040 0004
++0a:041 0001
++0a:042 0006
++0a:043 0004
++0a:044 0004
++0a:045 0001
++0a:046 0006
++0a:047 0004
++0a:048 0024
++0a:049 0021
++0a:04a 0026
++0a:04b 0023
++0a:04c 0024
++0a:04d 0021
++0a:04e 0026
++0a:04f 0023
++0a:050 0004
++0a:051 0001
++0a:052 0006
++0a:053 0004
++0a:054 0004
++0a:055 0001
++0a:056 0006
++0a:057 0004
++0a:058 0024
++0a:059 0021
++0a:05a 0026
++0a:05b 0023
++0a:05c 0024
++0a:05d 0021
++0a:05e 0026
++0a:05f 0023
+-- 
+2.43.0
+

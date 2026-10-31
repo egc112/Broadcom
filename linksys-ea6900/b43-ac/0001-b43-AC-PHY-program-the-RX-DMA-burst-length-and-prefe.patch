@@ -1,0 +1,76 @@
+From 8afc14f48620f1038cea11a328c1dacd03534b62 Mon Sep 17 00:00:00 2001
+From: Erik Conijn <egc112@msn.com>
+Date: Sat, 31 Oct 2026 12:03:10 +0100
+Subject: [PATCH] b43: AC-PHY: program the RX DMA burst length and prefetch
+
+The TX side got bgmac's burst and prefetch values in "program the TX DMA
+burst length and prefetch"; the RX control word still has none, so the
+RX engine runs with 16-byte bursts and no descriptor prefetch.
+
+Program the RX values bgmac uses for the same DMA engine on Northstar
+(bgmac_dma_rx_enable(): 128-byte bursts, prefetch 8, threshold 1).
+Measured on an EA6900 (BCM4360, 5 GHz VHT80, firmware 784.2) with an
+ath11k client, TCP to a wired LAN host: upload 291-324 -> 381-386
+Mbit/s, download and 2.4 GHz unchanged, no CCMP replays. It is in the
+build that passed a 16 h soak (two clients, both bands, 0 b43 errors,
+0 replays).
+
+The earlier attempt with these values hit replay drops; that was the
+A-MSDU frames that "drop received frames with the A-MSDU bit" now
+drops, so the TX patch's "TX only" comment goes.
+
+Assisted-by: Claude:claude-opus-5-5
+Signed-off-by: Erik Conijn <egc112@msn.com>
+---
+ b43/dma.c | 14 ++++++++++++--
+ b43/dma.h |  2 ++
+ 2 files changed, 14 insertions(+), 2 deletions(-)
+
+diff --git a/b43/dma.c b/b43/dma.c
+index 37389fc..eb08dd5 100644
+--- a/b43/dma.c
++++ b/b43/dma.c
+@@ -724,8 +724,8 @@ static int dmacontroller_setup(struct b43_dmaring *ring)
+ 			 * rates: the FIFO runs dry and the hardware cuts each
+ 			 * A-MPDU after about 4 frames (BCM4360, 5 GHz VHT80:
+ 			 * 118 Mbit/s at every width). Use the values bgmac
+-			 * programs into the same DMA engine on Northstar. TX only:
+-			 * the RX equivalents corrupted received frames.
++			 * programs into the same DMA engine on Northstar; the RX
++			 * side gets them in the RX branch below.
+ 			 */
+ 			if (ring->dev->dev->core_rev >= 40)
+ 				enable |= B43_DMA64_TXMR_2 |
+@@ -775,6 +775,16 @@ static int dmacontroller_setup(struct b43_dmaring *ring)
+ 			    & B43_DMA64_RXADDREXT_MASK;
+ 			if (!parity)
+ 				value |= B43_DMA64_RXPARITYDISABLE;
++			/*
++			 * Out of reset the RX engine also does 16-byte bursts
++			 * without prefetch, which limits what the AC cores can
++			 * receive (BCM4360, 5 GHz VHT80: about 300 Mbit/s up).
++			 * Use bgmac's RX values: 128-byte bursts, prefetch 8,
++			 * threshold 1.
++			 */
++			if (ring->dev->dev->core_rev >= 40)
++				value |= B43_DMA64_RXBURST_128 |
++					 B43_DMA64_RXPREFETCH_8;
+ 			if (ring->dev->dma.index_is_addr) {
+ 				value |= b43_dma_read(ring, B43_DMA64_RXCTL) &
+ 					 B43_DMA64_RXCTL_KEEP;
+diff --git a/b43/dma.h b/b43/dma.h
+index e275355..06ed98c 100644
+--- a/b43/dma.h
++++ b/b43/dma.h
+@@ -124,6 +124,8 @@ struct b43_dmadesc32 {
+ #define		B43_DMA64_RXADDREXT_MASK		0x00030000
+ #define		B43_DMA64_RXADDREXT_SHIFT		16
+ #define		B43_DMA64_RXCTL_KEEP		0x03FC0000	/* Burst, prefetch */
++#define		B43_DMA64_RXBURST_128			0x000C0000	/* 128-byte bursts */
++#define		B43_DMA64_RXPREFETCH_8			0x00400000	/* Prefetch 8 descriptors */
+ #define B43_DMA64_RXINDEX				0x24
+ #define B43_DMA64_RXRINGLO				0x28
+ #define B43_DMA64_RXRINGHI				0x2C
+-- 
+2.43.0
+

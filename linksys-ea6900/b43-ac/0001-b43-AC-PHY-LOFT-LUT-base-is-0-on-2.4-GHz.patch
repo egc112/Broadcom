@@ -1,0 +1,67 @@
+From d3d9af0cbcb241891df550bf5afa1536ae9eb1c6 Mon Sep 17 00:00:00 2001
+From: Erik Conijn <egc112@msn.com>
+Date: Sat, 31 Oct 2026 12:02:49 +0100
+Subject: [PATCH] b43: AC-PHY: LOFT LUT base is 0 on 2.4 GHz
+
+b43_phy_ac_loft_lut_base() gives the base that
+rxiqcal_coeff_tables_reset() writes into the LOFT LUTs 0x42/0x62/0x82
+and that the calibrated LO word is added onto. It is a step function of
+the channel's pa5g group, read from the 5 GHz captures. On 2.4 GHz the
+group comes from "5000 + 5 * channel" as well, which is always group 0,
+so the 0x82 LUT (core 2) got the 5 GHz step f8fc/f6f2.
+
+The R7000 MMIO capture at 2.4 GHz ch 6 has both passes, in the order
+b43 already runs them: the fill writes each core's bare calibrated word
+(0x0001, 0x0101, 0xfe00, the LO words committed to IQLOCAL) to all 128
+entries, the reset writes 0 to all 128 entries of all three LUTs. The
+5 GHz capture (ch 36) matches the existing table (0x82: 0xf8fc up to
+0x20, then 0xf6f2). Return 0 on 2.4 GHz.
+
+Measured on an EA6900 (BCM4360, femctrl 3): after every 2.4 GHz
+bring-up the three LUTs read back 0 on all entries, as in wl; the 5 GHz
+LUTs (ch 149) are unchanged. No throughput change of its own; it is in
+the build that passed a 16 h soak (two clients, both bands, 0 b43
+errors, 0 replays).
+
+Assisted-by: Claude:claude-opus-5-5
+Signed-off-by: Erik Conijn <egc112@msn.com>
+---
+ b43/phy_ac.c | 18 ++++++++++++++++--
+ 1 file changed, 16 insertions(+), 2 deletions(-)
+
+diff --git a/b43/phy_ac.c b/b43/phy_ac.c
+index 865ae2f..ce9d5d5 100644
+--- a/b43/phy_ac.c
++++ b/b43/phy_ac.c
+@@ -7604,12 +7604,26 @@ static u16 b43_phy_ac_loft_add(u16 a, u16 b)
+  *
+  * Why the base exists, why the step falls where it does and why it follows
+  * the pa5g partition is not known; only that it does.
++ *
++ * The table is a 5 GHz one. On 2.4 GHz the base is 0 on every core: the
++ * R7000 at ch 6 writes the bare calibrated word in the fill pass (0x0001,
++ * 0x0101 and 0xfe00, the words it committed to IQLOCAL) and zero in the
++ * reset pass, on all 128 entries of all three LUTs. A pa5g group taken
++ * from "5000 + 5 * channel" has no meaning there: it is always group 0,
++ * which gave 0x0082 the f8fc/f6f2 step.
++ * [capture-ref: router-data/r7000/mmio-cold-2g6.zip; records
++ *   #23244-#26308 (fill), #28389-#31453 (reset)]
++ * [capture-ref: router-data/r7000/mmio-cold-5g36-80.zip; records
++ *   #54546-#57594 (0x0082 reset: f8fc, f6f2 from 0x21)]
+  */
+ static u16 b43_phy_ac_loft_lut_base(struct b43_wldev *dev, unsigned int core,
+ 				    unsigned int off)
+ {
+-	unsigned int grp = b43_phy_ac_pa5g_group(dev,
+-			5000 + 5 * dev->phy.ac->cal_channel);
++	unsigned int grp;
++
++	if (b43_current_band(dev->wl) == NL80211_BAND_2GHZ)
++		return 0x0000;
++	grp = b43_phy_ac_pa5g_group(dev, 5000 + 5 * dev->phy.ac->cal_channel);
+ 
+ 	if (core == 0)
+ 		return 0x0000;
+-- 
+2.43.0
+

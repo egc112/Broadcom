@@ -1,0 +1,40 @@
+From 0c5bf4bc1a773b405ce08940899de97ddb2a0a9e Mon Sep 17 00:00:00 2001
+From: Erik Conijn <egc112@msn.com>
+Date: Sat, 31 Oct 2026 13:54:52 +0100
+Subject: [PATCH] b43: AC-PHY: mdelay() for the 5.85 ms delay
+
+ARM builds stop at link time on udelay(5850): its udelay() takes at
+most 2000 us as a constant and turns a larger one into a call to the
+undefined __bad_udelay(). mdelay(6) waits the same way and covers the
+5848 us of the capture.
+
+Seen building for bcm53xx (Linksys EA6900, Cortex-A9); it is in the
+build that passed a 16 h soak.
+
+Assisted-by: Claude:claude-opus-5-5
+Signed-off-by: Erik Conijn <egc112@msn.com>
+---
+ b43/phy_ac.c | 5 +++--
+ 1 file changed, 3 insertions(+), 2 deletions(-)
+
+diff --git a/b43/phy_ac.c b/b43/phy_ac.c
+index 865ae2f..b63b81a 100644
+--- a/b43/phy_ac.c
++++ b/b43/phy_ac.c
+@@ -2870,10 +2870,11 @@ static void b43_phy_ac_rxcore_setstate(struct b43_wldev *dev, u8 coremask)
+ 	/*
+ 	 * RX-gain override companion of 0x06d8, bracketing the core-state
+ 	 * change: forced wide open (0xffff) before, set back to what 0x06d8
+-	 * read after. The capture delays 5848 us after the wide-open write.
++	 * read after. The capture delays 5848 us after the wide-open write;
++	 * mdelay(), since ARM refuses a udelay() constant above 2 ms.
+ 	 */
+ 	b43_phy_write(dev, 0x16d8, 0xffff);
+-	udelay(5850);
++	mdelay(6);
+ 
+ 	b43_phy_maskset(dev, 0x0160, (u16)~0x0007, coremask);
+ 	b43_phy_maskset(dev, B43_PHY_AC_RF_SEQ_MODE, (u16)~0x0070,
+-- 
+2.43.0
+

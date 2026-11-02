@@ -1,0 +1,57 @@
+From: Erik Conijn <egc112@msn.com>
+Subject: [PATCH] b43: AC-PHY: program the TX DMA burst length and prefetch
+
+The 64-bit DMA engine comes out of reset with 16-byte bursts and one
+outstanding read; the TX control word reads back 0 at ring setup, so
+keeping the reset values does not change that. On the BCM4360 (EA6900,
+5 GHz VHT80, 3x3) the TX FIFO runs dry: the receiver sees about 4 MPDUs
+per A-MPDU and the download stops at 118 Mbit/s at every channel width,
+with the DMA ring nearly full.
+
+Program the values Linux bgmac uses for the same DMA engine on Northstar
+(128-byte bursts, 2 outstanding reads, prefetch 16, threshold 8). Measured
+with firmware 784.2: 117 -> 326 Mbit/s TCP from the router, 118 -> 264
+forwarded, 23 MPDUs per A-MPDU; 16 minute soak clean. TX only: the bgmac
+RX values led to corrupted received frames (CCMP replay drops) within
+minutes.
+
+Assisted-by: Claude:claude-opus-5-5
+Signed-off-by: Erik Conijn <egc112@msn.com>
+---
+--- a/drivers/net/wireless/broadcom/b43/dma.h
++++ b/drivers/net/wireless/broadcom/b43/dma.h
+@@ -91,6 +91,10 @@
+ #define		B43_DMA64_TXADDREXT_MASK		0x00030000
+ #define		B43_DMA64_TXADDREXT_SHIFT		16
+ #define		B43_DMA64_TXCTL_KEEP		0x03FC00C0	/* Outstanding reads, burst, prefetch */
++#define		B43_DMA64_TXMR_2			0x00000040	/* 2 outstanding reads */
++#define		B43_DMA64_TXBURST_128			0x000C0000	/* 128-byte bursts */
++#define		B43_DMA64_TXPREFETCH_16			0x00600000	/* Prefetch 16 descriptors */
++#define		B43_DMA64_TXPREFETCH_THRESH_8		0x03000000	/* Prefetch threshold 8 */
+ #define B43_DMA64_TXINDEX				0x04
+ #define B43_DMA64_TXRINGLO				0x08
+ #define B43_DMA64_TXRINGHI				0x0C
+--- a/drivers/net/wireless/broadcom/b43/dma.c
++++ b/drivers/net/wireless/broadcom/b43/dma.c
+@@ -717,6 +717,21 @@
+ 			enable = B43_DMA64_TXENABLE;
+ 			if (!parity)
+ 				enable |= B43_DMA64_TXPARITYDISABLE;
++			/*
++			 * The engine comes out of reset with 16-byte bursts and
++			 * one outstanding read (the control word reads back 0).
++			 * On the AC cores that cannot keep the TX FIFO fed at VHT
++			 * rates: the FIFO runs dry and the hardware cuts each
++			 * A-MPDU after about 4 frames (BCM4360, 5 GHz VHT80:
++			 * 118 Mbit/s at every width). Use the values bgmac
++			 * programs into the same DMA engine on Northstar. TX only:
++			 * the RX equivalents corrupted received frames.
++			 */
++			if (ring->dev->dev->core_rev >= 40)
++				enable |= B43_DMA64_TXMR_2 |
++					  B43_DMA64_TXBURST_128 |
++					  B43_DMA64_TXPREFETCH_16 |
++					  B43_DMA64_TXPREFETCH_THRESH_8;
+ 			if (ring->dev->dma.index_is_addr) {
+ 				value |= b43_dma_read(ring, B43_DMA64_TXCTL) &
+ 					 B43_DMA64_TXCTL_KEEP;

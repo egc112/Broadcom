@@ -52,10 +52,11 @@ they change.
 
 ## Not used, not published
 
-* No decompiled or disassembled Broadcom code is used in these patches, and none is published
-  here: knowledge from studying the `wl` binary does not go into a published patch.
-* This repository does not contain Broadcom's binary drivers, firmware extracted by us, or the
-  calibration data of our routers.
+* No decompiled or disassembled Broadcom code is used in *our* patches (this folder and our patches
+  in the build kit): knowledge from studying the `wl` binary does not go into a patch we publish.
+  The build kit also carries Alessio Ferri's driver unchanged; its sources are his, see *Build kit*.
+* This repository does not contain Broadcom's binary drivers, firmware extracted by us, images, or
+  the calibration data of our routers. The build kit downloads the b43 firmware at build time.
 * Private stopgaps that copy calibration *results* of the stock driver into b43 are not
   published.
 
@@ -76,3 +77,32 @@ The patches are independent of each other; each applies on its own to b43-ac-wip
 All carry `Assisted-by: Claude:claude-opus-5-5`. They were written with the help of an AI
 assistant (Claude Code), which also did the trace comparison; every change was tested on the
 hardware.
+
+## Build kit
+
+[`../build-kit/`](../build-kit/) is a recipe for the image we test: a plain OpenWrt tree plus the parts
+below. Tested on OpenWrt main r37507-4e16c2ed8f, 2026-11-02. Alessio Ferri's driver is included
+unchanged and documented by his own provenance; the sources of our own patches follow the rules of
+this document and are listed below.
+
+| Part | Author | Based on |
+|---|---|---|
+| `patches/board/EA6900.patch` | Erik Conijn | board support as submitted to OpenWrt and reviewed there, [openwrt/openwrt#26316](https://github.com/openwrt/openwrt/pull/26316); no b43 code |
+| `patches/board/broadcom.mk.diff` | Erik Conijn | OpenWrt's own `broadcom.mk`: an AC-PHY option next to the existing PHY options, and a firmware entry written like the existing ones for the firmware of Broadcom's driver 6.30.163.46 |
+| `patches/kernel/880-*`, `patches/mac80211/816-02-*`, `816-03-*` | Alessio Ferri | his work, copied unchanged from b43-ac-wip `patches/` (commits [1e43a20](https://github.com/aleferri/b43-ac-wip/commit/1e43a20) and [8c234e6](https://github.com/aleferri/b43-ac-wip/commit/8c234e6)); its sources are documented in his [PROVENANCE.md](https://github.com/aleferri/b43-ac-wip/blob/main/PROVENANCE.md), among them data from Broadcom's GPL-released `wl` objects |
+| `patches/mac80211/817-*`, `818-*` | Alessio Ferri | his code: the diffs of b43-ac-wip's `b43/` between the 816 base and commits [3517def](https://github.com/aleferri/b43-ac-wip/commit/3517def) and [bc63d98](https://github.com/aleferri/b43-ac-wip/commit/bc63d98), made by us with `git diff`, nothing added; same sources as above |
+| `patches/mac80211/904`, `906`, `917`, `942`, `946`, `949` | Erik Conijn | the patches of this folder, see *Sources per patch* |
+| `patches/mac80211/926` | Erik Conijn | the TX values of the Linux `bgmac` driver for the same DMA engine; throughput measurements on the EA6900. In b43-ac-wip as [#6](https://github.com/aleferri/b43-ac-wip/pull/6) (merged) |
+| `patches/mac80211/934`, `935`, `936` | Erik Conijn | profiles (`perf`) of b43 on the EA6900 and b43's own code: locking and DMA cache handling, no Broadcom data. In #6 |
+| `patches/mac80211/939` | Erik Conijn | the A-MSDU bit of the RX status as named in the Linux `brcmsmac` driver, which drops such frames too; the faulty frame as received on the EA6900. In #6 |
+| `patches/mac80211/950` | Erik Conijn | R7000 bus trace with `tssifloor2g/5g` removed from its nvram (method 7); reported as [issue #16](https://github.com/aleferri/b43-ac-wip/issues/16), fixed in b43-ac-wip by its author |
+| `files/`, `diffconfig`, `apply.sh` | Erik Conijn | interrupt layout from throughput measurements on the EA6900; the configuration of the tested image |
+
+**Firmware.** b43 needs Broadcom's firmware. The kit does not contain it: the build downloads
+`broadcom-wl-6.30.163.46.tar.bz2`, the tarball the b43 project documented at lwfinger.com, from the
+Gentoo mirror (or the Web Archive copy of the original site, byte-identical), checks its SHA-256 and
+extracts the files with b43-fwcutter, as OpenWrt does for the other b43 firmware versions.
+
+The kit's patches, `apply.sh` and README were written with the help of an AI assistant (Claude Code);
+the patches carry `Assisted-by: Claude:claude-opus-5-5`. Every image built from the kit was tested on
+the EA6900, the last one in a soak.

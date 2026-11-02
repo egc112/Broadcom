@@ -1,0 +1,7 @@
+
+config irqbalance 'irqbalance'
+	option enabled '1'
+	list banirq '36'
+	list banirq '44'
+	list banirq '45'
+

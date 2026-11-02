@@ -223,8 +223,9 @@ What to upload:
 * **To recover OpenWrt:** the `initramfs.trx`. It runs from RAM, at 192.168.1.1 with no password.
   Then flash the `squashfs.trx` from it with sysupgrade or LuCI (without keeping settings) and
   restore your settings backup. This route is tested.
-* Uploading the `squashfs.trx` directly is not tested yet. The CFE writes it raw over the old
-  flash contents; use the initramfs route until someone confirms it.
+* Uploading the `squashfs.trx` directly also works (tested twice, 2026-11-02): the CFE writes it
+  over the old flash contents and OpenWrt boots with default settings; restore your settings
+  backup in LuCI afterwards.
 * **Back to DD-WRT:** DD-WRT's `linksys-ea6900-webflash.bin` (or your dump).
 
 Your CFE needs `boot_wait=on` in nvram for the TFTP rescue route; keep it.
@@ -284,12 +285,9 @@ WRX36 as the client and a wired LAN host, TCP: 2.4 GHz HT20 (3 streams) about 14
 each band, 2026-11-01/02) that passed without errors. That build takes the radios' SROM rev 11 values
 from nvram with b43-ac-wip's own bcma/ssb patch, applied as a kernel patch.
 
-This is not a ready-made build yet. Besides OpenWrt, `EA6900.patch` and b43-ac-wip it also needs the AC-PHY firmware and build option of
-[openwrt/openwrt#25788](https://github.com/openwrt/openwrt/pull/25788) (Russell Ballestrini; also in
-[openwrt/openwrt#26349](https://github.com/openwrt/openwrt/pull/26349)) and b43-ac-wip's bcma/ssb patch
-(`patches/880-bcma-ssb-support-the-BCM4352-BCM4360-family.patch` there). Our soaked build is
-b43-ac-wip as of late October with our patches on top; a build from b43-ac-wip's current main is next,
-and a tested recipe from public parts only will follow here once that has passed a soak.
+To build it yourself: [build-kit/](build-kit/) holds everything except OpenWrt itself, b43-ac-wip's patches
+included (copied unchanged), with build steps, the tested OpenWrt commit and the sources of each part. A build
+from b43-ac-wip's current main is next.
 
 ## Flash layout (Asus-style CFE, as OpenWrt sees it)
 

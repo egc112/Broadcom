@@ -1,0 +1,26 @@
+# Put your custom commands here that should be executed once
+# the system init finished. By default this file does nothing.
+
+# EA6900: a fixed IRQ layout (measured best, see the README); irqbalance bans these
+# three (banirq in /etc/config/irqbalance). Found by name/hardware line, not by IRQ number:
+# eth2 (CPU port 8 conduit) and the 2.4 GHz radio on CPU1, the 5 GHz radio on CPU0.
+# A radio requests its IRQ only when wifi comes up, so retry for up to 2 minutes in the background.
+# After reloading b43 by hand, run this file again.
+pin() {
+	i=$(awk -v p="$1" '$0 ~ p { sub(":", "", $1); print $1; exit }' /proc/interrupts)
+	[ -n "$i" ] || return 1
+	echo "$2" > /proc/irq/$i/smp_affinity && logger -t irqpin "$3: irq $i -> mask $2"
+}
+(
+	n=0; e=1; g=1; a=1
+	while [ $n -lt 60 ] && [ $((e + g + a)) -gt 0 ]; do
+		[ $e = 1 ] && pin " eth2$" 2 "eth2" && e=0
+		[ $g = 1 ] && pin "GIC-0 163 Level" 2 "b43 2.4 GHz" && g=0
+		[ $a = 1 ] && pin "GIC-0 169 Level" 1 "b43 5 GHz" && a=0
+		[ $((e + g + a)) -gt 0 ] && sleep 2
+		n=$((n + 1))
+	done
+	[ $((e + g + a)) -gt 0 ] && logger -t irqpin "not all pinned (eth2 $e, 2.4 GHz $g, 5 GHz $a)"
+) &
+
+exit 0

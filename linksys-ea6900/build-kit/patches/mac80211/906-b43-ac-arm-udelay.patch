@@ -1,0 +1,23 @@
+From: Erik Conijn <egc112@msn.com>
+Subject: [PATCH] b43: AC-PHY: mdelay instead of a 5.85 ms udelay (ARM)
+
+ARM rejects udelay() constants above 2000 us at link time
+(__bad_udelay); mdelay(6) busy-waits the same way and covers the 5848 us of
+the capture. The same change is in b43-ac-wip as #15.
+
+Assisted-by: Claude:claude-opus-5-5
+---
+diff --git a/drivers/net/wireless/broadcom/b43/phy_ac.c b/drivers/net/wireless/broadcom/b43/phy_ac.c
+index 190afa0..0fba895 100644
+--- a/drivers/net/wireless/broadcom/b43/phy_ac.c
++++ b/drivers/net/wireless/broadcom/b43/phy_ac.c
+@@ -2878,7 +2878,8 @@ static void b43_phy_ac_rxcore_setstate(struct b43_wldev *dev, u8 coremask)
+ 	 * read after. The capture delays 5848 us after the wide-open write.
+ 	 */
+ 	b43_phy_write(dev, 0x16d8, 0xffff);
+-	udelay(5850);
++	/* ARM has no udelay() above 2 ms (__bad_udelay) */
++	mdelay(6);
+ 
+ 	b43_phy_maskset(dev, 0x0160, (u16)~0x0007, coremask);
+ 	b43_phy_maskset(dev, B43_PHY_AC_RF_SEQ_MODE, (u16)~0x0070,

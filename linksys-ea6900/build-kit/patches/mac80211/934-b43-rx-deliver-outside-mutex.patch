@@ -1,0 +1,109 @@
+From: Erik Conijn <egc112@msn.com>
+Subject: [PATCH] b43: hand received frames to mac80211 outside wl->mutex
+
+The interrupt thread holds wl->mutex while b43_rx() calls ieee80211_rx_ni(),
+so the whole receive path, through mac80211 and the bridge or the IP stack,
+runs under the mutex. b43_tx_work() needs the same mutex for every frame it
+sends, the TCP ACKs of an upload from a station included, and spins on it
+meanwhile: on a BCM4708 with a BCM4360 (EA6900) a profile of a 5 GHz upload
+shows 36 % of the CPU time in mutex_spin_on_owner from b43_tx_work().
+
+Queue the frames in b43_rx() and hand them over with ieee80211_rx_list()
+once the interrupt thread has dropped the mutex. The interrupt thread (or
+the SDIO handler) is the only caller, so the RX calls stay serialized.
+
+Assisted-by: Claude:claude-opus-5-5
+Signed-off-by: Erik Conijn <egc112@msn.com>
+---
+--- a/drivers/net/wireless/broadcom/b43/b43.h
++++ b/drivers/net/wireless/broadcom/b43/b43.h
+@@ -1128,6 +1128,12 @@
+ 	/* Queue of packets to be transmitted. */
+ 	struct sk_buff_head tx_queue[B43_QOS_QUEUE_NUM];
+ 
++	/*
++	 * Received frames, handed to mac80211 after the interrupt thread
++	 * drops the mutex (b43_rx_deliver()).
++	 */
++	struct sk_buff_head rx_queue;
++
+ 	/* Flag that implement the queues stopping. */
+ 	bool tx_queue_stopped[B43_QOS_QUEUE_NUM];
+ 
+--- a/drivers/net/wireless/broadcom/b43/main.c
++++ b/drivers/net/wireless/broadcom/b43/main.c
+@@ -2829,6 +2829,30 @@
+ }
+ 
+ /* Interrupt thread handler. Handles device interrupts in thread context. */
++/*
++ * Hand the frames b43_rx() queued to mac80211. This runs after the
++ * interrupt thread has dropped wl->mutex: mac80211 passes each frame on
++ * through the bridge or the IP stack from here, and with the mutex held
++ * that kept b43_tx_work() (and with it every TCP ACK of a download from a
++ * station) spinning on the mutex for as long as the receive path ran. The
++ * interrupt thread is the only caller, so the RX calls stay serialized as
++ * mac80211 requires.
++ */
++static void b43_rx_deliver(struct b43_wl *wl)
++{
++	struct sk_buff *skb;
++	LIST_HEAD(list);
++
++	if (skb_queue_empty(&wl->rx_queue))
++		return;
++
++	local_bh_disable();
++	while ((skb = skb_dequeue(&wl->rx_queue)))
++		ieee80211_rx_list(wl->hw, NULL, skb, &list);
++	netif_receive_skb_list(&list);
++	local_bh_enable();
++}
++
+ static irqreturn_t b43_interrupt_thread_handler(int irq, void *dev_id)
+ {
+ 	struct b43_wldev *dev = dev_id;
+@@ -2836,6 +2860,7 @@
+ 	mutex_lock(&dev->wl->mutex);
+ 	b43_do_interrupt_thread(dev);
+ 	mutex_unlock(&dev->wl->mutex);
++	b43_rx_deliver(dev->wl);
+ 
+ 	return IRQ_HANDLED;
+ }
+@@ -2917,6 +2942,7 @@
+ 		b43_do_interrupt_thread(dev);
+ 
+ 	mutex_unlock(&wl->mutex);
++	b43_rx_deliver(wl);
+ }
+ 
+ void b43_do_release_fw(struct b43_firmware_file *fw)
+@@ -5824,6 +5850,7 @@
+ 			ieee80211_free_txskb(wl->hw, skb);
+ 		}
+ 	}
++	skb_queue_purge(&wl->rx_queue);
+ 
+ 	b43_mac_suspend(dev);
+ 	b43_leds_exit(dev);
+@@ -7473,6 +7500,7 @@
+ 		skb_queue_head_init(&wl->tx_queue[queue_num]);
+ 		wl->tx_queue_stopped[queue_num] = false;
+ 	}
++	skb_queue_head_init(&wl->rx_queue);
+ 
+ 	snprintf(chip_name, ARRAY_SIZE(chip_name),
+ 		 (dev->chip_id > 0x9999) ? "%d" : "%04X", dev->chip_id);
+--- a/drivers/net/wireless/broadcom/b43/xmit.c
++++ b/drivers/net/wireless/broadcom/b43/xmit.c
+@@ -1501,7 +1501,8 @@
+ 	}
+ 
+ 	memcpy(IEEE80211_SKB_RXCB(skb), &status, sizeof(status));
+-	ieee80211_rx_ni(dev->wl->hw, skb);
++	/* Delivered by b43_rx_deliver(), outside wl->mutex. */
++	skb_queue_tail(&dev->wl->rx_queue, skb);
+ 
+ #if B43_DEBUG
+ 	dev->rx_count++;

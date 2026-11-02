@@ -1,0 +1,7 @@
+#!/bin/sh
+# The irqbalance package installs disabled. On the EA6900 Ethernet and both radios otherwise share CPU core 0,
+# and a busy 5 GHz radio starves the 2.4 GHz one (measured 2026-10-29).
+[ -f /etc/config/irqbalance ] || exit 0
+uci -q set irqbalance.irqbalance.enabled='1'
+uci commit irqbalance
+exit 0

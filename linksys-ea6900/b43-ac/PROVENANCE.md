@@ -61,14 +61,14 @@ they change.
 
 ## Sources per patch
 
-| Patch | Author | Based on |
-|---|---|---|
-| `0001-b43-AC-PHY-2.4-GHz-values-for-the-calibration-radio-setup.patch` | Erik Conijn | b43-ac-wip's own code (the six radio MODs at two places); the values on 2.4 GHz from the R7000 bus trace at 2.4 GHz ch 6 (records cited in the code); before/after measurements on the EA6900 (calibration results, throughput) |
-| `0001-b43-AC-PHY-use-the-2.4-GHz-AvVmid-entry-on-2.4-GHz.patch` | Erik Conijn | b43-ac-wip's own AvVmid table and its comment that band 0 is 2.4 GHz; the R7000's pdgain2g from its public nvram; the value wl writes at 2.4 GHz from the R7000 bus trace (records cited in the code); the table entries that differ found by read-back on the R7000; before/after TSSI measurements on the EA6900 |
-| `0001-b43-AC-PHY-LOFT-LUT-base-is-0-on-2.4-GHz.patch` | Erik Conijn | b43-ac-wip's own fill and reset passes; the values wl writes at 2.4 and 5 GHz from the R7000 bus traces (records cited in the code); read-back of the LUTs on the EA6900 after bring-up |
-| `0001-b43-AC-PHY-program-the-RX-DMA-burst-length-and-prefe.patch` | Erik Conijn | the RX values of the Linux `bgmac` driver (`bgmac_dma_rx_enable()`) for the same DMA engine; throughput measurements on the EA6900 |
-| `0001-b43-AC-PHY-femctrl-3-FEM-tables-sub-0-and-sub-3.patch` | Erik Conijn | b43-ac-wip's own FEM table mechanism; the 5 GHz table and PHY 0x040a from the R7000 bus trace (records cited in the code); the 2.4 GHz table and the PMU regctl value by read-back on the R7000 (the read-back file is part of the patch); an A/B test of the PMU bit on the EA6900; throughput measurements |
-| `0001-b43-AC-PHY-mdelay-for-the-5.85-ms-delay.patch` | Erik Conijn | a build fix: ARM's `udelay()` limit; the delay itself is b43-ac-wip's |
+| Patch | Author | Based on | b43-ac-wip |
+|---|---|---|---|
+| `0001-b43-AC-PHY-2.4-GHz-values-for-the-calibration-radio-setup.patch` | Erik Conijn | b43-ac-wip's own code (the six radio MODs at two places); the values on 2.4 GHz from the R7000 bus trace at 2.4 GHz ch 6 (records cited in the code); before/after measurements on the EA6900 (calibration results, throughput) | [#8](https://github.com/aleferri/b43-ac-wip/pull/8) (merged) |
+| `0001-b43-AC-PHY-use-the-2.4-GHz-AvVmid-entry-on-2.4-GHz.patch` | Erik Conijn | b43-ac-wip's own AvVmid table and its comment that band 0 is 2.4 GHz; the R7000's pdgain2g from its public nvram; the value wl writes at 2.4 GHz from the R7000 bus trace (records cited in the code); the table entries that differ found by read-back on the R7000; before/after TSSI measurements on the EA6900 | [#9](https://github.com/aleferri/b43-ac-wip/pull/9) (merged) |
+| `0001-b43-AC-PHY-LOFT-LUT-base-is-0-on-2.4-GHz.patch` | Erik Conijn | b43-ac-wip's own fill and reset passes; the values wl writes at 2.4 and 5 GHz from the R7000 bus traces (records cited in the code); read-back of the LUTs on the EA6900 after bring-up | [#12](https://github.com/aleferri/b43-ac-wip/pull/12) (merged) |
+| `0001-b43-AC-PHY-program-the-RX-DMA-burst-length-and-prefe.patch` | Erik Conijn | the RX values of the Linux `bgmac` driver (`bgmac_dma_rx_enable()`) for the same DMA engine; throughput measurements on the EA6900 | [#13](https://github.com/aleferri/b43-ac-wip/pull/13) (open) |
+| `0001-b43-AC-PHY-femctrl-3-FEM-tables-sub-0-and-sub-3.patch` | Erik Conijn | b43-ac-wip's own FEM table mechanism; the 5 GHz table and PHY 0x040a from the R7000 bus trace (records cited in the code); the 2.4 GHz table and the PMU regctl value by read-back on the R7000 (the read-back file is part of the patch); an A/B test of the PMU bit on the EA6900; throughput measurements | [#14](https://github.com/aleferri/b43-ac-wip/pull/14) (merged) |
+| `0001-b43-AC-PHY-mdelay-for-the-5.85-ms-delay.patch` | Erik Conijn | a build fix: ARM's `udelay()` limit; the delay itself is b43-ac-wip's | [#15](https://github.com/aleferri/b43-ac-wip/pull/15) (merged) |
 
 The patches are independent of each other; each applies on its own to b43-ac-wip
 `main` at 7ae3a61, and all six apply together.

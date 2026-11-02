@@ -3,7 +3,8 @@
 > **Status: test version, not in OpenWrt.** OpenWrt has no EA6900 support. These patches add it.
 > Tested on one EA6900 v1 that was converted to the **Asus-style (XVortex) CFE** and ran DD-WRT
 > before. Units with the stock Linksys CFE (dual boot) are **not** covered and not tested.
-> **There is no wireless yet** (see *What works*).
+> **No wireless in stock OpenWrt.** Both radios work with an experimental driver that is not in OpenWrt
+> yet (see *Experimental Wi-Fi*).
 > **EA6900 v1 only.** The EA6900 v2 is a different router (MediaTek MT7621) and needs other firmware.
 
 ## Hardware
@@ -75,7 +76,7 @@ from stock-CFE units are welcome.
 | Failsafe: tap Reset or WPS while the logo blinks during boot | works (LAN port 1 only) |
 | sysupgrade, with and without keeping settings | works |
 | Mini CFE web recovery | works (see *Install or recover with the mini CFE*) |
-| **Wireless** | **no**: stock OpenWrt's b43 does not support the BCM4360 (AC-PHY): `b43-phy0 ERROR: FOUND UNSUPPORTED PHY (Analog 12, Type 11 (AC))`; brcmfmac does not support this chip either. Experimental: our patches for the b43 AC-PHY driver of [aleferri/b43-ac-wip](https://github.com/aleferri/b43-ac-wip) are in [b43-ac/](b43-ac/) |
+| **Wireless** | **no**: stock OpenWrt's b43 does not support the BCM4360 (AC-PHY): `b43-phy0 ERROR: FOUND UNSUPPORTED PHY (Analog 12, Type 11 (AC))`; brcmfmac does not support this chip either. Experimental: both radios work with the b43 AC-PHY driver of [aleferri/b43-ac-wip](https://github.com/aleferri/b43-ac-wip), see *Experimental Wi-Fi* |
 
 ## Recommended: irqbalance
 
@@ -275,18 +276,20 @@ You need an OpenWrt build tree (tested with OpenWrt main r37507-4e16c2ed8f, kern
 
 Both radios run on our test router with Alessio Ferri's experimental b43 AC-PHY driver,
 [aleferri/b43-ac-wip](https://github.com/aleferri/b43-ac-wip), our patches in [b43-ac/](b43-ac/)
-(sources in [b43-ac/PROVENANCE.md](b43-ac/PROVENANCE.md)) and a few build helpers of our own. With a
+(sources in [b43-ac/PROVENANCE.md](b43-ac/PROVENANCE.md)) and the interrupt settings above. Five of
+those six patches are merged into b43-ac-wip by now; the sixth, the RX DMA burst setting, is open there as
+[aleferri/b43-ac-wip#13](https://github.com/aleferri/b43-ac-wip/pull/13). With a
 WRX36 as the client and a wired LAN host, TCP: 2.4 GHz HT20 (3 streams) about 142 down / 157 up,
 5 GHz VHT80 about 361 down / 382 up Mbit/s, the averages of a 24-hour soak of our current build (a client on
 each band, 2026-11-01/02) that passed without errors. That build takes the radios' SROM rev 11 values
 from nvram with b43-ac-wip's own bcma/ssb patch, applied as a kernel patch.
 
-This is not a ready-made build yet. Besides OpenWrt, `EA6900.patch` and b43-ac-wip with our patches it
-also needs the AC-PHY firmware and build option of
+This is not a ready-made build yet. Besides OpenWrt, `EA6900.patch` and b43-ac-wip it also needs the AC-PHY firmware and build option of
 [openwrt/openwrt#25788](https://github.com/openwrt/openwrt/pull/25788) (Russell Ballestrini; also in
 [openwrt/openwrt#26349](https://github.com/openwrt/openwrt/pull/26349)) and b43-ac-wip's bcma/ssb patch
-(`patches/880-bcma-ssb-support-the-BCM4352-BCM4360-family.patch` there). A tested recipe from public
-parts only will follow here.
+(`patches/880-bcma-ssb-support-the-BCM4352-BCM4360-family.patch` there). Our soaked build is
+b43-ac-wip as of late October with our patches on top; a build from b43-ac-wip's current main is next,
+and a tested recipe from public parts only will follow here once that has passed a soak.
 
 ## Flash layout (Asus-style CFE, as OpenWrt sees it)
 
@@ -299,7 +302,7 @@ parts only will follow here.
 
 ## Known limitations
 
-* **No wireless** (BCM4360, AC-PHY; see *What works*).
+* **No wireless in stock OpenWrt** (BCM4360, AC-PHY). Experimental: see *Experimental Wi-Fi*.
 * **USB 3.0 stick present at boot**: its first USB 3.0 link training fails, the xHCI port stays in
   `Link:Polling`, and the stick keeps switching to USB 2.0 and back (`usb usb2-port1: Cannot enable`,
   `error -71`). It sometimes recovers after 30–60 s. Until its power is cut, the stick does not train

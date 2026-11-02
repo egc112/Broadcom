@@ -276,15 +276,17 @@ You need an OpenWrt build tree (tested with OpenWrt main r37507-4e16c2ed8f, kern
 Both radios run on our test router with Alessio Ferri's experimental b43 AC-PHY driver,
 [aleferri/b43-ac-wip](https://github.com/aleferri/b43-ac-wip), our patches in [b43-ac/](b43-ac/)
 (sources in [b43-ac/PROVENANCE.md](b43-ac/PROVENANCE.md)) and a few build helpers of our own. With a
-WRX36 as the client and a wired LAN host, TCP: 2.4 GHz HT20 (3 streams) about 143 down / 157 up,
-5 GHz VHT80 about 362 down / 379 up Mbit/s, the averages of a 16-hour soak of our current build (a client on
-each band, 2026-10-31) that passed without errors.
+WRX36 as the client and a wired LAN host, TCP: 2.4 GHz HT20 (3 streams) about 142 down / 157 up,
+5 GHz VHT80 about 361 down / 382 up Mbit/s, the averages of a 24-hour soak of our current build (a client on
+each band, 2026-11-01/02) that passed without errors. That build takes the radios' SROM rev 11 values
+from nvram with b43-ac-wip's own bcma/ssb patch, applied as a kernel patch.
 
 This is not a ready-made build yet. Besides OpenWrt, `EA6900.patch` and b43-ac-wip with our patches it
 also needs the AC-PHY firmware and build option of
-[openwrt/openwrt#25788](https://github.com/openwrt/openwrt/pull/25788) (Russell Ballestrini) and the SROM
-rev 11 values from nvram, which b43-ac-wip's own bcma patch provides. A tested recipe from public parts
-only will follow here.
+[openwrt/openwrt#25788](https://github.com/openwrt/openwrt/pull/25788) (Russell Ballestrini; also in
+[openwrt/openwrt#26349](https://github.com/openwrt/openwrt/pull/26349)) and b43-ac-wip's bcma/ssb patch
+(`patches/880-bcma-ssb-support-the-BCM4352-BCM4360-family.patch` there). A tested recipe from public
+parts only will follow here.
 
 ## Flash layout (Asus-style CFE, as OpenWrt sees it)
 

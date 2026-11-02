@@ -10,9 +10,13 @@ Patches for Alessio Ferri's experimental b43 AC-PHY driver,
 project and its own sources are documented in its
 [PROVENANCE.md](https://github.com/aleferri/b43-ac-wip/blob/main/PROVENANCE.md). The patches
 here are offered to it as well; it is free to take, rework or drop them. Status on
-2026-11-01: the calibration radio setup and AvVmid patches are merged there
-([#8](https://github.com/aleferri/b43-ac-wip/pull/8), [#9](https://github.com/aleferri/b43-ac-wip/pull/9)); the other four are open there as
-[#12](https://github.com/aleferri/b43-ac-wip/pull/12)-[#15](https://github.com/aleferri/b43-ac-wip/pull/15).
+2026-11-02: five are merged there
+([#8](https://github.com/aleferri/b43-ac-wip/pull/8), [#9](https://github.com/aleferri/b43-ac-wip/pull/9),
+[#12](https://github.com/aleferri/b43-ac-wip/pull/12), [#14](https://github.com/aleferri/b43-ac-wip/pull/14),
+[#15](https://github.com/aleferri/b43-ac-wip/pull/15)); the RX DMA burst patch is open there as
+[#13](https://github.com/aleferri/b43-ac-wip/pull/13). A finding about PHY register 0x?724 (the TSSI floor
+written during the temperature measurement is a constant, not an SROM value) was reported as
+[issue #16](https://github.com/aleferri/b43-ac-wip/issues/16) and fixed there by its author.
 
 The patches are changes to the Linux b43 driver and are licensed **GPL-2.0**, like the code
 they change.
@@ -41,6 +45,10 @@ they change.
    a change).
 6. **Open-source drivers.** The Linux `bgmac` driver programs the same DMA engine on the
    same SoC family (Northstar); its RX burst and prefetch values are used as they are.
+7. **Board-data variation on the R7000.** To see which board value a register depends on, one radio
+   nvram variable of the R7000 is changed in RAM only (never committed), `wl` is reloaded so it
+   reads it, and the bring-up is traced again as in 1. Used for issue #16 (tssifloor removed) and to
+   check other people's patches against the stock driver.
 
 ## Not used, not published
 

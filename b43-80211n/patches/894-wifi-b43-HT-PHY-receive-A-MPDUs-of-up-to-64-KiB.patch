@@ -41,10 +41,10 @@ index 173405c..dd9181e 100644
  #define B43_SHM_SH_MACHW_H		0x00C2	/* Location where the ucode expects the MAC capabilities */
  #define B43_SHM_SH_HOSTF5		0x00D4	/* Hostflags 5 for ucode options */
 diff --git a/drivers/net/wireless/broadcom/b43/main.c b/drivers/net/wireless/broadcom/b43/main.c
-index 6e39d81..9028bb5 100644
+index 42a84eb..71ba0df 100644
 --- a/drivers/net/wireless/broadcom/b43/main.c
 +++ b/drivers/net/wireless/broadcom/b43/main.c
-@@ -5820,6 +5820,15 @@ static int b43_wireless_core_init(struct b43_wldev *dev)
+@@ -5826,6 +5826,15 @@ static int b43_wireless_core_init(struct b43_wldev *dev)
  	b43_shm_write16(dev, B43_SHM_SHARED, B43_SHM_SH_PHYTYPE, phy->type);
  	b43_shm_write16(dev, B43_SHM_SHARED, B43_SHM_SH_PHYVER, phy->rev);
  
@@ -60,7 +60,7 @@ index 6e39d81..9028bb5 100644
  	if (b43_bus_host_is_pcmcia(dev->dev) ||
  	    b43_bus_host_is_sdio(dev->dev)) {
  		dev->__using_pio_transfers = true;
-@@ -6411,6 +6420,10 @@ static void b43_ht_cap_set_chains(struct b43_wldev *dev,
+@@ -6417,6 +6426,10 @@ static void b43_ht_cap_set_chains(struct b43_wldev *dev,
  		ht_cap->mcs.tx_params |= IEEE80211_HT_MCS_TX_RX_DIFF |
  			((tx_ss - 1) << IEEE80211_HT_MCS_TX_MAX_STREAMS_SHIFT);
  

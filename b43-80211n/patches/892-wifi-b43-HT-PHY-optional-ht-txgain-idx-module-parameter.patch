@@ -22,10 +22,10 @@ Signed-off-by: Erik Conijn <egc112@msn.com>
  1 file changed, 10 insertions(+), 2 deletions(-)
 
 diff --git a/drivers/net/wireless/broadcom/b43/phy_ht.c b/drivers/net/wireless/broadcom/b43/phy_ht.c
-index f7fc178..53afd23 100644
+index 0cba71a..d17ebc4 100644
 --- a/drivers/net/wireless/broadcom/b43/phy_ht.c
 +++ b/drivers/net/wireless/broadcom/b43/phy_ht.c
-@@ -39,11 +39,19 @@ static bool b43_phy_ht_ext_fem(struct b43_wldev *dev)
+@@ -44,11 +44,19 @@ static bool b43_phy_ht_ext_fem(struct b43_wldev *dev)
   * Use 24 with BFL_HGPA, else 16, i.e. about four steps above the measured
   * edge on both boards. Elsewhere the loop stays on: on an Apple BCM4331
   * card, with an external PA but neither flag, it holds the SPROM target

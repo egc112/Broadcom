@@ -30,7 +30,8 @@ and is not slowed down. The calibration is also skipped while the PHY is
 not initialized yet: b43_phy_init() switches the channel once before the
 PHY init, when the estimator does not yet see the I/Q layout the
 initialized PHY uses. It runs on 2.4 GHz only, where it was measured,
-and takes about 25 ms.
+and takes about 25 ms. It runs after the TX I/Q and LO calibration, in
+the order of brcmsmac's wlc_phy_cal_perical_nphy_run() (TX, then RX).
 
 Netgear R6400 v1, channel 6, MPDU loss at a fixed MCS 15 from a client,
 alternated 20 s blocks: 32.8 % without, 2.1 % with the calibration;
@@ -43,23 +44,23 @@ calibration, the residual image rejection stays at 44-76 dB.
 Assisted-by: Claude:claude-opus-5-5
 Signed-off-by: Erik Conijn <egc112@msn.com>
 ---
- drivers/net/wireless/broadcom/b43/phy_ht.c | 244 +++++++++++++++++++++
+ drivers/net/wireless/broadcom/b43/phy_ht.c | 245 +++++++++++++++++++++++++++++
  drivers/net/wireless/broadcom/b43/phy_ht.h |  16 ++
- 2 files changed, 260 insertions(+)
+ 2 files changed, 261 insertions(+)
 
 diff --git a/drivers/net/wireless/broadcom/b43/phy_ht.c b/drivers/net/wireless/broadcom/b43/phy_ht.c
-index 53afd23..15da7b3 100644
+index d17ebc4..089c26b 100644
 --- a/drivers/net/wireless/broadcom/b43/phy_ht.c
 +++ b/drivers/net/wireless/broadcom/b43/phy_ht.c
-@@ -10,6 +10,7 @@
- */
+@@ -11,6 +11,7 @@
  
+ #include <linux/cordic.h>
  #include <linux/slab.h>
 +#include <linux/math64.h>
  
  #include "b43.h"
  #include "phy_ht.h"
-@@ -948,6 +949,245 @@ static void b43_phy_ht_channel_setup(struct b43_wldev *dev,
+@@ -1274,6 +1275,245 @@ static void b43_phy_ht_channel_setup(struct b43_wldev *dev,
  	b43_phy_write(dev, 0x017e, 0x3830);
  }
  
@@ -305,17 +306,18 @@ index 53afd23..15da7b3 100644
  static int b43_phy_ht_set_channel(struct b43_wldev *dev,
  				  struct ieee80211_channel *channel,
  				  enum nl80211_channel_type channel_type)
-@@ -971,6 +1211,7 @@ static int b43_phy_ht_set_channel(struct b43_wldev *dev,
- 		b43_radio_2059_channel_setup(dev, chent_r2059);
- 		b43_phy_ht_channel_setup(dev, &(chent_r2059->phy_regs),
- 					 channel);
-+		b43_phy_ht_rx_iq_cal(dev, channel);
- 	} else {
- 		return -ESRCH;
+@@ -1314,6 +1554,8 @@ static int b43_phy_ht_set_channel(struct b43_wldev *dev,
+ 		phy_ht->txcal_freq = channel->center_freq;
  	}
-@@ -1075,6 +1316,9 @@ static int b43_phy_ht_op_init(struct b43_wldev *dev)
  
++	b43_phy_ht_rx_iq_cal(dev, channel);
++
+ 	return 0;
+ }
+ 
+@@ -1415,6 +1657,9 @@ static int b43_phy_ht_op_init(struct b43_wldev *dev)
  	b43_phy_ht_tables_init(dev);
+ 	phy_ht->txcal_freq = 0;
  
 +	/* A new PHY init needs a new RX I/Q calibration */
 +	phy_ht->rxiq_comp_freq = 0;
@@ -324,7 +326,7 @@ index 53afd23..15da7b3 100644
  	b43_phy_set(dev, 0x23f, 0x7ff);
  	b43_phy_set(dev, 0x240, 0x7ff);
 diff --git a/drivers/net/wireless/broadcom/b43/phy_ht.h b/drivers/net/wireless/broadcom/b43/phy_ht.h
-index ed041f7..18e243b 100644
+index b71eb2e..b1a0b0a 100644
 --- a/drivers/net/wireless/broadcom/b43/phy_ht.h
 +++ b/drivers/net/wireless/broadcom/b43/phy_ht.h
 @@ -13,6 +13,8 @@
@@ -336,7 +338,7 @@ index ed041f7..18e243b 100644
  #define B43_PHY_HT_CLASS_CTL			0x0B0 /* Classifier control */
  #define  B43_PHY_HT_CLASS_CTL_CCK_EN		0x0001 /* CCK enable */
  #define  B43_PHY_HT_CLASS_CTL_OFDM_EN		0x0002 /* OFDM enable */
-@@ -30,6 +32,16 @@
+@@ -33,6 +35,16 @@
  #define B43_PHY_HT_TSSIMODE			0x122	/* TSSI mode */
  #define  B43_PHY_HT_TSSIMODE_EN			0x0001	/* TSSI enable */
  #define  B43_PHY_HT_TSSIMODE_PDEN		0x0002	/* Power det enable */
@@ -353,10 +355,10 @@ index ed041f7..18e243b 100644
  #define B43_PHY_HT_BW1				0x1CE
  #define B43_PHY_HT_BW2				0x1CF
  #define B43_PHY_HT_BW3				0x1D0
-@@ -139,6 +151,10 @@ struct b43_phy_ht {
+@@ -145,6 +157,10 @@ struct b43_phy_ht {
  
- 	/* 2.4 GHz CCK (802.11b) reception is off */
- 	bool cck_rx_off;
+ 	/* Channel the TX I/Q and LO coefficients in use were found on, or 0 */
+ 	u16 txcal_freq;
 +
 +	/* RX I/Q compensation (a, b per core) of the operating channel */
 +	u16 rxiq_comp_freq;

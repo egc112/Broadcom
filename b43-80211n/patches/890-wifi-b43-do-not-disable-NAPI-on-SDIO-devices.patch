@@ -18,7 +18,7 @@ Signed-off-by: Erik Conijn <egc112@msn.com>
  1 file changed, 2 insertions(+), 1 deletion(-)
 
 diff --git a/drivers/net/wireless/broadcom/b43/main.c b/drivers/net/wireless/broadcom/b43/main.c
-index f7108f7..7788372 100644
+index f004729..42a84eb 100644
 --- a/drivers/net/wireless/broadcom/b43/main.c
 +++ b/drivers/net/wireless/broadcom/b43/main.c
 @@ -5264,7 +5264,8 @@ redo:

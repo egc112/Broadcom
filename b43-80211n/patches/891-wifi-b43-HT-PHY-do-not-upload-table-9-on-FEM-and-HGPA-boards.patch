@@ -21,11 +21,11 @@ Signed-off-by: Erik Conijn <egc112@msn.com>
  1 file changed, 3 insertions(+), 1 deletion(-)
 
 diff --git a/drivers/net/wireless/broadcom/b43/tables_phy_ht.c b/drivers/net/wireless/broadcom/b43/tables_phy_ht.c
-index 550094e..e84d39d 100644
+index 61154b3..ea04261 100644
 --- a/drivers/net/wireless/broadcom/b43/tables_phy_ht.c
 +++ b/drivers/net/wireless/broadcom/b43/tables_phy_ht.c
-@@ -805,7 +805,9 @@ void b43_phy_ht_tables_init(struct b43_wldev *dev)
- 	BUILD_BUG_ON(ARRAY_SIZE(b43_httab_0x1a_0xc0_late) !=
+@@ -843,7 +843,9 @@ void b43_phy_ht_tables_init(struct b43_wldev *dev)
+ 	BUILD_BUG_ON(ARRAY_SIZE(b43_httab_0x1a_0xc0_late_5g) !=
  			B43_HTTAB_1A_C0_LATE_SIZE);
  
 -	httab_upload(dev, B43_HTTAB16(0x09, 0), b43_httab_0x09);

@@ -1,9 +1,10 @@
 # Provenance and legal notes
 
 This page explains where every part of the b43-80211n patch series comes from and how the
-information was obtained. Anyone can check it. It covers **rc10** (patches 862–868 and a
-wifi-scripts patch, on top of Rosen Penev's openwrt/openwrt#25922; rc9 was the same without
-868 and with the first version of 866) and the older stand-alone
+information was obtained. Anyone can check it. It covers **rc11** (patches 890–895 and a
+wifi-scripts patch, on top of Rosen Penev's openwrt/openwrt#25922; rc10 had the same patches
+as 862–868, plus 864, on top of an older version of his series; rc9 was rc10 without 868 and
+with the first version of 866) and the older stand-alone
 series **rc8** (patches 820–839, in [patches-rc8](patches-rc8/)).
 
 It is a factual record, not legal advice. Questions or corrections: please open an issue.
@@ -59,30 +60,32 @@ Linux kernel under that license.
    ucode (version 666.2) with `b43-fwcutter`, as every OpenWrt build with b43 does. We did not
    modify or add firmware.
 
-## Sources per patch (rc10)
+## Sources per patch (rc11)
 
-rc10, like rc9, is applied on top of openwrt/openwrt#25922 at 0615bc0150, by Rosen Penev. His
-series is not part of this repository; its sources are his to document. It contains his own
-versions of several rc8 patches (821, 822, 823, 824, 826, 830, 831, 833, 837, 838), whose
-sources are listed in the rc8 table below.
+rc11 is applied on top of openwrt/openwrt#25922 at fe90f890dc, by Rosen Penev (rc9 and rc10:
+at 0615bc0150). His series is not part of this repository; its sources are his to document.
+It contains his own versions of several rc8 patches (821, 822, 823, 824, 826, 830, 831, 833,
+837, 838), whose sources are listed in the rc8 table below, and, since fe90f890dc, two patches
+by Erik Conijn under his own name (829, 32-bit table reads; 831, the R6400's analog PA control).
+rc11's patches are rc10's, renumbered (862 → 890, 863 → 891, 865 → 892, 866 → 893,
+867 → 894, 868 → 895); rc10's 864 is dropped, because his series now does the same.
 
 | Patch | Author | Based on |
 |---|---|---|
-| 862 | Erik Conijn | b43's own NAPI code in his series; the point was raised by the openwrt-ai review of openwrt/openwrt#25922 |
-| 863 | Erik Conijn | hardware read-back of PHY table 9 under Broadcom's driver (DD-WRT) on the R6400 v1; throughput and signal measured with and without the upload; board flags from Linux ssb/bcma |
-| 864 | Erik Conijn | b43 code only (removes a module parameter) |
-| 865 | Erik Conijn | b43 code only; the gain indices are the ones measured for rc8's 824 |
-| 866 | Erik Conijn | see *Patch 866* below: b43's open N-PHY calibration code, and measurements on the hardware |
-| 867 | Erik Conijn | brcmsmac `brcms_c_ampdu_shm_upd()` (the ucode limits for a 64 KiB A-MPDU) and the shared-memory names in brcmsmac's `d11.h`; throughput measurements |
-| 868 | Erik Conijn | brcmsmac `brcms_c_recv()`, which drops frames with `RXS_AMSDU_MASK` set in the RX status; the replay lockup observed on a Linksys EA6900 with an ath11k client; mac80211's replay check |
+| 890 (862) | Erik Conijn | b43's own NAPI code in his series; the point was raised by the openwrt-ai review of openwrt/openwrt#25922 |
+| 891 (863) | Erik Conijn | hardware read-back of PHY table 9 under Broadcom's driver (DD-WRT) on the R6400 v1; throughput and signal measured with and without the upload; board flags from Linux ssb/bcma |
+| 892 (865) | Erik Conijn | b43 code only; the gain indices are the ones measured for rc8's 824 |
+| 893 (866) | Erik Conijn | see *Patch 893* below: b43's open N-PHY calibration code, and measurements on the hardware |
+| 894 (867) | Erik Conijn | brcmsmac `brcms_c_ampdu_shm_upd()` (the ucode limits for a 64 KiB A-MPDU) and the shared-memory names in brcmsmac's `d11.h`; throughput measurements |
+| 895 (868) | Erik Conijn | brcmsmac `brcms_c_recv()`, which drops frames with `RXS_AMSDU_MASK` set in the RX status; the replay lockup observed on a Linksys EA6900 with an ath11k client; mac80211's replay check |
 | wifi-scripts | Erik Conijn | OpenWrt's `hostapd.uc`, which already sets `tx_queue_data2_burst` 2.0 for VHT; throughput and latency measurements |
 
 All carry `Assisted-by: Claude:claude-opus-5-5`. They were written with the help of an AI
 assistant (Anthropic's Claude), which also helped run the measurements and keep this record.
 
-## Patch 866: RX I/Q calibration
+## Patch 893: RX I/Q calibration
 
-866 estimates the I/Q imbalance of each of the BCM4331's three receive chains and writes a
+893 (rc9 and rc10: 866) estimates the I/Q imbalance of each of the BCM4331's three receive chains and writes a
 compensation, on the operating channel (since rc10 once per PHY init, at 2.4 GHz only). It uses
 only the receiver: no test tone, no loopback, no radio register writes.
 
@@ -93,12 +96,13 @@ only the receiver: no test tone, no loopback, no radio register writes.
 | The compensation registers of chains 1 and 2 (0x09A/0x09B, 0x09C/0x09D) | Linux b43 `phy_n.h` (`B43_NPHY_C1_RXIQ_COMPA0` … `B43_NPHY_C2_RXIQ_COMPB1`) |
 | The third chain: estimator results at 0x13A–0x13F, compensation at 0x09E/0x09F | Measured on the hardware (R6400 v1 and v2): the six registers after chain 2's hold a third, independent estimate in the same layout; the coefficients computed from it, written to 0x09E/0x09F (the next pair after chain 2's), bring that chain's image rejection from 25–27 dB to 48–52 dB, and the MCS 15 frame loss falls with it (below) |
 | Use the quietest 8 of 32 estimates per chain | Own design, from 200 single estimates on the hardware: estimates taken while frames are on the air scatter by 5–12°, the quietest agree within 0.7° |
+| Run after the transmit I/Q and LO calibration of Rosen Penev's series (rc11) | brcmsmac `wlc_phy_cal_perical_nphy_run()`, which calibrates TX first, then RX |
 | Skip the calibration before the PHY is initialized; calibrate only the operating channel, once per PHY init, and write the stored result back when switching to it again; no calibration while no interface is up, on scan channels or on mac80211's off-channel default (`IEEE80211_CONF_OFFCHANNEL`); 2.4 GHz only | Own design (rc10), from b43's own init order, the mac80211 code that sets `IEEE80211_CONF_OFFCHANNEL`, and logs on the hardware |
 | The effect | Measured: MPDU loss of a client at a fixed MCS 15, alternated blocks of 20 s, ~1 million frames per state (R6400 v1, channel 6: 32.8 % without, 2.1 % with); TCP throughput; residual image rejection in a 9.5-hour soak (42–70 dB) |
 
 As for 822: the authors had earlier studied Broadcom's wl driver privately, and the address of
-the third chain's registers was first noticed there. Every part of 866 can nevertheless be
-checked without that study, and no value in 866 comes from it: the method and the
+the third chain's registers was first noticed there. Every part of 893 can nevertheless be
+checked without that study, and no value in 893 comes from it: the method and the
 arithmetic are b43's own N-PHY code, and the third chain's registers are a fact anyone can
 measure on the hardware as described above. No Broadcom calibration code, data or loopback
 method is used.
@@ -185,3 +189,5 @@ Dropped from the rc3–rc6 version:
 * 2026-10-26: rc9 (patches 862–867 and the wifi-scripts patch on top of openwrt/openwrt#25922;
   patch 866); the 822 account reworded, same facts.
 * 2026-10-30: rc10 (866 reworked, 868 added).
+* 2026-11-03: rc11 (rebased on openwrt/openwrt#25922 at fe90f890dc; renumbered 890–895; 864
+  dropped; 893 runs after his new TX calibration).

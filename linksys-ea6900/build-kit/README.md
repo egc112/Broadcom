@@ -24,7 +24,7 @@ itself (see *Firmware*).
 
 | Path | What | Source |
 |---|---|---|
-| `apply.sh <tree>` | puts everything below into an OpenWrt tree | ours |
+| `apply.sh [--no-board] <tree>` | puts everything below into an OpenWrt tree; `--no-board` only the driver parts (see *Other bcm53xx boards*) | ours |
 | `patches/board/EA6900.patch` | board support: device tree, image, `02_network`, `01_leds` | ours, = [openwrt/openwrt#26316](https://github.com/openwrt/openwrt/pull/26316) |
 | `patches/board/broadcom.mk.diff` | the `kmod-b43` options: AC-PHY support (selects 802.11ac in hostapd) and the 6.30.163.46 firmware | ours |
 | `patches/kernel/880-bcma-ssb-support-the-BCM4352-BCM4360-family.patch` | bcma/ssb: the BCM4360's SROM rev 11 from nvram, PMU setup | Alessio Ferri, b43-ac-wip `patches/` at [1e43a20](https://github.com/aleferri/b43-ac-wip/commit/1e43a20) |
@@ -74,6 +74,18 @@ After the first boot:
 * `ls /lib/firmware/b43/ | grep 42` shows the three rev 42 files.
 * `dmesg | grep b43` shows both radios, no warnings.
 * `cat /proc/interrupts`: eth2 and the 2.4 GHz radio on CPU1, the 5 GHz radio on CPU0.
+
+## Other bcm53xx boards
+
+The driver parts are not EA6900-specific. For another bcm53xx board with a BCM4352 or BCM4360 radio, use
+`<kit>/apply.sh --no-board .` in step 2: it applies `broadcom.mk.diff`, the bcma/ssb kernel patch and the b43
+patches, and leaves out the EA6900 board patch and `files/` (the interrupt layout is for the EA6900 only).
+Skip the `diffconfig` in step 4 and select your board's profile and the `kmod-b43` settings listed there.
+
+Only the EA6900 has been tested by us; Alessio Ferri's driver itself is developed on BCM4352 boards with the
+SROM on the chip. The first thing to check on a new board is the `b43`/`bcma` part of `dmesg` (chip, PHY and
+radio revisions, SROM revision): please report it at
+[aleferri/b43-ac-wip](https://github.com/aleferri/b43-ac-wip/issues).
 
 ## Interrupts
 

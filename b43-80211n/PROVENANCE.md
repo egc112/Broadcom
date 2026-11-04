@@ -1,8 +1,9 @@
 # Provenance and legal notes
 
 This page explains where every part of the b43-80211n patch series comes from and how the
-information was obtained. Anyone can check it. It covers **rc11** (patches 890–895 and a
-wifi-scripts patch, on top of Rosen Penev's openwrt/openwrt#25922; rc10 had the same patches
+information was obtained. Anyone can check it. It covers **rc12** (patches 890–895, a
+wifi-scripts patch and, new in rc12, kernel patch 880 by Alessio Ferri, on top of Rosen Penev's
+openwrt/openwrt#25922; rc11 was the same without 880; rc10 had the same patches
 as 862–868, plus 864, on top of an older version of his series; rc9 was rc10 without 868 and
 with the first version of 866) and the older stand-alone
 series **rc8** (patches 820–839, in [patches-rc8](patches-rc8/)).
@@ -20,7 +21,10 @@ It is a factual record, not legal advice. Questions or corrections: please open 
   * reading the router's registers back while Broadcom's own driver runs;
   * radio captures with an independent sniffer;
   * throughput and latency tests.
-* **No decompiled or disassembled Broadcom code is used since rc7.** One earlier patch, 822 in
+* rc12 adds one patch that is not ours: 880, a bcma/ssb kernel patch by Alessio Ferri, copied
+  unchanged from his AC-PHY port of b43 (see *Sources per patch (rc12)*). Its own commit message
+  names its sources.
+* **No decompiled or disassembled Broadcom code is used in our patches since rc7.** One earlier patch, 822 in
   rc3–rc6, was ported from a decompiled Broadcom driver. For rc7 it was rewritten from open
   sources and measurements only; the full account is below.
 * This repository does not contain, and will not publish:
@@ -59,6 +63,17 @@ Linux kernel under that license.
    at build time it downloads Broadcom's `broadcom-wl-5.100.138` driver release and extracts the
    ucode (version 666.2) with `b43-fwcutter`, as every OpenWrt build with b43 does. We did not
    modify or add firmware.
+
+## Sources per patch (rc12)
+
+rc12 is rc11 (below) plus one kernel patch:
+
+| Patch | Author | Based on |
+|---|---|---|
+| 880 | Alessio Ferri | his work, copied unchanged from [aleferri/b43-ac-wip](https://github.com/aleferri/b43-ac-wip) `patches/` (commit [1e43a20](https://github.com/aleferri/b43-ac-wip/commit/1e43a20)); the same file as in our [EA6900 build kit](../linksys-ea6900/build-kit/). Per its commit message: the SPROM revision 11 field layout follows the public bcmdhd SROM parser table (`include/bcmsrom_tbl.h`, GPL-2.0); the power management and chip control values are bus captures of Broadcom's driver on BCM4360 rev 3 hardware; the rest is the existing Linux bcma, ssb and bcm47xx NVRAM code. His repository's [PROVENANCE.md](https://github.com/aleferri/b43-ac-wip/blob/main/PROVENANCE.md) documents the sources of his project as a whole |
+
+We did not change 880. On the R6400 we checked it by its effect only: the BCM4360's power
+management unit is set up at boot, the 2.4 GHz radio and the watchdog work as with rc11.
 
 ## Sources per patch (rc11)
 
@@ -191,3 +206,4 @@ Dropped from the rc3–rc6 version:
 * 2026-10-30: rc10 (866 reworked, 868 added).
 * 2026-11-03: rc11 (rebased on openwrt/openwrt#25922 at fe90f890dc; renumbered 890–895; 864
   dropped; 893 runs after his new TX calibration).
+* 2026-11-04: rc12 (rc11 + kernel patch 880 by Alessio Ferri).

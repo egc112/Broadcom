@@ -1,13 +1,14 @@
-# b43: 802.11n with A-MPDU for the BCM4331 (Netgear R6400) — TEST VERSION (rc12)
+# b43: 802.11n with A-MPDU for the BCM4331 (Netgear R6400) — TEST VERSION (rc13)
 
 > **Status: test version.** Since rc9 this series is a small set of patches **on top of Rosen
 > Penev's b43 802.11n series**, openwrt/openwrt#25922, which brings 802.11n to b43 upstream
 > and already contains most of what rc2–rc8 did. rc11 is rebased on his updated series
 > (fe90f890dc, with firmware 784.2) and adds six fixes and improvements for the R6400 that are
-> not (yet) in it. rc12 is rc11 plus one kernel patch by Alessio Ferri (880) that prepares the
-> R6400's 5 GHz radio (BCM4360) for tests with an AC-PHY b43; the 2.4 GHz driver is rc11's.
+> not (yet) in it. rc12 added one kernel patch by Alessio Ferri (880) that prepares the
+> R6400's 5 GHz radio (BCM4360) for tests with an AC-PHY b43. rc13 has a newer 880 and a hostapd
+> with 802.11ac, on a newer OpenWrt; the 2.4 GHz driver is still rc11's.
 > Tested on the author's Netgear R6400 v1 and v2: rc9 in a 9.5-hour soak test
-> with two clients and a phone, rc10, rc11 and rc12 in the tests below.
+> with two clients and a phone, rc10 to rc13 in the tests below.
 > Not in OpenWrt or the Linux kernel yet.
 > Please test and report back (see *Reporting problems*), and read *Known limitations* first.
 >
@@ -25,12 +26,13 @@ about 10–12 Mbit/s download. With Rosen Penev's series and these patches it ru
 | rc8 (our old series), v1 | ~85–90 Mbit/s | ~90–105 Mbit/s |
 | **rc9 = openwrt/openwrt#25922 + these patches**, v1 (soak test; rc10 and rc11 are the same speed) | **96–111 Mbit/s, avg 107** | **90–111 Mbit/s, avg 107** |
 
-## What is in rc12
+## What is in rc13
 
-rc12 = OpenWrt main + **openwrt/openwrt#25922 as of fe90f890dc** (Rosen Penev: patches 813 and
+rc13 = OpenWrt main + **openwrt/openwrt#25922 as of fe90f890dc** (Rosen Penev: patches 813 and
 820–869 in `package/kernel/mac80211/patches/brcm/`, a bcma patch, and b43 firmware 784.2) + the
 patches in [patches](patches/), numbered 890–895 since rc11 (his series now uses 862–869), + the
-kernel patch in [patches/kernel](patches/kernel/) (new in rc12):
+kernel patch in [patches/kernel](patches/kernel/) (since rc12, newer in rc13), + `+@DRIVER_11AC_SUPPORT` in
+the `kmod-b43` dependencies (new in rc13: hostapd then accepts 802.11ac settings, see *Hardware*):
 
 | Patch | What it does | Why |
 |---|---|---|
@@ -41,7 +43,7 @@ kernel patch in [patches/kernel](patches/kernel/) (new in rc12):
 | 894 (rc10: 867) | HT-PHY: receive A-MPDUs of up to 64 KiB | Upload from an ath11k client to the R6400 v2: 89–92 → 105–107 Mbit/s (+17 %); no clear difference on the v1 |
 | 895 (rc10: 868) | drop the A-MSDU subframes the MAC splits off | New in rc10. b43 passed them on as whole frames; with hardware encryption mac80211 then read a random packet number from them and dropped every later frame of that traffic class as a replay. On a Linksys EA6900 (BCM4360) with an ath11k client this stopped a 5 GHz upload within minutes. On the R6400 it is a precaution: none of our clients sent A-MSDUs to it (0 of 2.3 million frames in a 20-hour test on the v1). brcmsmac drops them the same way |
 | [wifi-scripts](patches/wifi-scripts-b43-best-effort-frame-bursting.patch) | best effort frame bursting (`tx_queue_data2_burst 2.0`) by default on b43 802.11n radios | Shares the air fairer when a client uploads and downloads at once (see *Traffic in both directions*). A patch to the OpenWrt tree, not to the mac80211 package |
-| [880](patches/kernel/880-bcma-ssb-support-the-BCM4352-BCM4360-family.patch) (new in rc12) | bcma/ssb: support the BCM4352/BCM4360 family. By **Alessio Ferri**, copied unchanged from [aleferri/b43-ac-wip](https://github.com/aleferri/b43-ac-wip) (`patches/`, commit [1e43a20](https://github.com/aleferri/b43-ac-wip/commit/1e43a20)); the same file as in our [EA6900 build kit](../linksys-ea6900/build-kit/) | The kernel reads the BCM4360's SPROM revision 11 from the router's nvram and sets up its power management unit. Nothing changes at 2.4 GHz and stock b43 still does not drive the BCM4360, but an image with this patch can load an AC-PHY b43 module (b43-ac-wip) for 5 GHz tests without being reflashed (see *Hardware*). It also fixes a bcma bug that touches every core: switching a core to dynamic clock mode set all other bits of its clock control register instead of clearing one |
+| [880](patches/kernel/880-bcma-ssb-support-the-BCM4352-BCM4360-family.patch) (since rc12, newer in rc13) | bcma/ssb: support the BCM4352/BCM4360 family. By **Alessio Ferri**, copied unchanged from [aleferri/b43-ac-wip](https://github.com/aleferri/b43-ac-wip) (`patches/`, commit [16eb94d](https://github.com/aleferri/b43-ac-wip/commit/16eb94d)); the same file as in our [EA6900 build kit](../linksys-ea6900/build-kit/) | The kernel reads the BCM4360's SPROM revision 11 from the router's nvram and sets up its power management unit. Nothing changes at 2.4 GHz and stock b43 still does not drive the BCM4360, but an image with this patch can load an AC-PHY b43 module (b43-ac-wip) for 5 GHz tests without being reflashed (see *Hardware*). It also fixes a bcma bug that touches every core: switching a core to dynamic clock mode set all other bits of its clock control register instead of clearing one |
 
 rc10's 864 (drop the `ht_cck_rx` module parameter) is gone: Rosen Penev's series now has no such
 parameter and turns CCK reception off by itself when the network does not use it.
@@ -77,15 +79,40 @@ Thanks to him for the work and for taking our patches in.
   (front end, receive gains, transmit power) and sets up its power management unit (new in
   dmesg: `bus2: PMU PLL pre-write` and `bus2: PMU res mask pre-write`; rc11 logged
   `PMU resource config unknown` there), so that an AC-PHY b43 built from
-  [aleferri/b43-ac-wip](https://github.com/aleferri/b43-ac-wip) against the **same** rc12 build
-  tree can be loaded for 5 GHz tests. That driver replaces the rc12 b43 for both radios while it
-  is loaded, so the 2.4 GHz radio then runs without the fixes of this series.
+  [aleferri/b43-ac-wip](https://github.com/aleferri/b43-ac-wip) against the **same** rc13 build
+  tree can be loaded for 5 GHz tests; since rc13 hostapd also accepts VHT80 for it. That driver
+  replaces the rc13 b43 for both radios while it is loaded, and the two cannot be combined yet:
+  the 2.4 GHz radio then runs as 802.11g only, at about 10 Mbit/s. So use either this series
+  (2.4 GHz) or the AC-PHY module (5 GHz), not both.
 
 ## Test results
 
+### Changes in rc13
+
+rc13 is rc12 with a newer 880 (b43-ac-wip 16eb94d: two more SPROM fields), `+@DRIVER_11AC_SUPPORT`
+so that hostapd is built with 802.11ac, and a newer OpenWrt (r38137-a4076a8021). The b43 patches,
+Rosen Penev's series and the firmware are rc12's. Nothing was meant to change at 2.4 GHz.
+
+Tests 2026-11-05 (rc13 build, flashed on the R6400 v1 and v2):
+
+* Boot: the BCM4360's power management unit is set up, the 4331 comes up as before, no radio hang
+  in the reboots of the day, the watchdog runs.
+* As access point with a DL-WRX36 (ath11k) as client, and iperf3 on the router itself. These runs
+  used rc13's b43 with a read-only counter file added. R6400 v1 (channel 11, HT20, -42 dBm):
+  TCP 111–112 Mbit/s down, 99–102 up. R6400 v2 (channel 6, HT20): 103–104 down, 106–107 up,
+  3-minute runs included.
+* The ucode's counters on a UDP download: 97–98 % (v1) and 95–96 % (v2) of RTS frames got a CTS.
+  During TCP uploads the ucode counts TX underflows on FIFO 1 only, about 40 (v1) and 120 (v2) per
+  20 s; none on downloads, and we see no effect on throughput.
+* 5 GHz on the R6400 v1 with an AC-PHY module built from b43-ac-wip 16eb94d against the same tree,
+  channel 149, VHT80: about 355 Mbit/s each way with the DL-WRX36 (link rate up to VHT-MCS 9,
+  1300 Mbit/s), 333 down / 370 up with a phone. That is a test of his driver, not part of the images.
+
+No soak test for rc13: the code of our patches is unchanged.
+
 ### Changes in rc12
 
-rc12 is rc11 plus kernel patch 880 (see *What is in rc12*). The b43 code, the firmware and the
+rc12 is rc11 plus kernel patch 880 (see *What is in rc13*). The b43 code, the firmware and the
 OpenWrt revision are rc11's; the b43 module is rebuilt only because 880 extends the kernel's
 SPROM structure that b43 reads.
 
@@ -244,14 +271,14 @@ and add the `uci set` line in a uci-defaults file.
 
 ## Test images (GitHub Releases)
 
-Ready-made OpenWrt images with rc12 are attached to the release **b43-80211n-rc12**
-(OpenWrt snapshot r38011-46e6335fbd, kernel 6.18.60, b43 firmware 784.2). Pick the image by the router's board ID:
+Ready-made OpenWrt images with rc13 are attached to the release **b43-80211n-rc13**
+(OpenWrt snapshot r38137-a4076a8021, kernel 6.18.60, b43 firmware 784.2). Pick the image by the router's board ID:
 
 | Router | board ID | Image |
 |---|---|---|
-| R6400 v1 | U12H332T00_NETGEAR | `openwrt-r6400-v1-b43-80211n-rc12-squashfs.chk` |
-| R6400 v2 | U12H332T20_NETGEAR | `openwrt-r6400-v2-b43-80211n-rc12-squashfs.chk` |
-| R6400 v2 (OTP) | U12H332T30_NETGEAR | `openwrt-r6400-v2-otp-b43-80211n-rc12-squashfs.chk` |
+| R6400 v1 | U12H332T00_NETGEAR | `openwrt-r6400-v1-b43-80211n-rc13-squashfs.chk` |
+| R6400 v2 | U12H332T20_NETGEAR | `openwrt-r6400-v2-b43-80211n-rc13-squashfs.chk` |
+| R6400 v2 (OTP) | U12H332T30_NETGEAR | `openwrt-r6400-v2-otp-b43-80211n-rc13-squashfs.chk` |
 
 On OpenWrt the board ID is shown by `strings /dev/mtd1 | grep board_id` (the `nvram` partition).
 Netgear's own firmware only accepts a `.chk` with the router's own board ID. The **R6700 v3**
@@ -271,8 +298,8 @@ b43 has no `htmode` for the 2.4 GHz radio, and the radio then stays 802.11g. Che
 uci set wireless.radio0.htmode='HT20'; uci commit wireless; wifi
 ```
 
-**Upgrading from rc9, rc10 or rc11:** nothing to change; the settings stay valid. The image brings
-firmware 784.2 along. A b43 module built for rc11 does not fit rc12 and the other way round
+**Upgrading from rc9 to rc12:** nothing to change; the settings stay valid. The image brings
+firmware 784.2 along. A b43 module built for rc11 or rc12 does not fit rc13 and the other way round
 (880 changes the kernel's SPROM structure): flash the image instead of copying a module.
 
 **Upgrading from rc8 with settings kept:** the rc8 module parameters are gone (see *Module
@@ -281,7 +308,7 @@ parameters*); remove them from `/etc/modules.d/b43`, which should hold just `b43
 ## Building
 
 You need an OpenWrt main build tree for the bcm53xx target (R6400 v1 and v2 support is in
-OpenWrt main since 2026-11-01). rc12 (like rc11) was built on OpenWrt main r38011-46e6335fbd (kernel 6.18,
+OpenWrt main since 2026-11-01). rc13 was built on OpenWrt main r38137-a4076a8021 (kernel 6.18,
 mac80211 backports 7.2).
 
 1. Apply Rosen Penev's series, openwrt/openwrt#25922 at fe90f890dc (three commits), in the
@@ -303,15 +330,21 @@ mac80211 backports 7.2).
    git apply <this repo>/b43-80211n/patches/wifi-scripts-b43-best-effort-frame-bursting.patch
    ```
 
-   And the kernel patch (new in rc12):
+   And the kernel patch, and the dependency that builds hostapd with 802.11ac (only needed for
+   5 GHz tests with an AC-PHY module):
 
    ```sh
    cp <this repo>/b43-80211n/patches/kernel/880-*.patch target/linux/bcm53xx/patches-6.18/
+   sed -i '/define KernelPackage\/b43$/,/^endef/s/+@KERNEL_PAGE_POOL \\$/+@KERNEL_PAGE_POOL +@DRIVER_11AC_SUPPORT \\/' package/kernel/mac80211/broadcom.mk
    ```
+
+   If you use `patch` for anything on a newer OpenWrt, add `--no-backup-if-mismatch`: a stray
+   `02_network.orig` in `target/linux/bcm53xx/base-files` ends up in the image and shows the LAN
+   ports twice in LuCI.
 
    In a tree that was built before, rebuild the kernel and mac80211 from scratch, since 880
    changes a structure the b43 module reads:
-   `make target/linux/clean package/kernel/mac80211/clean`.
+   `make target/linux/clean package/kernel/mac80211/clean package/network/services/hostapd/clean`.
 
 3. Select b43 (`make menuconfig`): Kernel modules → Wireless Drivers → `kmod-b43`; b43 options:
    bus BCMA, PHY type **HT**, firmware **6.30.163.46** (ucode 784.2, the default since his
@@ -405,7 +438,7 @@ frames: most of those get through when they are sent again.
 
 ## Credits
 
-Rosen Penev (@neheb) for openwrt/openwrt#25922, the base of rc9 to rc12, which includes
+Rosen Penev (@neheb) for openwrt/openwrt#25922, the base of rc9 to rc13, which includes
 several of our earlier patches. The openwrt-ai review of his PR for the point fixed in 890.
 Alessio Ferri (aleferri) for 880, from his AC-PHY port of b43, aleferri/b43-ac-wip.
 

@@ -10,11 +10,10 @@ Patches for Alessio Ferri's experimental b43 AC-PHY driver,
 project and its own sources are documented in its
 [PROVENANCE.md](https://github.com/aleferri/b43-ac-wip/blob/main/PROVENANCE.md). The patches
 here are offered to it as well; it is free to take, rework or drop them. Status on
-2026-11-02: five are merged there
+2026-11-05: all six are merged there
 ([#8](https://github.com/aleferri/b43-ac-wip/pull/8), [#9](https://github.com/aleferri/b43-ac-wip/pull/9),
-[#12](https://github.com/aleferri/b43-ac-wip/pull/12), [#14](https://github.com/aleferri/b43-ac-wip/pull/14),
-[#15](https://github.com/aleferri/b43-ac-wip/pull/15)); the RX DMA burst patch is open there as
-[#13](https://github.com/aleferri/b43-ac-wip/pull/13). A finding about PHY register 0x?724 (the TSSI floor
+[#12](https://github.com/aleferri/b43-ac-wip/pull/12), [#13](https://github.com/aleferri/b43-ac-wip/pull/13),
+[#14](https://github.com/aleferri/b43-ac-wip/pull/14), [#15](https://github.com/aleferri/b43-ac-wip/pull/15)). A finding about PHY register 0x?724 (the TSSI floor
 written during the temperature measurement is a constant, not an SROM value) was reported as
 [issue #16](https://github.com/aleferri/b43-ac-wip/issues/16) and fixed there by its author.
 
@@ -81,22 +80,27 @@ hardware.
 ## Build kit
 
 [`../build-kit/`](../build-kit/) is a recipe for the image we test: a plain OpenWrt tree plus the parts
-below. Tested on OpenWrt main r37507-4e16c2ed8f, 2026-11-02. Alessio Ferri's driver is included
-unchanged and documented by his own provenance; the sources of our own patches follow the rules of
-this document and are listed below.
+below. Tested on OpenWrt main r38134-5c5a157852, 2026-11-05. Alessio Ferri's driver is included
+unchanged and documented by his own provenance. The kit has no b43 patches of our own any more: they are
+merged in b43-ac-wip and come with his `816-02` and `816-03`. The sources of our remaining parts, and of
+the patches earlier kits carried, follow the rules of this document and are listed below.
 
 | Part | Author | Based on |
 |---|---|---|
 | `patches/board/EA6900.patch` | Erik Conijn | board support as submitted to OpenWrt and reviewed there, [openwrt/openwrt#26316](https://github.com/openwrt/openwrt/pull/26316); no b43 code |
 | `patches/board/broadcom.mk.diff` | Erik Conijn | OpenWrt's own `broadcom.mk`: an AC-PHY option next to the existing PHY options, and a firmware entry written like the existing ones for the firmware of Broadcom's driver 6.30.163.46 |
-| `patches/kernel/880-*`, `patches/mac80211/816-02-*`, `816-03-*` | Alessio Ferri | his work, copied unchanged from b43-ac-wip `patches/` (commits [1e43a20](https://github.com/aleferri/b43-ac-wip/commit/1e43a20) and [8c234e6](https://github.com/aleferri/b43-ac-wip/commit/8c234e6)); its sources are documented in his [PROVENANCE.md](https://github.com/aleferri/b43-ac-wip/blob/main/PROVENANCE.md), among them data from Broadcom's GPL-released `wl` objects |
-| `patches/mac80211/817-*`, `818-*` | Alessio Ferri | his code: the diffs of b43-ac-wip's `b43/` between the 816 base and commits [3517def](https://github.com/aleferri/b43-ac-wip/commit/3517def) and [bc63d98](https://github.com/aleferri/b43-ac-wip/commit/bc63d98), made by us with `git diff`, nothing added; same sources as above |
-| `patches/mac80211/904`, `906`, `917`, `942`, `946`, `949` | Erik Conijn | the patches of this folder, see *Sources per patch* |
-| `patches/mac80211/926` | Erik Conijn | the TX values of the Linux `bgmac` driver for the same DMA engine; throughput measurements on the EA6900. In b43-ac-wip as [#6](https://github.com/aleferri/b43-ac-wip/pull/6) (merged) |
-| `patches/mac80211/934`, `935`, `936` | Erik Conijn | profiles (`perf`) of b43 on the EA6900 and b43's own code: locking and DMA cache handling, no Broadcom data. In #6 |
-| `patches/mac80211/939` | Erik Conijn | the A-MSDU bit of the RX status as named in the Linux `brcmsmac` driver, which drops such frames too; the faulty frame as received on the EA6900. In #6 |
-| `patches/mac80211/950` | Erik Conijn | R7000 bus trace with `tssifloor2g/5g` removed from its nvram (method 7); reported as [issue #16](https://github.com/aleferri/b43-ac-wip/issues/16), fixed in b43-ac-wip by its author |
+| `patches/kernel/880-*`, `patches/mac80211/816-02-*`, `816-03-*` | Alessio Ferri | his work, unchanged: `880` copied from b43-ac-wip `patches/`, `816-02` and `816-03` generated from his tree with his `scripts/phase1-to-openwrt.sh`, both at [16eb94d](https://github.com/aleferri/b43-ac-wip/commit/16eb94d); its sources are documented in his [PROVENANCE.md](https://github.com/aleferri/b43-ac-wip/blob/main/PROVENANCE.md), among them data from Broadcom's GPL-released `wl` objects |
 | `files/`, `diffconfig`, `apply.sh` | Erik Conijn | interrupt layout from throughput measurements on the EA6900; the configuration of the tested image |
+
+Earlier kits, up to 2026-11-02, carried our b43 changes as separate patches. They are merged in b43-ac-wip now, so their code reaches this kit through `816-02` and `816-03`:
+
+| Patch | Author | Based on |
+|---|---|---|
+| `904`, `906`, `917`, `942`, `946`, `949` | Erik Conijn | the patches of this folder, see *Sources per patch* |
+| `926` | Erik Conijn | the TX values of the Linux `bgmac` driver for the same DMA engine; throughput measurements on the EA6900. In b43-ac-wip as [#6](https://github.com/aleferri/b43-ac-wip/pull/6) (merged) |
+| `934`, `935`, `936` | Erik Conijn | profiles (`perf`) of b43 on the EA6900 and b43's own code: locking and DMA cache handling, no Broadcom data. In #6 |
+| `939` | Erik Conijn | the A-MSDU bit of the RX status as named in the Linux `brcmsmac` driver, which drops such frames too; the faulty frame as received on the EA6900. In #6 |
+| `950` | Erik Conijn | R7000 bus trace with `tssifloor2g/5g` removed from its nvram (method 7); reported as [issue #16](https://github.com/aleferri/b43-ac-wip/issues/16), fixed in b43-ac-wip by its author |
 
 **Firmware.** b43 needs Broadcom's firmware. The kit does not contain it: the build downloads
 `broadcom-wl-6.30.163.46.tar.bz2`, the tarball the b43 project documented at lwfinger.com, from the

@@ -1,6 +1,6 @@
 #!/bin/sh
 # apply.sh [--no-board] <openwrt tree>: puts this EA6900 build kit into a plain OpenWrt tree
-# (tested on main r37507-4e16c2ed8f). See README.md for what each part is and where it comes from.
+# (tested on main r38134-5c5a157852). See README.md for what each part is and where it comes from.
 # --no-board: only the driver parts (broadcom.mk, kernel 880, b43 patches), for another bcm53xx board;
 # leaves out the EA6900 board patch and the EA6900 interrupt layout in files/.
 set -e
@@ -17,7 +17,7 @@ PATCHES="$K/patches/board/broadcom.mk.diff"
 for p in $PATCHES; do
 	patch -p1 -N --dry-run -s < "$p" >/dev/null || { echo "does not apply: $p (already applied?)"; exit 1; }
 done
-for p in $PATCHES; do patch -p1 -N -s < "$p"; done
+for p in $PATCHES; do patch -p1 -N -s --no-backup-if-mismatch < "$p"; done
 cp "$K"/patches/kernel/*.patch "$KP/"
 cp "$K"/patches/mac80211/*.patch package/kernel/mac80211/patches/brcm/
 if [ $BOARD = 0 ]; then

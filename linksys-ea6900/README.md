@@ -277,17 +277,15 @@ You need an OpenWrt build tree (tested with OpenWrt main r37507-4e16c2ed8f, kern
 
 Both radios run on our test router with Alessio Ferri's experimental b43 AC-PHY driver,
 [aleferri/b43-ac-wip](https://github.com/aleferri/b43-ac-wip), our patches in [b43-ac/](b43-ac/)
-(sources in [b43-ac/PROVENANCE.md](b43-ac/PROVENANCE.md)) and the interrupt settings above. Five of
-those six patches are merged into b43-ac-wip by now; the sixth, the RX DMA burst setting, is open there as
-[aleferri/b43-ac-wip#13](https://github.com/aleferri/b43-ac-wip/pull/13). With a
-WRX36 as the client and a wired LAN host, TCP: 2.4 GHz HT20 (3 streams) about 142 down / 157 up,
-5 GHz VHT80 about 361 down / 382 up Mbit/s, the averages of a 24-hour soak of our current build (a client on
-each band, 2026-11-01/02) that passed without errors. That build takes the radios' SROM rev 11 values
+(sources in [b43-ac/PROVENANCE.md](b43-ac/PROVENANCE.md)) and the interrupt settings above. All our
+patches are merged into b43-ac-wip by now, so our build uses its main branch as it is. With a
+WRX36 as the client and a wired LAN host, TCP: 2.4 GHz HT20 (3 streams) about 134 down / 148 up,
+5 GHz VHT80 about 440 down / 394 up Mbit/s, the averages of a 3-hour soak of our current build (a client on
+each band, 2026-11-05) that passed without errors. That build takes the radios' SROM rev 11 values
 from nvram with b43-ac-wip's own bcma/ssb patch, applied as a kernel patch.
 
 To build it yourself: [build-kit/](build-kit/) holds everything except OpenWrt itself, b43-ac-wip's patches
-included (copied unchanged), with build steps, the tested OpenWrt commit and the sources of each part. A build
-from b43-ac-wip's current main is next.
+included (unchanged), with build steps, the tested OpenWrt commit and the sources of each part.
 
 ## Flash layout (Asus-style CFE, as OpenWrt sees it)
 

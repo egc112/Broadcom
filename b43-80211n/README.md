@@ -25,6 +25,8 @@ about 10–12 Mbit/s download. With Rosen Penev's series and these patches it ru
 | stock b43 (802.11g), v1 | 10–12 Mbit/s | 20–22 Mbit/s |
 | rc8 (our old series), v1 | ~85–90 Mbit/s | ~90–105 Mbit/s |
 | **rc9 = openwrt/openwrt#25922 + these patches**, v1 (soak test; rc10 and rc11 are the same speed) | **96–111 Mbit/s, avg 107** | **90–111 Mbit/s, avg 107** |
+| **rc13**, v1 (no soak: runs of 20 s, iperf3 on the router, see *Changes in rc13*; rc12 is the same speed) | **111–112 Mbit/s** | **99–102 Mbit/s** |
+| **rc13**, v2 (no soak: runs of 20 s to 3 min, iperf3 on the router) | **103–104 Mbit/s** | **106–107 Mbit/s** |
 
 ## What is in rc13
 

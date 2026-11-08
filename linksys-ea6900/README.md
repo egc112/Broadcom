@@ -1,4 +1,4 @@
-# Linksys EA6900 v1 — OpenWrt (own build, TEST VERSION)
+# Linksys EA6900 v1 — OpenWrt and support for the 4360 radio (own build, TEST VERSION)
 
 > **Status: test version, not in OpenWrt.** OpenWrt has no EA6900 support. These patches add it.
 > Tested on one EA6900 v1 that was converted to the **Asus-style (XVortex) CFE** and ran DD-WRT

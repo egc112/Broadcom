@@ -1,0 +1,80 @@
+From: Erik Conijn <egc112@msn.com>
+Date: Mon, 09 Nov 2026 11:25:18 +0100
+Subject: [PATCH] wifi: b43: HT-PHY: give the BCM4331 a block of four MAC addresses
+
+The ucode matches all BSSIDs of a multi-AP setup with one base address
+under a mask, so they must lie in one aligned block of four addresses.
+The SPROM holds one address, and userspace takes the further APs'
+addresses from wiphy->addresses or makes them up, mostly outside the
+block, so a second SSID would only work with addresses set by hand.
+
+On core rev 29, offer a block of four: the locally administered form of
+the SPROM address (bit 1 of the first byte set, so the block never holds
+the wired ports' global addresses) with the low two bits running 0-3,
+in wiphy->addresses, and the first of them as the permanent address.
+OpenWrt assigns them to the APs in order.
+
+The first AP's address changes once from the SPROM address to its
+locally administered form, also on single-AP setups.
+
+Tested on the R6400 v2: with no address set in the configuration, the
+two SSIDs came up as ce:..:38 and ce:..:39 and ran the 200-cycle soak.
+
+Assisted-by: Claude:claude-opus-5-5
+Signed-off-by: Erik Conijn <egc112@msn.com>
+---
+ drivers/net/wireless/broadcom/b43/b43.h  |    2 +
+ drivers/net/wireless/broadcom/b43/main.c |   27 +++++++++++++++++++--
+ 2 files changed, 27 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/net/wireless/broadcom/b43/b43.h b/drivers/net/wireless/broadcom/b43/b43.h
+--- a/drivers/net/wireless/broadcom/b43/b43.h
++++ b/drivers/net/wireless/broadcom/b43/b43.h
+@@ -1022,6 +1022,8 @@ struct b43_wl {
+ 	 * the microcode sends; these go out from the driver at its TBTT.
+ 	 */
+ 	struct ieee80211_vif *mbss_vif[B43_MBSS_MAX - 1];
++	/* The BSSID block offered to userspace where further APs can run */
++	struct mac_address mbss_addrs[B43_MBSS_MAX];
+ 	/* The MAC address of the operating interface. */
+ 	u8 mac_addr[ETH_ALEN];
+ 	/* Current BSSID */
+diff --git a/drivers/net/wireless/broadcom/b43/main.c b/drivers/net/wireless/broadcom/b43/main.c
+--- a/drivers/net/wireless/broadcom/b43/main.c
++++ b/drivers/net/wireless/broadcom/b43/main.c
+@@ -7140,10 +7140,33 @@ static struct b43_wl *b43_wireless_init(
+ 	wl->hw_registered = false;
+ 	hw->max_rates = 2;
+ 	SET_IEEE80211_DEV(hw, dev->dev);
+-	if (is_valid_ether_addr(sprom->et1mac))
++	if (dev->core_rev == B43_MBSS_CORE_REV) {
++		/*
++		 * All BSSIDs must lie in one aligned block (the ucode compares
++		 * one base address under a mask). Use the locally administered
++		 * form of the factory address, so the block never holds the
++		 * global addresses of the wired ports, and offer all of it to
++		 * userspace, which assigns them to the APs in order.
++		 */
++		const u8 *fac = is_valid_ether_addr(sprom->et1mac) ?
++				sprom->et1mac : sprom->il0mac;
++		unsigned int i;
++
++		for (i = 0; i < B43_MBSS_MAX; i++) {
++			u8 *a = wl->mbss_addrs[i].addr;
++
++			ether_addr_copy(a, fac);
++			a[0] |= 0x02;
++			a[5] = (a[5] & ~(B43_MBSS_MAX - 1)) | i;
++		}
++		SET_IEEE80211_PERM_ADDR(hw, wl->mbss_addrs[0].addr);
++		hw->wiphy->addresses = wl->mbss_addrs;
++		hw->wiphy->n_addresses = B43_MBSS_MAX;
++	} else if (is_valid_ether_addr(sprom->et1mac)) {
+ 		SET_IEEE80211_PERM_ADDR(hw, sprom->et1mac);
+-	else
++	} else {
+ 		SET_IEEE80211_PERM_ADDR(hw, sprom->il0mac);
++	}
+ 
+ 	/* Initialize struct b43_wl */
+ 	wl->hw = hw;

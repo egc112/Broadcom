@@ -248,6 +248,36 @@ Measured with an upload and a download to the same client at once (Mbit/s, up / 
 Single direction speeds and the ping during a download stayed the same, and a third client
 did not wait longer (during traffic both ways its ping went down).
 
+## As a client: uploading next to other clients
+
+When an R6400 is the client of another access point (a repeater or a client bridge) and
+uploads while another client uploads to the same access point, it gets only a small share of
+the air, although each sends about 100 Mbit/s alone. The access point tells its clients how
+long they may send per turn (best effort TXOP), and OpenWrt's default is 0: one A-MPDU per
+turn. b43 keeps to that and contends for the air again before every A-MPDU. The DL-WRX36
+(ath11k) next to it sends several A-MPDUs per turn anyway, so it wins most of the time.
+
+Letting the clients send for up to 3 ms per turn evens this out. It is set **on the access
+point**, not on the R6400: add to the `wifi-device` section of its 2.4 GHz radio in
+`/etc/config/wireless` (94 × 32 µs = 3 ms) and run `wifi`:
+
+```
+	list hostapd_options 'wmm_ac_be_txop_limit=94'
+```
+
+Measured with an R6400 v1 (b43 client) and a DL-WRX36 uploading at once to an R6400 v2 access
+point (Mbit/s; the access point was set back to 0 afterwards and measured again):
+
+| access point allows per turn | R6400 alone | together: R6400 / DL-WRX36 |
+|---|---|---|
+| 0 (default) | 100–103 | 14–20 / 81–89 |
+| 3 ms | 104–109 | 27–30 / 72–76 |
+
+The total stayed the same. Every client of that access point may then hold the air for up to
+3 ms per turn, so under load the others can wait a little longer (video traffic already gets
+3 ms by default). Tested on an OpenWrt snapshot; `hostapd_options` may be missing in older
+releases, and other routers may offer this as a WMM setting.
+
 ## Interrupt balancing (irqbalance)
 
 Install and enable **irqbalance**. The R6400 has two CPU cores, but OpenWrt does not spread

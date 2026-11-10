@@ -42,7 +42,7 @@ diff --git a/drivers/net/wireless/broadcom/b43/b43.h b/drivers/net/wireless/broa
 diff --git a/drivers/net/wireless/broadcom/b43/main.c b/drivers/net/wireless/broadcom/b43/main.c
 --- a/drivers/net/wireless/broadcom/b43/main.c
 +++ b/drivers/net/wireless/broadcom/b43/main.c
-@@ -7140,10 +7140,33 @@ static struct b43_wl *b43_wireless_init(
+@@ -7139,10 +7139,33 @@ static struct b43_wl *b43_wireless_init(
  	wl->hw_registered = false;
  	hw->max_rates = 2;
  	SET_IEEE80211_DEV(hw, dev->dev);

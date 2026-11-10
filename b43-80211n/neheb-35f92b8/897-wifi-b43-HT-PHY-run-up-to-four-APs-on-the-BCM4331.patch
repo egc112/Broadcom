@@ -207,7 +207,7 @@ diff --git a/drivers/net/wireless/broadcom/b43/main.c b/drivers/net/wireless/bro
  		///TODO: PS TBTT
  	} else {
  		if (1 /*FIXME: the last PSpoll frame was sent successfully */ )
-@@ -4148,6 +4246,14 @@ static struct b43_sta *b43_ps_sta(struct
+@@ -4147,6 +4245,14 @@ static struct b43_sta *b43_ps_sta(struct
  	    is_multicast_ether_addr(hdr->addr1))
  		return NULL;
  	sta = ieee80211_find_sta(wl->vif, hdr->addr1);
@@ -222,7 +222,7 @@ diff --git a/drivers/net/wireless/broadcom/b43/main.c b/drivers/net/wireless/bro
  	if (!sta)
  		return NULL;
  	bsta = (struct b43_sta *)sta->drv_priv;
-@@ -5074,6 +5180,10 @@ static void b43_op_bss_info_changed(stru
+@@ -5073,6 +5179,10 @@ static void b43_op_bss_info_changed(stru
  	if (!dev || b43_status(dev) < B43_STAT_STARTED)
  		goto out_unlock_mutex;
  
@@ -233,7 +233,7 @@ diff --git a/drivers/net/wireless/broadcom/b43/main.c b/drivers/net/wireless/bro
  	B43_WARN_ON(wl->vif != vif);
  
  	if (changed & BSS_CHANGED_BSSID) {
-@@ -5152,6 +5262,16 @@ static int b43_op_set_key(struct ieee802
+@@ -5151,6 +5261,16 @@ static int b43_op_set_key(struct ieee802
  		return -EOPNOTSUPP;
  	}
  
@@ -250,7 +250,7 @@ diff --git a/drivers/net/wireless/broadcom/b43/main.c b/drivers/net/wireless/bro
  	mutex_lock(&wl->mutex);
  
  	dev = wl->current_dev;
-@@ -5981,12 +6101,44 @@ static int b43_op_add_interface(struct i
+@@ -5980,12 +6100,44 @@ static int b43_op_add_interface(struct i
  		return -EOPNOTSUPP;
  
  	mutex_lock(&wl->mutex);
@@ -298,7 +298,7 @@ diff --git a/drivers/net/wireless/broadcom/b43/main.c b/drivers/net/wireless/bro
  	wl->operating = true;
  	wl->vif = vif;
  	wl->if_type = vif->type;
-@@ -6012,13 +6164,39 @@ static void b43_op_remove_interface(stru
+@@ -6011,13 +6163,39 @@ static void b43_op_remove_interface(stru
  {
  	struct b43_wl *wl = hw_to_b43_wl(hw);
  	struct b43_wldev *dev = wl->current_dev;
@@ -338,7 +338,7 @@ diff --git a/drivers/net/wireless/broadcom/b43/main.c b/drivers/net/wireless/bro
  	wl->vif = NULL;
  
  	wl->operating = false;
-@@ -6130,7 +6308,7 @@ static void b43_op_sta_notify(struct iee
+@@ -6129,7 +6307,7 @@ static void b43_op_sta_notify(struct iee
  	struct b43_sta *bsta = (struct b43_sta *)sta->drv_priv;
  	unsigned long flags;
  
@@ -347,7 +347,7 @@ diff --git a/drivers/net/wireless/broadcom/b43/main.c b/drivers/net/wireless/bro
  	if (vif->type != NL80211_IFTYPE_AP)
  		return;
  
-@@ -6902,6 +7080,19 @@ static void b43_wireless_exit(struct b43
+@@ -6901,6 +7079,19 @@ static void b43_wireless_exit(struct b43
  }
  #endif
  
@@ -367,7 +367,7 @@ diff --git a/drivers/net/wireless/broadcom/b43/main.c b/drivers/net/wireless/bro
  static struct b43_wl *b43_wireless_init(struct b43_bus_dev *dev)
  {
  	struct ssb_sprom *sprom = dev->bus_sprom;
-@@ -6927,6 +7118,10 @@ static struct b43_wl *b43_wireless_init(
+@@ -6926,6 +7117,10 @@ static struct b43_wl *b43_wireless_init(
  	hw->extra_tx_headroom = sizeof(struct b43_txhdr);
  	hw->max_tx_aggregation_subframes = B43_AMPDU_BA_WINDOW;
  	hw->sta_data_size = sizeof(struct b43_sta);

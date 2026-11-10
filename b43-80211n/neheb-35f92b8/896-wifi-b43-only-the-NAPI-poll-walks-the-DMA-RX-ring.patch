@@ -20,8 +20,11 @@ Let only the poll walk the DMA RX ring. When the thread finds RX_DONE or
 a descriptor underrun, it schedules the poll and returns with the device
 interrupts still masked; the poll enables them again when it is done, as
 it does for the interrupts the hardirq handler gives it. The underrun
-recovery moves into the poll, so it no longer races with it either. PIO
-and SDIO keep receiving in the thread, as they do not use NAPI.
+recovery moves into the poll, so it no longer races with it either. The
+thread decides with b43_tx_direct(), the same test the hardirq handler
+uses before it hands an interrupt to the poll, so both agree on which
+devices receive in the poll (flatstik's suggestion). PIO and SDIO keep
+receiving in the thread.
 
 This changes the NAPI receive path added earlier in this series.
 
@@ -33,8 +36,8 @@ Assisted-by: Claude:claude-opus-5-5
 Signed-off-by: Erik Conijn <egc112@msn.com>
 ---
  drivers/net/wireless/broadcom/b43/b43.h  |    2 +
- drivers/net/wireless/broadcom/b43/main.c |   34 +++++++++++++++++++--
- 2 files changed, 33 insertions(+), 3 deletions(-)
+ drivers/net/wireless/broadcom/b43/main.c |   33 +++++++++++++++++++--
+ 2 files changed, 32 insertions(+), 3 deletions(-)
 
 diff --git a/drivers/net/wireless/broadcom/b43/b43.h b/drivers/net/wireless/broadcom/b43/b43.h
 --- a/drivers/net/wireless/broadcom/b43/b43.h
@@ -59,7 +62,7 @@ diff --git a/drivers/net/wireless/broadcom/b43/main.c b/drivers/net/wireless/bro
  	int i;
  
  	if (unlikely(b43_status(dev) != B43_STAT_STARTED))
-@@ -2163,18 +2164,30 @@ static void b43_do_interrupt_thread(stru
+@@ -2163,18 +2164,29 @@ static void b43_do_interrupt_thread(stru
  	if (reason & B43_IRQ_NOISESAMPLE_OK)
  		handle_irq_noise(dev);
  
@@ -70,8 +73,7 @@ diff --git a/drivers/net/wireless/broadcom/b43/main.c b/drivers/net/wireless/bro
 +	 * it while this thread runs, so receiving here too would hand the
 +	 * same buffers to mac80211 twice.
 +	 */
-+	rx_napi = !b43_using_pio_transfers(dev) &&
-+		  !b43_bus_host_is_sdio(dev->dev);
++	rx_napi = b43_tx_direct(dev);
  	if (dma_reason[0] & B43_DMAIRQ_RDESC_UFLOW) {
  		if (B43_DEBUG)
  			b43warn(dev->wl, "RX descriptor underrun\n");
@@ -93,7 +95,7 @@ diff --git a/drivers/net/wireless/broadcom/b43/main.c b/drivers/net/wireless/bro
  	B43_WARN_ON(dma_reason[1] & B43_DMAIRQ_RX_DONE);
  	B43_WARN_ON(dma_reason[2] & B43_DMAIRQ_RX_DONE);
  	B43_WARN_ON(dma_reason[3] & B43_DMAIRQ_RX_DONE);
-@@ -2184,6 +2197,17 @@ static void b43_do_interrupt_thread(stru
+@@ -2184,6 +2196,17 @@ static void b43_do_interrupt_thread(stru
  	if (reason & B43_IRQ_TX_OK)
  		b43_tx_status_irq(dev);
  
@@ -111,7 +113,7 @@ diff --git a/drivers/net/wireless/broadcom/b43/main.c b/drivers/net/wireless/bro
  	/* Re-enable interrupts on the device by restoring the current interrupt mask. */
  	b43_write32(dev, B43_MMIO_GEN_IRQ_MASK, dev->irq_mask);
  
-@@ -2212,6 +2236,10 @@ static int b43_napi_poll(struct napi_str
+@@ -2212,6 +2235,10 @@ static int b43_napi_poll(struct napi_str
  	int done = 0;
  
  	if (likely(b43_status(dev) == B43_STAT_STARTED)) {

@@ -19,11 +19,13 @@ interoperability) to that compare. No wl code was copied.
 
 Allow up to four APs on one channel and one beacon interval:
 
-- the first AP keeps the ucode's beacon template; while further APs run,
-  its address block goes to the base address with a mask of 3, so all
-  BSSIDs lie in one aligned block of four addresses; an AP outside the
-  block gets no frames and a warning (refusing it would make hostapd
-  fail every AP on the radio);
+- the first AP keeps the ucode's beacon template and is matched by its
+  own address as before, so it can keep the factory address, as the
+  first AP does under Broadcom's driver;
+- while further APs run, the block of their addresses goes to the base
+  address with a mask of 3, so they must lie in one aligned block of
+  four addresses; one outside the block gets no frames and a warning
+  (refusing it would make hostapd fail every AP on the radio);
 - the further APs' beacons come from mac80211 at the primary's TBTT and
   go out on the voice queue with the TSF of the moment in the timestamp;
   they are skipped while that queue is stopped or backed up, so they
@@ -48,14 +50,17 @@ Tested on the R6400 v2 with two SSIDs (WPA2), both loaded at once (an
 ath11k station on the second, a BCM4331 station on the first): 2 x 75
 cycles (7 h 50 min) and 200 cycles (10.5 h) of iperf3 load without a
 stall or kernel message; 109/84 Mbit/s up and 52 Mbit/s down on the
-second SSID.
+second SSID. With the first AP on the factory address and the further
+APs in their block (next patch), one to four SSIDs: the BCM4331 station
+on each SSID in turn got 75-86 Mbit/s down and 56-65 up, the ath11k
+station on the second SSID 80-84 down and 102-107 up meanwhile.
 
 Assisted-by: Claude:claude-opus-5-5
 Signed-off-by: Erik Conijn <egc112@msn.com>
 ---
  drivers/net/wireless/broadcom/b43/b43.h  |   17 +
- drivers/net/wireless/broadcom/b43/main.c |  203 ++++++++++++++++++++-
- 2 files changed, 216 insertions(+), 4 deletions(-)
+ drivers/net/wireless/broadcom/b43/main.c |  214 ++++++++++++++++++++-
+ 2 files changed, 227 insertions(+), 4 deletions(-)
 
 diff --git a/drivers/net/wireless/broadcom/b43/b43.h b/drivers/net/wireless/broadcom/b43/b43.h
 --- a/drivers/net/wireless/broadcom/b43/b43.h
@@ -94,7 +99,7 @@ diff --git a/drivers/net/wireless/broadcom/b43/b43.h b/drivers/net/wireless/broa
 diff --git a/drivers/net/wireless/broadcom/b43/main.c b/drivers/net/wireless/broadcom/b43/main.c
 --- a/drivers/net/wireless/broadcom/b43/main.c
 +++ b/drivers/net/wireless/broadcom/b43/main.c
-@@ -795,8 +795,60 @@ static void b43_write_mac_bssid_template
+@@ -795,8 +795,69 @@ static void b43_write_mac_bssid_template
  	}
  }
  
@@ -115,24 +120,33 @@ diff --git a/drivers/net/wireless/broadcom/b43/main.c b/drivers/net/wireless/bro
 +	return -1;
 +}
 +
++/* The address of the first further AP, which sets their block. */
++static const u8 *b43_mbss_block(struct b43_wl *wl)
++{
++	unsigned int i;
++
++	for (i = 0; i < ARRAY_SIZE(wl->mbss_vif); i++)
++		if (wl->mbss_vif[i])
++			return wl->mbss_vif[i]->addr;
++	return NULL;
++}
++
 +/*
 + * The base address and mask the ucode compares the receiver address with:
-+ * the block of the operating interface's address while further APs run,
-+ * zero otherwise.
++ * the block of the further APs' addresses while they run, zero otherwise.
++ * The first AP is matched by its own address, so it may lie outside the
++ * block and keep the factory address.
 + */
 +static void b43_mbss_base_upload(struct b43_wldev *dev)
 +{
 +	struct b43_wl *wl = dev->wl;
-+	const u8 *m = wl->mac_addr;
-+	u16 mask = 0;
-+	unsigned int i;
++	const u8 *m;
++	u16 mask = B43_MBSS_MAX - 1;
 +
 +	if (!b43_mbss_supported(dev))
 +		return;
-+	for (i = 0; i < ARRAY_SIZE(wl->mbss_vif); i++)
-+		if (wl->mbss_vif[i])
-+			mask = B43_MBSS_MAX - 1;
-+	if (!mask) {
++	m = b43_mbss_block(wl);
++	if (!m) {
 +		b43_shm_write16(dev, B43_SHM_SHARED, B43_SHM_SH_MBSS_BASE, 0);
 +		b43_shm_write16(dev, B43_SHM_SHARED, B43_SHM_SH_MBSS_BASE + 2, 0);
 +		b43_shm_write16(dev, B43_SHM_SHARED, B43_SHM_SH_MBSS_BASE + 4, 0);
@@ -155,7 +169,7 @@ diff --git a/drivers/net/wireless/broadcom/b43/main.c b/drivers/net/wireless/bro
  	b43_write_mac_bssid_templates(dev);
  	b43_macfilter_set(dev, B43_MACFILTER_SELF, dev->wl->mac_addr);
  }
-@@ -1624,9 +1676,55 @@ generate_new:
+@@ -1624,9 +1685,55 @@ generate_new:
  	b43_generate_noise_sample(dev);
  }
  
@@ -211,7 +225,7 @@ diff --git a/drivers/net/wireless/broadcom/b43/main.c b/drivers/net/wireless/bro
  		///TODO: PS TBTT
  	} else {
  		if (1 /*FIXME: the last PSpoll frame was sent successfully */ )
-@@ -4147,6 +4245,14 @@ static struct b43_sta *b43_ps_sta(struct
+@@ -4147,6 +4254,14 @@ static struct b43_sta *b43_ps_sta(struct
  	    is_multicast_ether_addr(hdr->addr1))
  		return NULL;
  	sta = ieee80211_find_sta(wl->vif, hdr->addr1);
@@ -226,7 +240,7 @@ diff --git a/drivers/net/wireless/broadcom/b43/main.c b/drivers/net/wireless/bro
  	if (!sta)
  		return NULL;
  	bsta = (struct b43_sta *)sta->drv_priv;
-@@ -5073,6 +5179,10 @@ static void b43_op_bss_info_changed(stru
+@@ -5073,6 +5188,10 @@ static void b43_op_bss_info_changed(stru
  	if (!dev || b43_status(dev) < B43_STAT_STARTED)
  		goto out_unlock_mutex;
  
@@ -237,7 +251,7 @@ diff --git a/drivers/net/wireless/broadcom/b43/main.c b/drivers/net/wireless/bro
  	B43_WARN_ON(wl->vif != vif);
  
  	if (changed & BSS_CHANGED_BSSID) {
-@@ -5151,6 +5261,16 @@ static int b43_op_set_key(struct ieee802
+@@ -5151,6 +5270,16 @@ static int b43_op_set_key(struct ieee802
  		return -EOPNOTSUPP;
  	}
  
@@ -254,7 +268,7 @@ diff --git a/drivers/net/wireless/broadcom/b43/main.c b/drivers/net/wireless/bro
  	mutex_lock(&wl->mutex);
  
  	dev = wl->current_dev;
-@@ -5980,12 +6100,44 @@ static int b43_op_add_interface(struct i
+@@ -5980,12 +6109,46 @@ static int b43_op_add_interface(struct i
  		return -EOPNOTSUPP;
  
  	mutex_lock(&wl->mutex);
@@ -262,6 +276,7 @@ diff --git a/drivers/net/wireless/broadcom/b43/main.c b/drivers/net/wireless/bro
 -		goto out_mutex_unlock;
 +	dev = wl->current_dev;
 +	if (wl->operating) {
++		const u8 *block;
 +		unsigned int i;
 +
 +		if (vif->type != NL80211_IFTYPE_AP ||
@@ -277,10 +292,11 @@ diff --git a/drivers/net/wireless/broadcom/b43/main.c b/drivers/net/wireless/bro
 +		 * outside that block gets no frames at all. Only warn:
 +		 * refusing it makes hostapd fail every AP on the radio.
 +		 */
-+		if (memcmp(vif->addr, wl->mac_addr, ETH_ALEN - 1) ||
-+		    ((vif->addr[5] ^ wl->mac_addr[5]) & ~(B43_MBSS_MAX - 1)))
++		block = b43_mbss_block(wl);
++		if (block && (memcmp(vif->addr, block, ETH_ALEN - 1) ||
++			      ((vif->addr[5] ^ block[5]) & ~(B43_MBSS_MAX - 1))))
 +			b43warn(wl, "AP %pM gets no frames: outside the BSSID block of %pM\n",
-+				vif->addr, wl->mac_addr);
++				vif->addr, block);
 +
 +		for (i = 0; i < ARRAY_SIZE(wl->mbss_vif); i++) {
 +			if (wl->mbss_vif[i])
@@ -302,7 +318,7 @@ diff --git a/drivers/net/wireless/broadcom/b43/main.c b/drivers/net/wireless/bro
  	wl->operating = true;
  	wl->vif = vif;
  	wl->if_type = vif->type;
-@@ -6011,13 +6163,39 @@ static void b43_op_remove_interface(stru
+@@ -6011,13 +6174,39 @@ static void b43_op_remove_interface(stru
  {
  	struct b43_wl *wl = hw_to_b43_wl(hw);
  	struct b43_wldev *dev = wl->current_dev;
@@ -342,7 +358,7 @@ diff --git a/drivers/net/wireless/broadcom/b43/main.c b/drivers/net/wireless/bro
  	wl->vif = NULL;
  
  	wl->operating = false;
-@@ -6129,7 +6307,7 @@ static void b43_op_sta_notify(struct iee
+@@ -6129,7 +6318,7 @@ static void b43_op_sta_notify(struct iee
  	struct b43_sta *bsta = (struct b43_sta *)sta->drv_priv;
  	unsigned long flags;
  
@@ -351,7 +367,7 @@ diff --git a/drivers/net/wireless/broadcom/b43/main.c b/drivers/net/wireless/bro
  	if (vif->type != NL80211_IFTYPE_AP)
  		return;
  
-@@ -6901,6 +7079,19 @@ static void b43_wireless_exit(struct b43
+@@ -6901,6 +7090,19 @@ static void b43_wireless_exit(struct b43
  }
  #endif
  
@@ -371,7 +387,7 @@ diff --git a/drivers/net/wireless/broadcom/b43/main.c b/drivers/net/wireless/bro
  static struct b43_wl *b43_wireless_init(struct b43_bus_dev *dev)
  {
  	struct ssb_sprom *sprom = dev->bus_sprom;
-@@ -6926,6 +7117,10 @@ static struct b43_wl *b43_wireless_init(
+@@ -6926,6 +7128,10 @@ static struct b43_wl *b43_wireless_init(
  	hw->extra_tx_headroom = sizeof(struct b43_txhdr);
  	hw->max_tx_aggregation_subframes = B43_AMPDU_BA_WINDOW;
  	hw->sta_data_size = sizeof(struct b43_sta);

@@ -1,14 +1,13 @@
-# b43: 802.11n with A-MPDU for the BCM4331 (Netgear R6400) — TEST VERSION (rc13)
+# b43: 802.11n with A-MPDU for the BCM4331 (Netgear R6400) — TEST VERSION (rc15)
 
 > **Status: test version.** Since rc9 this series is a small set of patches **on top of Rosen
-> Penev's b43 802.11n series**, openwrt/openwrt#25922, which brings 802.11n to b43 upstream
-> and already contains most of what rc2–rc8 did. rc11 is rebased on his updated series
-> (fe90f890dc, with firmware 784.2) and adds six fixes and improvements for the R6400 that are
-> not (yet) in it. rc12 added one kernel patch by Alessio Ferri (880) that prepares the
-> R6400's 5 GHz radio (BCM4360) for tests with an AC-PHY b43. rc13 has a newer 880 and a hostapd
-> with 802.11ac, on a newer OpenWrt; the 2.4 GHz driver is still rc11's.
-> Tested on the author's Netgear R6400 v1 and v2: rc9 in a 9.5-hour soak test
-> with two clients and a phone, rc10 to rc13 in the tests below.
+> Penev's b43 802.11n series**, openwrt/openwrt#25922, which brings 802.11n to b43 upstream.
+> rc15 is rebased on his series as of 87e30600fa, which now also carries six of our patches
+> (890, 891 and 893–896, see *What is in rc15*). On top of it rc15 adds up to **four SSIDs**
+> on the BCM4331 (897, 898), Alessio Ferri's kernel patch 880 for the 5 GHz radio as in rc13,
+> and a fix for the USB LEDs (318). rc14 was not released.
+> Tested on the author's Netgear R6400 v1 and v2: rc9 in a 9.5-hour soak test with two clients
+> and a phone, rc15 in the tests below.
 > Not in OpenWrt or the Linux kernel yet.
 > Please test and report back (see *Reporting problems*), and read *Known limitations* first.
 >
@@ -27,53 +26,56 @@ about 10–12 Mbit/s download. With Rosen Penev's series and these patches it ru
 | **rc9 = openwrt/openwrt#25922 + these patches**, v1 (soak test; rc10 and rc11 are the same speed) | **96–111 Mbit/s, avg 107** | **90–111 Mbit/s, avg 107** |
 | **rc13**, v1 (no soak: runs of 20 s, iperf3 on the router, see *Changes in rc13*; rc12 is the same speed) | **111–112 Mbit/s** | **99–102 Mbit/s** |
 | **rc13**, v2 (no soak: runs of 20 s to 3 min, iperf3 on the router) | **103–104 Mbit/s** | **106–107 Mbit/s** |
+| **rc15**, v2 (soak of 3 h 50 min, two SSIDs; ath11k client alone on the second SSID, wired iperf3 server) | – | **104–109 Mbit/s, avg 107** |
 
-## What is in rc13
+## What is in rc15
 
-rc13 = OpenWrt main + **openwrt/openwrt#25922 as of fe90f890dc** (Rosen Penev: patches 813 and
-820–869 in `package/kernel/mac80211/patches/brcm/`, a bcma patch, and b43 firmware 784.2) + the
-patches in [patches](patches/), numbered 890–895 since rc11 (his series now uses 862–869), + the
-kernel patch in [patches/kernel](patches/kernel/) (since rc12, newer in rc13), + `+@DRIVER_11AC_SUPPORT` in
-the `kmod-b43` dependencies (new in rc13: hostapd then accepts 802.11ac settings, see *Hardware*):
+rc15 = OpenWrt main + **openwrt/openwrt#25922 as of 87e30600fa** (Rosen Penev: the b43 patches
+in `package/kernel/mac80211/patches/brcm/`, a bcma patch, and b43 firmware 784.2) + the patches
+in [patches](patches/) + the kernel patches in [patches/kernel](patches/kernel/) +
+`+@DRIVER_11AC_SUPPORT` in the `kmod-b43` dependencies (since rc13: hostapd then accepts
+802.11ac settings, see *Hardware*):
 
 | Patch | What it does | Why |
 |---|---|---|
-| 890 (rc10: 862) | do not disable NAPI on SDIO devices | NAPI is only enabled on non-SDIO devices, but was disabled on all: on an SDIO device stopping the device would hang. Pointed out by the openwrt-ai review of openwrt/openwrt#25922. Not used by the R6400 (PCIe); for other b43 devices |
-| 891 (rc10: 863) | HT-PHY: do not upload table 9 on FEM and HGPA boards | On the R6400 v1 the table 9 upload costs about 10 dB of transmit power: download 109–111 → 68–70 Mbit/s. Broadcom's own driver leaves the table as b43 has it without the upload. No difference on the v2 |
-| 892 (rc10: 865) | HT-PHY: optional `ht_txgain_idx` module parameter | For own builds: override the fixed transmit gain (see *Transmit power*). Not meant for upstream |
-| 893 (rc10: 866) | HT-PHY: calibrate the RX I/Q imbalance on channel switch | b43 never set the receiver's I/Q compensation. On the R6400 v1, channel 6, up to a third of the frames a client sent at the top rate (MCS 15) were lost: 32.8 % → 2.1 %, upload 79.5 → 90.8 Mbit/s. Neutral on the v2. Since rc10 it calibrates only the operating channel, once per start of the radio, and only at 2.4 GHz (see *Changes in rc10*). Since rc11 it runs after the transmit calibration that Rosen Penev's series now has. See [PROVENANCE.md](PROVENANCE.md#patch-893-rx-iq-calibration) |
-| 894 (rc10: 867) | HT-PHY: receive A-MPDUs of up to 64 KiB | Upload from an ath11k client to the R6400 v2: 89–92 → 105–107 Mbit/s (+17 %); no clear difference on the v1 |
-| 895 (rc10: 868) | drop the A-MSDU subframes the MAC splits off | New in rc10. b43 passed them on as whole frames; with hardware encryption mac80211 then read a random packet number from them and dropped every later frame of that traffic class as a replay. On a Linksys EA6900 (BCM4360) with an ath11k client this stopped a 5 GHz upload within minutes. On the R6400 it is a precaution: none of our clients sent A-MSDUs to it (0 of 2.3 million frames in a 20-hour test on the v1). brcmsmac drops them the same way |
+| [897](patches/897-wifi-b43-HT-PHY-run-up-to-four-APs-on-the-BCM4331.patch) | HT-PHY: run up to four APs on the BCM4331 | New in rc15. Stock b43 takes one interface. With firmware 784 the BCM4331 matches the BSSIDs of further APs with one base address under a mask (SHM 0x640–0x64c); 897 sets it, sends the further APs' beacons at the first AP's beacon time, and keeps their group keys in software. Only on core rev 29 (BCM4331) with firmware 784; every other device keeps one interface. Based on Ville Takio's multi-AP change for the AC-PHY cores. See [PROVENANCE.md](PROVENANCE.md) |
+| [898](patches/898-wifi-b43-HT-PHY-give-the-BCM4331-a-block-of-four-MAC-addr.patch) | HT-PHY: give the BCM4331 a block of four MAC addresses | New in rc15. The first SSID keeps the factory address; SSIDs 2–4 get the locally administered form of it with the next low bits (on an R6400 with factory address `cc:…:3a`: `ce:…:3b`, `ce:…:38`, `ce:…:39`), in the order OpenWrt assigns them. No `macaddr` needs to be set, and a single SSID keeps the same address as before. Broadcom's own driver does the same |
 | [wifi-scripts](patches/wifi-scripts-b43-best-effort-frame-bursting.patch) | best effort frame bursting (`tx_queue_data2_burst 2.0`) by default on b43 802.11n radios | Shares the air fairer when a client uploads and downloads at once (see *Traffic in both directions*). A patch to the OpenWrt tree, not to the mac80211 package |
-| [880](patches/kernel/880-bcma-ssb-support-the-BCM4352-BCM4360-family.patch) (since rc12, newer in rc13) | bcma/ssb: support the BCM4352/BCM4360 family. By **Alessio Ferri**, copied unchanged from [aleferri/b43-ac-wip](https://github.com/aleferri/b43-ac-wip) (`patches/`, commit [16eb94d](https://github.com/aleferri/b43-ac-wip/commit/16eb94d)); the same file as in our [EA6900 build kit](../linksys-ea6900/build-kit/) | The kernel reads the BCM4360's SPROM revision 11 from the router's nvram and sets up its power management unit. Nothing changes at 2.4 GHz and stock b43 still does not drive the BCM4360, but an image with this patch can load an AC-PHY b43 module (b43-ac-wip) for 5 GHz tests without being reflashed (see *Hardware*). It also fixes a bcma bug that touches every core: switching a core to dynamic clock mode set all other bits of its clock control register instead of clearing one |
+| [880](patches/kernel/880-bcma-ssb-support-the-BCM4352-BCM4360-family.patch) (as in rc13) | bcma/ssb: support the BCM4352/BCM4360 family. By **Alessio Ferri**, copied unchanged from [aleferri/b43-ac-wip](https://github.com/aleferri/b43-ac-wip) (`patches/`, commit [16eb94d](https://github.com/aleferri/b43-ac-wip/commit/16eb94d)) | The kernel reads the BCM4360's SPROM revision 11 from the router's nvram and sets up its power management unit, so that an AC-PHY b43 module can be loaded for 5 GHz tests (see *Hardware*). Nothing changes at 2.4 GHz |
+| [318](patches/kernel/318-ARM-dts-BCM5301X-R6400-add-the-USB-LED-trigger-sources.patch) | R6400 device tree: add the USB LED trigger sources | New in rc15. Without them the kernel logged `Failed to get trigger sources` for the USB LEDs at boot. The LEDs worked before too. Sent to OpenWrt as openwrt/openwrt#26631 |
 
-rc10's 864 (drop the `ht_cck_rx` module parameter) is gone: Rosen Penev's series now has no such
-parameter and turns CCK reception off by itself when the network does not use it.
+**Now in Rosen Penev's series** (his update of 2026-11-10, 87e30600fa, with the same numbers): 890 (do not
+disable NAPI on SDIO devices), 891 (HT-PHY: no table 9 upload on FEM and HGPA boards: +40 Mbit/s
+download on the R6400 v1), 893 (HT-PHY RX I/Q calibration: MCS 15 losses 32.8 % → 2.1 % on the
+v1), 894 (HT-PHY: receive A-MPDUs of up to 64 KiB), 895 (drop the A-MSDU subframes the MAC splits
+off) and 896 (only the NAPI poll walks the DMA RX ring: fixes a double free of RX buffers that
+crashed an R6400 v2 with two stations under load). What each does is described in his PR, in the *Changes in* sections below and in the
+[rc13 version of this page](https://github.com/egc112/Broadcom/blob/b43-80211n-rc13/b43-80211n/README.md#what-is-in-rc13).
 
-890–895 and the wifi-scripts patch are by Erik Conijn and carry `Assisted-by: Claude:claude-opus-5-5`: they were
-written with the help of an AI assistant, which also ran most of the measurements. 880 is
-Alessio Ferri's.
+**Gone in rc15: 892** (the `ht_txgain_idx` module parameter, see *Transmit power*). Upstream does
+not want new module parameters, so it is not in his series; it may come back in a later version.
+
+897, 898, 318 and the wifi-scripts patch are by Erik Conijn and carry `Assisted-by:
+Claude:claude-opus-5-5`: they were written with the help of an AI assistant, which also ran most
+of the measurements. 880 is Alessio Ferri's.
 
 What Rosen Penev's series brings (see his PR for the details): 802.11n HT20 for N-PHY and
-HT-PHY devices, two spatial streams, A-MPDU in both directions (32 frames), short guard
-interval, STBC, RTS/CTS for aggregates, power save in AP mode, airtime fairness, NAPI,
-software encryption of protected management frames (WPA3/PMF), and the R6400 fixes from
-our rc2–rc8 series that he took over (external front end, static transmit gain, 32-bit
-table reads, block-ack address, Duration field, frames spanning several RX buffers, CCK
-reception, VI/VO FIFOs, multi-rate retry). His update of 2026-11-02 adds, among others, the
-transmit I/Q and LO calibration for HT-PHY (no recalibration off-channel or on the same
-channel), CCK reception only when the network uses it, our analog-PA front-end fix for the
-R6400 (831), our 32-bit table read fix (829), and firmware 784.2 as the new default.
-Thanks to him for the work and for taking our patches in.
+HT-PHY devices, two spatial streams, A-MPDU in both directions, short guard interval, STBC,
+RTS/CTS for aggregates, power save in AP mode, airtime fairness, NAPI, software encryption of
+protected management frames (WPA3/PMF), the transmit I/Q and LO calibration for HT-PHY, firmware
+784.2 as the default, the R6400 fixes from our rc2–rc8 series and the six patches above. Since
+rc13 it also has N-PHY fixes by Ville Takio (BCM43217, RX I/Q calibration, 64 KiB A-MPDUs) and
+two by Marco Martins (G-PHY, one TX descriptor per frame from core rev 30). Thanks to him for the
+work and for taking our patches in.
 
 ## Hardware
 
 * **Netgear R6400 v1** (BCM4709 + BCM4331, external high-gain PA, `BFL_HGPA`): tested as an
   access point.
 * **Netgear R6400 v2** (BCM4331 with FEM, `BFL_FEM`): tested as a client and as an access point.
-* Other BCM4331 boards: 891 and 892 act only on boards with an external front end
-  (`BFL_FEM` or `BFL_HGPA`); 893 runs on every HT-PHY board at 2.4 GHz, but was only tested
-  on these two. 890 matters only for SDIO devices; 895 applies to every b43 device.
+* Other BCM4331 boards: 897 and 898 act on every BCM4331 (core rev 29) with firmware 784, but
+  were only tested on the R6400 v2 and v1. Several SSIDs need firmware 784 (the default);
+  with another firmware b43 accepts one AP only, as before.
 * **BCM4360 (AC-PHY) is not supported**, neither by stock b43 nor by these patches: that is the
   5 GHz radio of the R6400 and both radios of the Netgear R7000. b43 logs
   `FOUND UNSUPPORTED PHY (Analog 12, Type 11 (AC))` for it; that line is expected.
@@ -81,13 +83,48 @@ Thanks to him for the work and for taking our patches in.
   (front end, receive gains, transmit power) and sets up its power management unit (new in
   dmesg: `bus2: PMU PLL pre-write` and `bus2: PMU res mask pre-write`; rc11 logged
   `PMU resource config unknown` there), so that an AC-PHY b43 built from
-  [aleferri/b43-ac-wip](https://github.com/aleferri/b43-ac-wip) against the **same** rc13 build
+  [aleferri/b43-ac-wip](https://github.com/aleferri/b43-ac-wip) against the **same** rc15 build
   tree can be loaded for 5 GHz tests; since rc13 hostapd also accepts VHT80 for it. That driver
-  replaces the rc13 b43 for both radios while it is loaded, and the two cannot be combined yet:
+  replaces the rc15 b43 for both radios while it is loaded, and the two cannot be combined yet:
   the 2.4 GHz radio then runs as 802.11g only, at about 10 Mbit/s. So use either this series
   (2.4 GHz) or the AC-PHY module (5 GHz), not both.
 
 ## Test results
+
+### Changes in rc15
+
+rc15 is rebased on Rosen Penev's series as of 87e30600fa (2026-11-10), which now contains our 890,
+891 and 893–896; adds 897 and 898 (up to four SSIDs) and 318 (USB LEDs); drops 892. OpenWrt base,
+kernel, 880 and firmware are rc13's (r38137-a4076a8021, kernel 6.18.60, 784.2).
+
+Tests on the R6400 v2 (and v1 as a client):
+
+* **One to four SSIDs** (2026-11-11, test module with the same 897/898 code): the SSIDs came up as
+  `cc:…:3a` (factory), `ce:…:3b`, `ce:…:38`, `ce:…:39` with no address set in the configuration.
+  An R6400 v1 as a b43 client on each SSID in turn: 75–86 Mbit/s down, 56–65 up; meanwhile a
+  DL-WRX36 (ath11k) on the second SSID: 80–84 down, 102–107 up. No warnings.
+* **Soak, test module** (2026-11-11, 58 cycles, 3 h 5 min, his previous head 35f92b83fc + the same
+  897/898): no stall, reboot or b43 kernel message.
+* **Soak, rc15 image** (2026-11-11, flashed, 50 cycles, 3 h 50 min, no driver reload): two SSIDs,
+  the DL-WRX36 on the second and an R6400 v1 (b43 client) on the first; each cycle 60 s DL-WRX36
+  upload, then 60 s of both SSIDs at once in each direction. No stall, reboot or b43 kernel message,
+  memory steady (145–149 MB available). Mbit/s, average (min–max) over the 50 cycles:
+
+  | phase | DL-WRX36, second SSID | R6400 v1, first SSID |
+  |---|---|---|
+  | DL-WRX36 upload alone | 107 (104–109) | – |
+  | DL-WRX36 upload + v1 download | 88 (83–91) | 16 (13–18) |
+  | DL-WRX36 download + v1 upload | 56 (53–60) | 46 (41–49) |
+
+  While the DL-WRX36 uploads, the access point gets little air for its download to the v1 (second
+  row); the other way round the shares are more even. The same was seen with one SSID (see
+  *Traffic in both directions*).
+* **USB LEDs** (rc15 image, v1 and v2): no `Failed to get trigger sources` at boot; on the v1 a USB stick lights
+  the USB 1 LED in the front port (USB 3.0) and the USB 2 LED in the back port (USB 2.0).
+* The receiver with 893 against an ath11k station at the same spots (2026-11-11, fixed MCS 15,
+  transmit power stepped down): the same loss curve as the ath11k station from strong to weak
+  signal; only very close to the access point (about -21 dBm) the R6400 v1 loses about 16 % of
+  MCS 15 frames, which stays a known limitation.
 
 ### Changes in rc13
 
@@ -303,14 +340,14 @@ and add the `uci set` line in a uci-defaults file.
 
 ## Test images (GitHub Releases)
 
-Ready-made OpenWrt images with rc13 are attached to the release **b43-80211n-rc13**
+Ready-made OpenWrt images with rc15 are attached to the release **b43-80211n-rc15**
 (OpenWrt snapshot r38137-a4076a8021, kernel 6.18.60, b43 firmware 784.2). Pick the image by the router's board ID:
 
 | Router | board ID | Image |
 |---|---|---|
-| R6400 v1 | U12H332T00_NETGEAR | `openwrt-r6400-v1-b43-80211n-rc13-squashfs.chk` |
-| R6400 v2 | U12H332T20_NETGEAR | `openwrt-r6400-v2-b43-80211n-rc13-squashfs.chk` |
-| R6400 v2 (OTP) | U12H332T30_NETGEAR | `openwrt-r6400-v2-otp-b43-80211n-rc13-squashfs.chk` |
+| R6400 v1 | U12H332T00_NETGEAR | `openwrt-r6400-v1-b43-80211n-rc15-squashfs.chk` |
+| R6400 v2 | U12H332T20_NETGEAR | `openwrt-r6400-v2-b43-80211n-rc15-squashfs.chk` |
+| R6400 v2 (OTP) | U12H332T30_NETGEAR | `openwrt-r6400-v2-otp-b43-80211n-rc15-squashfs.chk` |
 
 On OpenWrt the board ID is shown by `strings /dev/mtd1 | grep board_id` (the `nvram` partition).
 Netgear's own firmware only accepts a `.chk` with the router's own board ID. The **R6700 v3**
@@ -330,9 +367,14 @@ b43 has no `htmode` for the 2.4 GHz radio, and the radio then stays 802.11g. Che
 uci set wireless.radio0.htmode='HT20'; uci commit wireless; wifi
 ```
 
-**Upgrading from rc9 to rc12:** nothing to change; the settings stay valid. The image brings
-firmware 784.2 along. A b43 module built for rc11 or rc12 does not fit rc13 and the other way round
-(880 changes the kernel's SPROM structure): flash the image instead of copying a module.
+**Upgrading from rc9 to rc15:** nothing to change; the settings stay valid. The image brings
+firmware 784.2 along. A b43 module built for rc11 or rc12 does not fit rc13 or rc15 and the other
+way round (880 changes the kernel's SPROM structure): flash the image instead of copying a module.
+From rc13 to rc15: if `/etc/modules.d/b43` sets `ht_txgain_idx`, remove it (892 is gone; the kernel
+ignores it with an `unknown parameter` warning). For more SSIDs, add `wifi-iface` sections on the 2.4 GHz radio without a
+`macaddr` option; a `macaddr` set by hand for a further SSID must lie in the same block of four as
+the other further SSIDs, or that SSID gets no frames (b43 logs `gets no frames: outside the BSSID
+block`).
 
 **Upgrading from rc8 with settings kept:** the rc8 module parameters are gone (see *Module
 parameters*); remove them from `/etc/modules.d/b43`, which should hold just `b43`.
@@ -340,20 +382,21 @@ parameters*); remove them from `/etc/modules.d/b43`, which should hold just `b43
 ## Building
 
 You need an OpenWrt main build tree for the bcm53xx target (R6400 v1 and v2 support is in
-OpenWrt main since 2026-11-01). rc13 was built on OpenWrt main r38137-a4076a8021 (kernel 6.18,
+OpenWrt main since 2026-11-01). rc15 was built on OpenWrt main r38137-a4076a8021 (kernel 6.18,
 mac80211 backports 7.2).
 
-1. Apply Rosen Penev's series, openwrt/openwrt#25922 at fe90f890dc (three commits), in the
-   OpenWrt tree:
+1. Take Rosen Penev's series, openwrt/openwrt#25922 at 87e30600fa (18 commits on OpenWrt main
+   89e69d9391):
 
    ```sh
    cd <openwrt>
    git fetch https://github.com/openwrt/openwrt pull/25922/head
-   git cherry-pick 23184a0594 47faca945e fe90f890dc
+   git checkout -b b43-rc15 87e30600fa
    ```
 
-   If his PR has moved on since, our patches may no longer apply on top of it; use these
-   commits.
+   If his PR has moved on since, our patches may no longer apply on top of it; use this commit.
+   (The rc15 images were built on r38137 with his files copied in: `patches/brcm/`,
+   `broadcom.mk` and `target/linux/generic/pending-6.18/805-*`; the b43 code is the same.)
 
 2. Copy our mac80211 patches next to his, and apply the wifi-scripts patch:
 
@@ -362,11 +405,11 @@ mac80211 backports 7.2).
    git apply <this repo>/b43-80211n/patches/wifi-scripts-b43-best-effort-frame-bursting.patch
    ```
 
-   And the kernel patch, and the dependency that builds hostapd with 802.11ac (only needed for
+   And the kernel patches, and the dependency that builds hostapd with 802.11ac (only needed for
    5 GHz tests with an AC-PHY module):
 
    ```sh
-   cp <this repo>/b43-80211n/patches/kernel/880-*.patch target/linux/bcm53xx/patches-6.18/
+   cp <this repo>/b43-80211n/patches/kernel/*.patch target/linux/bcm53xx/patches-6.18/
    sed -i '/define KernelPackage\/b43$/,/^endef/s/+@KERNEL_PAGE_POOL \\$/+@KERNEL_PAGE_POOL +@DRIVER_11AC_SUPPORT \\/' package/kernel/mac80211/broadcom.mk
    ```
 
@@ -405,12 +448,12 @@ gone. 802.11n, two streams, aggregation and the short guard interval are always 
 (802.11b) reception is off only when the network uses no 802.11b rates (the OpenWrt default)
 and stays on while scanning.
 
-The only b43 parameter these patches add is `ht_txgain_idx` (patch 892), see *Transmit power*.
-The standard b43 parameters (`qos`, `nohwcrypt`, `hwtkip`, `btcoex`, `hwpctl`, `verbose`, `pio`,
-`gpiomask`, `bad_frames_preempt`, `allhwsupport`, `fwpostfix`) are unchanged.
+These patches add no b43 parameter (rc13's `ht_txgain_idx`, patch 892, is gone, see *Transmit
+power*). The standard b43 parameters (`qos`, `nohwcrypt`, `hwtkip`, `btcoex`, `hwpctl`, `verbose`,
+`pio`, `gpiomask`, `bad_frames_preempt`, `allhwsupport`, `fwpostfix`) are unchanged.
 
 Set parameters on one line in `/etc/modules.d/b43` and reboot (OpenWrt reads this file only at
-boot), e.g. `echo "b43 ht_txgain_idx=30" > /etc/modules.d/b43`. Check the values in use with
+boot), e.g. `echo "b43 verbose=3" > /etc/modules.d/b43`. Check the values in use with
 `grep . /sys/module/b43/parameters/*`.
 
 ## Transmit power
@@ -421,11 +464,9 @@ the hardware power control loop, which drove the external amplifiers into distor
 SPROM board flags (Rosen Penev's 830, based on our rc8 patch 824). A higher index is less
 power.
 
-`ht_txgain_idx` (patch 892) overrides that choice: 0–127 selects the index, -1 the power
-control loop, -2 (the default) the automatic choice. It can be written live in
-`/sys/module/b43/parameters/ht_txgain_idx` and takes effect at the next `wifi`. Stay at or
-above the automatic index: a lower one gives more power than the board was measured with.
-Leave it at -2 unless you have a reason, such as less power at close range.
+rc13's `ht_txgain_idx` (patch 892) could override that choice; rc15 does not have it, because
+upstream does not want new module parameters and Rosen Penev's series has none. It may come back
+in a later version. Until then rc15 always uses the automatic index.
 
 ## Reporting problems
 
@@ -434,7 +475,6 @@ Please include:
 ```sh
 logread | grep -iE "b43|ieee80211" | tail -100
 iw dev <wifi interface> station dump
-cat /sys/module/b43/parameters/ht_txgain_idx
 ```
 
 and what the clients were doing (download/upload, which device, which channel). With
@@ -449,15 +489,19 @@ frames: most of those get through when they are sent again.
 ## Known limitations
 
 * 20 MHz only (no 40 MHz). The R6400's BCM4331 is 2.4 GHz only.
-* The transmit power setting of LuCI and `iw` does not lower the fixed gain on the R6400; use
-  `ht_txgain_idx` (see *Transmit power*).
+* The transmit power setting of LuCI and `iw` does not lower the fixed gain on the R6400, and rc15
+  has no other way to do it (see *Transmit power*).
+* Several SSIDs: one channel and one beacon interval for all; the further SSIDs' beacons go out on
+  the voice queue; their broadcast and multicast frames are encrypted in software; the block acks
+  carry the first SSID's address (receive aggregation on a further SSID was only tested with an
+  ath11k station).
 * Two clients uploading at the same time do not share the air evenly: an R6400 v2 as a client
   got 7–17 Mbit/s next to an ath11k client's 70–99. Each alone gets ~100. Not investigated
   yet; it is between the clients, not in the access point.
 * 893 calibrates the operating channel once per start of the radio (about 25 ms); the channels
   a scan visits run uncompensated, as before. At 5 GHz (other BCM4331 boards) the
   compensation stays at zero, as in stock b43.
-* The b43 receiver reports the signal about 20 dB too high (no RSSI calibration in b43's
+* The b43 receiver reports the signal about 17–20 dB too high (no RSSI calibration in b43's
   HT-PHY code).
 * With CCK (802.11b) reception off, the access point does not hear the 1 Mbit/s probe requests
   that phones send while scanning, so it never answers them. Phones then see the network only
@@ -470,8 +514,9 @@ frames: most of those get through when they are sent again.
 
 ## Credits
 
-Rosen Penev (@neheb) for openwrt/openwrt#25922, the base of rc9 to rc13, which includes
-several of our earlier patches. The openwrt-ai review of his PR for the point fixed in 890.
+Rosen Penev (@neheb) for openwrt/openwrt#25922, the base of rc9 to rc15, which includes
+several of our earlier patches. Ville Takio for the multi-AP change for the AC-PHY cores that
+897 is based on. The openwrt-ai review of his PR for the point fixed in 890.
 Alessio Ferri (aleferri) for 880, from his AC-PHY port of b43, aleferri/b43-ac-wip.
 
 ## License

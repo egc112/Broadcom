@@ -1,0 +1,400 @@
+From: Erik Conijn <egc112@msn.com>
+Date: Mon, 09 Nov 2026 14:47:30 +0100
+Subject: [PATCH] wifi: b43: HT-PHY: run up to four APs on the BCM4331
+
+The BCM4331 (core rev 29) with ucode 784 can serve several BSSes, but b43
+takes one interface. Spare rows of the address match table do not help:
+the ucode does not acknowledge frames to the addresses in them. It
+compares the receiver address with a base address in SHM 0x640-0x644
+(SHM_MBSS_BSSID0-2 in Broadcom's d11.h, as shipped in router GPL source
+trees), ignoring the low bits of the last byte that are set in SHM 0x64c
+(ucode 0x083B-0x0842, read with b43-dasm). Reading SHM back while
+Broadcom's own driver runs one, two and four APs on an R6400 v2 shows
+the same: base 0 with one AP; with more, the locally administered form
+of the factory address with the low four bits cleared, mask 0x000f, and
+the number of APs in 0x646 (SHM_MBSS_BCN_COUNT). We first found this by
+following wlc_write_mbss_basemac in Broadcom's prebuilt wl objects (its
+symbol name and the disassembly of that one function, for
+interoperability) to that compare. No wl code was copied.
+
+Allow up to four APs on one channel and one beacon interval:
+
+- the first AP keeps the ucode's beacon template and is matched by its
+  own address as before, so it can keep the factory address, as the
+  first AP does under Broadcom's driver;
+- while further APs run, the block of their addresses goes to the base
+  address with a mask of 3, so they must lie in one aligned block of
+  four addresses; one outside the block gets no frames and a warning
+  (refusing it would make hostapd fail every AP on the radio);
+- the further APs' beacons come from mac80211 at the primary's TBTT and
+  go out on the voice queue with the TSF of the moment in the timestamp;
+  they are skipped while that queue is stopped or backed up, so they
+  cannot pile up when TX stalls;
+- the hardware has one set of group key slots, so the further APs' group
+  keys stay with mac80211 (software encryption of their multicast); the
+  pairwise keys of their stations go to the hardware as before;
+- removing the first AP hands the template to the next one.
+
+Only core rev 29 offers the interface combination, and further APs are
+only accepted with ucode 784 (784.2 tested); everything else keeps one
+interface and no SHM is written.
+
+Based on Ville Takio's multi-AP change for the AC-PHY cores (12028df in
+aleferri/b43-ac-wip), which uses the wide address match table there.
+
+The ucode sends block acks from one template, which holds the first AP's
+address; RX aggregation on a further AP was only tested with an ath11k
+station.
+
+Tested on the R6400 v2 with two SSIDs (WPA2), both loaded at once (an
+ath11k station on the second, a BCM4331 station on the first): 2 x 75
+cycles (7 h 50 min) and 200 cycles (10.5 h) of iperf3 load without a
+stall or kernel message; 109/84 Mbit/s up and 52 Mbit/s down on the
+second SSID. With the first AP on the factory address and the further
+APs in their block (next patch), one to four SSIDs: the BCM4331 station
+on each SSID in turn got 75-86 Mbit/s down and 56-65 up, the ath11k
+station on the second SSID 80-84 down and 102-107 up meanwhile.
+
+Assisted-by: Claude:claude-opus-5-5
+Signed-off-by: Erik Conijn <egc112@msn.com>
+---
+ drivers/net/wireless/broadcom/b43/b43.h  |   17 +
+ drivers/net/wireless/broadcom/b43/main.c |  214 ++++++++++++++++++++-
+ 2 files changed, 227 insertions(+), 4 deletions(-)
+
+diff --git a/drivers/net/wireless/broadcom/b43/b43.h b/drivers/net/wireless/broadcom/b43/b43.h
+--- a/drivers/net/wireless/broadcom/b43/b43.h
++++ b/drivers/net/wireless/broadcom/b43/b43.h
+@@ -409,6 +409,18 @@ enum {
+ #define B43_MACFILTER_SELF		0x0000
+ #define B43_MACFILTER_BSSID		0x0003
+ 
++/*
++ * Several APs on one radio (BCM4331, core rev 29, ucode 784). The ucode
++ * accepts every receiver address that equals the base address in SHM,
++ * except for the low bits of its last byte that are set in the mask: all
++ * BSSIDs lie in one aligned block of B43_MBSS_MAX addresses.
++ */
++#define B43_MBSS_MAX			4
++#define B43_MBSS_CORE_REV		29
++#define B43_MBSS_FW_REV			784
++#define B43_SHM_SH_MBSS_BASE		0x0640	/* 3 words */
++#define B43_SHM_SH_MBSS_MASK		0x064C
++
+ /* PowerControl */
+ #define B43_PCTL_IN			0xB0
+ #define B43_PCTL_OUT			0xB4
+@@ -1004,6 +1016,11 @@ struct b43_wl {
+ 	 */
+ 
+ 	struct ieee80211_vif *vif;
++	/*
++	 * The further AP interfaces (multi-BSS). vif is the one whose beacon
++	 * the microcode sends; these go out from the driver at its TBTT.
++	 */
++	struct ieee80211_vif *mbss_vif[B43_MBSS_MAX - 1];
+ 	/* The MAC address of the operating interface. */
+ 	u8 mac_addr[ETH_ALEN];
+ 	/* Current BSSID */
+diff --git a/drivers/net/wireless/broadcom/b43/main.c b/drivers/net/wireless/broadcom/b43/main.c
+--- a/drivers/net/wireless/broadcom/b43/main.c
++++ b/drivers/net/wireless/broadcom/b43/main.c
+@@ -795,8 +795,69 @@ static void b43_write_mac_bssid_template
+ 	}
+ }
+ 
++/* Whether this core and its ucode can run further APs */
++static bool b43_mbss_supported(struct b43_wldev *dev)
++{
++	return dev->dev->core_rev == B43_MBSS_CORE_REV &&
++	       dev->fw.rev == B43_MBSS_FW_REV;
++}
++
++static int b43_mbss_slot(struct b43_wl *wl, const struct ieee80211_vif *vif)
++{
++	unsigned int i;
++
++	for (i = 0; i < ARRAY_SIZE(wl->mbss_vif); i++)
++		if (vif && wl->mbss_vif[i] == vif)
++			return i;
++	return -1;
++}
++
++/* The address of the first further AP, which sets their block. */
++static const u8 *b43_mbss_block(struct b43_wl *wl)
++{
++	unsigned int i;
++
++	for (i = 0; i < ARRAY_SIZE(wl->mbss_vif); i++)
++		if (wl->mbss_vif[i])
++			return wl->mbss_vif[i]->addr;
++	return NULL;
++}
++
++/*
++ * The base address and mask the ucode compares the receiver address with:
++ * the block of the further APs' addresses while they run, zero otherwise.
++ * The first AP is matched by its own address, so it may lie outside the
++ * block and keep the factory address.
++ */
++static void b43_mbss_base_upload(struct b43_wldev *dev)
++{
++	struct b43_wl *wl = dev->wl;
++	const u8 *m;
++	u16 mask = B43_MBSS_MAX - 1;
++
++	if (!b43_mbss_supported(dev))
++		return;
++	m = b43_mbss_block(wl);
++	if (!m) {
++		b43_shm_write16(dev, B43_SHM_SHARED, B43_SHM_SH_MBSS_BASE, 0);
++		b43_shm_write16(dev, B43_SHM_SHARED, B43_SHM_SH_MBSS_BASE + 2, 0);
++		b43_shm_write16(dev, B43_SHM_SHARED, B43_SHM_SH_MBSS_BASE + 4, 0);
++		b43_shm_write16(dev, B43_SHM_SHARED, B43_SHM_SH_MBSS_MASK, 0);
++		return;
++	}
++	b43_shm_write16(dev, B43_SHM_SHARED, B43_SHM_SH_MBSS_BASE,
++			m[0] | m[1] << 8);
++	b43_shm_write16(dev, B43_SHM_SHARED, B43_SHM_SH_MBSS_BASE + 2,
++			m[2] | m[3] << 8);
++	b43_shm_write16(dev, B43_SHM_SHARED, B43_SHM_SH_MBSS_BASE + 4,
++			m[4] | (m[5] & ~mask) << 8);
++	b43_shm_write16(dev, B43_SHM_SHARED, B43_SHM_SH_MBSS_MASK, mask);
++	b43dbg(wl, "Multi-AP: base %pM mask 0x%x\n", m, mask);
++}
++
+ static void b43_upload_card_macaddress(struct b43_wldev *dev)
+ {
++	b43_mbss_base_upload(dev);
+ 	b43_write_mac_bssid_templates(dev);
+ 	b43_macfilter_set(dev, B43_MACFILTER_SELF, dev->wl->mac_addr);
+ }
+@@ -1624,9 +1685,55 @@ generate_new:
+ 	b43_generate_noise_sample(dev);
+ }
+ 
++/*
++ * The beacons of the further AP interfaces, which the microcode's single
++ * beacon template cannot hold: fetched from mac80211 at the primary's TBTT
++ * and queued as management frames on the voice queue, with the TSF of now
++ * in the timestamp. Their DTIM and TIM are mac80211's, per interface.
++ */
++static void b43_mbss_beacons(struct b43_wldev *dev)
++{
++	struct b43_wl *wl = dev->wl;
++	struct ieee80211_mgmt *mgmt;
++	struct ieee80211_vif *vif;
++	struct sk_buff *skb;
++	bool queued = false;
++	unsigned int i;
++	u64 tsf = 0;
++
++	/*
++	 * These beacons bypass mac80211's flow control: skip them while the
++	 * voice queue is stopped or backed up, or they pile up without end
++	 * when TX stalls. A beacon that missed its TBTT is stale anyway.
++	 */
++	if (wl->tx_queue_stopped[IEEE80211_AC_VO] ||
++	    wl->tx_queue_full[IEEE80211_AC_VO] ||
++	    skb_queue_len(&wl->tx_queue[IEEE80211_AC_VO]) >= 2 * B43_MBSS_MAX)
++		return;
++
++	for (i = 0; i < ARRAY_SIZE(wl->mbss_vif); i++) {
++		vif = wl->mbss_vif[i];
++		if (!vif || !vif->bss_conf.enable_beacon)
++			continue;
++		skb = ieee80211_beacon_get(wl->hw, vif, 0);
++		if (!skb)
++			continue;
++		if (!queued)
++			b43_tsf_read(dev, &tsf);
++		mgmt = (struct ieee80211_mgmt *)skb->data;
++		mgmt->u.beacon.timestamp = cpu_to_le64(tsf);
++		skb_set_queue_mapping(skb, IEEE80211_AC_VO);
++		skb_queue_tail(&wl->tx_queue[IEEE80211_AC_VO], skb);
++		queued = true;
++	}
++	if (queued)
++		ieee80211_queue_work(wl->hw, &wl->tx_work);
++}
++
+ static void handle_irq_tbtt_indication(struct b43_wldev *dev)
+ {
+ 	if (b43_is_mode(dev->wl, NL80211_IFTYPE_AP)) {
++		b43_mbss_beacons(dev);
+ 		///TODO: PS TBTT
+ 	} else {
+ 		if (1 /*FIXME: the last PSpoll frame was sent successfully */ )
+@@ -4147,6 +4254,14 @@ static struct b43_sta *b43_ps_sta(struct
+ 	    is_multicast_ether_addr(hdr->addr1))
+ 		return NULL;
+ 	sta = ieee80211_find_sta(wl->vif, hdr->addr1);
++	if (!sta) {
++		unsigned int i;
++
++		for (i = 0; i < ARRAY_SIZE(wl->mbss_vif) && !sta; i++)
++			if (wl->mbss_vif[i])
++				sta = ieee80211_find_sta(wl->mbss_vif[i],
++							 hdr->addr1);
++	}
+ 	if (!sta)
+ 		return NULL;
+ 	bsta = (struct b43_sta *)sta->drv_priv;
+@@ -5073,6 +5188,10 @@ static void b43_op_bss_info_changed(stru
+ 	if (!dev || b43_status(dev) < B43_STAT_STARTED)
+ 		goto out_unlock_mutex;
+ 
++	/* A further BSS: beaconed at TBTT, the rest is the primary's. */
++	if (b43_mbss_slot(wl, vif) >= 0)
++		goto out_unlock_mutex;
++
+ 	B43_WARN_ON(wl->vif != vif);
+ 
+ 	if (changed & BSS_CHANGED_BSSID) {
+@@ -5151,6 +5270,16 @@ static int b43_op_set_key(struct ieee802
+ 		return -EOPNOTSUPP;
+ 	}
+ 
++	/*
++	 * The hardware has one set of group key slots; the group keys of the
++	 * further AP interfaces stay with mac80211, which encrypts their
++	 * multicast in software. Their stations' pairwise keys go to the
++	 * hardware as anyone's.
++	 */
++	if (!(key->flags & IEEE80211_KEY_FLAG_PAIRWISE) &&
++	    b43_mbss_slot(wl, vif) >= 0)
++		return -EOPNOTSUPP;
++
+ 	mutex_lock(&wl->mutex);
+ 
+ 	dev = wl->current_dev;
+@@ -5972,12 +6101,46 @@ static int b43_op_add_interface(struct i
+ 		return -EOPNOTSUPP;
+ 
+ 	mutex_lock(&wl->mutex);
+-	if (wl->operating)
+-		goto out_mutex_unlock;
++	dev = wl->current_dev;
++	if (wl->operating) {
++		const u8 *block;
++		unsigned int i;
++
++		if (vif->type != NL80211_IFTYPE_AP ||
++		    wl->if_type != NL80211_IFTYPE_AP)
++			goto out_mutex_unlock;
++		if (!b43_mbss_supported(dev)) {
++			b43warn(wl, "Further APs need ucode %u, not %u.%u\n",
++				B43_MBSS_FW_REV, dev->fw.rev, dev->fw.patch);
++			goto out_mutex_unlock;
++		}
++		/*
++		 * The ucode matches one base address under a mask: an AP
++		 * outside that block gets no frames at all. Only warn:
++		 * refusing it makes hostapd fail every AP on the radio.
++		 */
++		block = b43_mbss_block(wl);
++		if (block && (memcmp(vif->addr, block, ETH_ALEN - 1) ||
++			      ((vif->addr[5] ^ block[5]) & ~(B43_MBSS_MAX - 1))))
++			b43warn(wl, "AP %pM gets no frames: outside the BSSID block of %pM\n",
++				vif->addr, block);
++
++		for (i = 0; i < ARRAY_SIZE(wl->mbss_vif); i++) {
++			if (wl->mbss_vif[i])
++				continue;
++			wl->mbss_vif[i] = vif;
++			if (b43_status(dev) >= B43_STAT_INITIALIZED)
++				b43_mbss_base_upload(dev);
++			b43dbg(wl, "Further AP %pM\n", vif->addr);
++			err = 0;
++			break;
++		}
++		mutex_unlock(&wl->mutex);
++		return err;
++	}
+ 
+ 	b43dbg(wl, "Adding Interface type %d\n", vif->type);
+ 
+-	dev = wl->current_dev;
+ 	wl->operating = true;
+ 	wl->vif = vif;
+ 	wl->if_type = vif->type;
+@@ -6003,13 +6166,39 @@ static void b43_op_remove_interface(stru
+ {
+ 	struct b43_wl *wl = hw_to_b43_wl(hw);
+ 	struct b43_wldev *dev = wl->current_dev;
++	struct ieee80211_vif *next = NULL;
++	unsigned int i;
++	int slot;
+ 
+ 	b43dbg(wl, "Removing Interface type %d\n", vif->type);
+ 
+ 	mutex_lock(&wl->mutex);
+ 
++	slot = b43_mbss_slot(wl, vif);
++	if (slot >= 0) {
++		wl->mbss_vif[slot] = NULL;
++		if (b43_status(dev) >= B43_STAT_INITIALIZED)
++			b43_mbss_base_upload(dev);
++		mutex_unlock(&wl->mutex);
++		return;
++	}
++
+ 	B43_WARN_ON(!wl->operating);
+ 	B43_WARN_ON(wl->vif != vif);
++
++	/* A further AP interface takes over the beacon template. */
++	for (i = 0; i < ARRAY_SIZE(wl->mbss_vif) && !next; i++) {
++		next = wl->mbss_vif[i];
++		wl->mbss_vif[i] = NULL;
++	}
++	if (next) {
++		wl->vif = next;
++		memcpy(wl->mac_addr, next->addr, ETH_ALEN);
++		b43_upload_card_macaddress(dev);
++		mutex_unlock(&wl->mutex);
++		b43_op_bss_info_changed(hw, next, &next->bss_conf, ~0);
++		return;
++	}
+ 	wl->vif = NULL;
+ 
+ 	wl->operating = false;
+@@ -6121,7 +6310,7 @@ static void b43_op_sta_notify(struct iee
+ 	struct b43_sta *bsta = (struct b43_sta *)sta->drv_priv;
+ 	unsigned long flags;
+ 
+-	B43_WARN_ON(!vif || wl->vif != vif);
++	B43_WARN_ON(!vif || (wl->vif != vif && b43_mbss_slot(wl, vif) < 0));
+ 	if (vif->type != NL80211_IFTYPE_AP)
+ 		return;
+ 
+@@ -6889,6 +7078,19 @@ static void b43_wireless_exit(struct b43
+ }
+ #endif
+ 
++/* Up to B43_MBSS_MAX APs, on one channel and beacon interval. */
++static const struct ieee80211_iface_limit b43_if_limits_mbss[] = {
++	{ .max = B43_MBSS_MAX, .types = BIT(NL80211_IFTYPE_AP) },
++};
++
++static const struct ieee80211_iface_combination b43_if_comb_mbss = {
++	.limits = b43_if_limits_mbss,
++	.n_limits = ARRAY_SIZE(b43_if_limits_mbss),
++	.max_interfaces = B43_MBSS_MAX,
++	.num_different_channels = 1,
++	.beacon_int_infra_match = true,
++};
++
+ static struct b43_wl *b43_wireless_init(struct b43_bus_dev *dev)
+ {
+ 	struct ssb_sprom *sprom = dev->bus_sprom;
+@@ -6915,6 +7117,10 @@ static struct b43_wl *b43_wireless_init(
+ 		hw->extra_tx_headroom = sizeof(struct b43_txhdr);
+ 	hw->max_tx_aggregation_subframes = B43_AMPDU_BA_WINDOW;
+ 	hw->sta_data_size = sizeof(struct b43_sta);
++	if (dev->core_rev == B43_MBSS_CORE_REV) {
++		hw->wiphy->iface_combinations = &b43_if_comb_mbss;
++		hw->wiphy->n_iface_combinations = 1;
++	}
+ 	hw->wiphy->interface_modes =
+ 		BIT(NL80211_IFTYPE_AP) |
+ 		BIT(NL80211_IFTYPE_MESH_POINT) |

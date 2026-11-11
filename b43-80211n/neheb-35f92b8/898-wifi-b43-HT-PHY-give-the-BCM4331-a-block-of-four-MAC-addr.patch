@@ -2,32 +2,32 @@ From: Erik Conijn <egc112@msn.com>
 Date: Mon, 09 Nov 2026 11:25:18 +0100
 Subject: [PATCH] wifi: b43: HT-PHY: give the BCM4331 a block of four MAC addresses
 
-The ucode matches all BSSIDs of a multi-AP setup with one base address
-under a mask, so they must lie in one aligned block of four addresses.
-The SPROM holds one address, and userspace takes the further APs'
-addresses from wiphy->addresses or makes them up, mostly outside the
-block, so a second SSID would only work with addresses set by hand.
+The ucode matches the further APs of a multi-AP setup with one base
+address under a mask, so they must lie in one aligned block of four
+addresses. The SPROM holds one address, and userspace takes the further
+APs' addresses from wiphy->addresses or makes them up, mostly outside
+the block, so a second SSID would only work with addresses set by hand.
 
-On core rev 29, offer a block of four: the locally administered form of
-the SPROM address (bit 1 of the first byte set, so the block never holds
-the wired ports' global addresses) with the low two bits running 0-3,
-in wiphy->addresses, and the first of them as the permanent address.
-OpenWrt assigns them to the APs in order. Broadcom's driver does the
-same with its further APs: reading them back on an R6400 v2, they get
-the locally administered form of the factory address, inside the block.
+On core rev 29, offer the SPROM address first, as the permanent address,
+and then three addresses of one block: its locally administered form
+(bit 1 of the first byte set, so the block never holds the wired ports'
+global addresses) with the next values of the low two bits. OpenWrt
+assigns them to the APs in order, so the first AP keeps the factory
+address and single-AP setups see no change. Broadcom's driver does the
+same: reading the addresses back on an R6400 v2, its first AP keeps the
+factory address and the further ones get its locally administered form,
+inside the block.
 
-The first AP's address changes once from the SPROM address to its
-locally administered form, also on single-AP setups.
-
-Tested on the R6400 v2: with no address set in the configuration, the
-two SSIDs came up as ce:..:38 and ce:..:39 and ran the 200-cycle soak.
+Tested on the R6400 v2 (factory address cc:..:3a): with no address set
+in the configuration, one to four SSIDs came up as cc:..:3a, ce:..:3b,
+ce:..:38 and ce:..:39, and stations on each of them passed traffic.
 
 Assisted-by: Claude:claude-opus-5-5
 Signed-off-by: Erik Conijn <egc112@msn.com>
 ---
  drivers/net/wireless/broadcom/b43/b43.h  |    2 +
- drivers/net/wireless/broadcom/b43/main.c |   27 +++++++++++++++++++--
- 2 files changed, 27 insertions(+), 2 deletions(-)
+ drivers/net/wireless/broadcom/b43/main.c |   30 +++++++++++++++++++--
+ 2 files changed, 30 insertions(+), 2 deletions(-)
 
 diff --git a/drivers/net/wireless/broadcom/b43/b43.h b/drivers/net/wireless/broadcom/b43/b43.h
 --- a/drivers/net/wireless/broadcom/b43/b43.h
@@ -36,7 +36,7 @@ diff --git a/drivers/net/wireless/broadcom/b43/b43.h b/drivers/net/wireless/broa
  	 * the microcode sends; these go out from the driver at its TBTT.
  	 */
  	struct ieee80211_vif *mbss_vif[B43_MBSS_MAX - 1];
-+	/* The BSSID block offered to userspace where further APs can run */
++	/* The factory address, then the further APs' block, for userspace */
 +	struct mac_address mbss_addrs[B43_MBSS_MAX];
  	/* The MAC address of the operating interface. */
  	u8 mac_addr[ETH_ALEN];
@@ -44,29 +44,32 @@ diff --git a/drivers/net/wireless/broadcom/b43/b43.h b/drivers/net/wireless/broa
 diff --git a/drivers/net/wireless/broadcom/b43/main.c b/drivers/net/wireless/broadcom/b43/main.c
 --- a/drivers/net/wireless/broadcom/b43/main.c
 +++ b/drivers/net/wireless/broadcom/b43/main.c
-@@ -7139,10 +7139,33 @@ static struct b43_wl *b43_wireless_init(
+@@ -7150,10 +7150,36 @@ static struct b43_wl *b43_wireless_init(
  	wl->hw_registered = false;
  	hw->max_rates = 2;
  	SET_IEEE80211_DEV(hw, dev->dev);
 -	if (is_valid_ether_addr(sprom->et1mac))
 +	if (dev->core_rev == B43_MBSS_CORE_REV) {
 +		/*
-+		 * All BSSIDs must lie in one aligned block (the ucode compares
-+		 * one base address under a mask). Use the locally administered
-+		 * form of the factory address, so the block never holds the
-+		 * global addresses of the wired ports, and offer all of it to
-+		 * userspace, which assigns them to the APs in order.
++		 * The first AP keeps the factory address. The further APs'
++		 * addresses must lie in one aligned block (the ucode compares
++		 * one base address under a mask): use the locally administered
++		 * form of the factory address with the next low bits, so the
++		 * block never holds the global addresses of the wired ports.
++		 * Userspace assigns the list to the APs in order.
 +		 */
 +		const u8 *fac = is_valid_ether_addr(sprom->et1mac) ?
 +				sprom->et1mac : sprom->il0mac;
 +		unsigned int i;
 +
-+		for (i = 0; i < B43_MBSS_MAX; i++) {
++		ether_addr_copy(wl->mbss_addrs[0].addr, fac);
++		for (i = 1; i < B43_MBSS_MAX; i++) {
 +			u8 *a = wl->mbss_addrs[i].addr;
 +
 +			ether_addr_copy(a, fac);
 +			a[0] |= 0x02;
-+			a[5] = (a[5] & ~(B43_MBSS_MAX - 1)) | i;
++			a[5] = (a[5] & ~(B43_MBSS_MAX - 1)) |
++			       ((a[5] + i) & (B43_MBSS_MAX - 1));
 +		}
 +		SET_IEEE80211_PERM_ADDR(hw, wl->mbss_addrs[0].addr);
 +		hw->wiphy->addresses = wl->mbss_addrs;

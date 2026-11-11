@@ -1,9 +1,11 @@
 # Provenance and legal notes
 
 This page explains where every part of the b43-80211n patch series comes from and how the
-information was obtained. Anyone can check it. It covers **rc13** (patches 890–895, a
-wifi-scripts patch and kernel patch 880 by Alessio Ferri, on top of Rosen Penev's
-openwrt/openwrt#25922; rc12 had an older 880; rc11 was the same without 880; rc10 had the same patches
+information was obtained. Anyone can check it. It covers **rc15** (patches 897 and 898, a
+wifi-scripts patch, kernel patch 880 by Alessio Ferri and device tree patch 318, on top of Rosen
+Penev's openwrt/openwrt#25922 at 87e30600fa, which since then also carries our 890, 891 and
+893–896), **rc13** (patches 890–895, a wifi-scripts patch and kernel patch 880, on top of his
+series at fe90f890dc; rc12 had an older 880; rc11 was the same without 880; rc10 had the same patches
 as 862–868, plus 864, on top of an older version of his series; rc9 was rc10 without 868 and
 with the first version of 866) and the older stand-alone
 series **rc8** (patches 820–839, in [patches-rc8](patches-rc8/)).
@@ -67,6 +69,18 @@ Linux kernel under that license.
    at build time it downloads Broadcom's `broadcom-wl-5.100.138` driver release and extracts the
    ucode (version 666.2) with `b43-fwcutter`, as every OpenWrt build with b43 does. We did not
    modify or add firmware.
+
+## Sources per patch (rc15)
+
+rc15 = Rosen Penev's series at 87e30600fa + 897 and 898 (see *Patches 897 and 898* below) + the
+wifi-scripts patch and 880 as in rc13 + one device tree patch:
+
+| Patch | Author | Based on |
+|---|---|---|
+| 318 | Erik Conijn | The Linux device tree binding of the `usbport` LED trigger (`Documentation/devicetree/bindings/leds/common.yaml`, `trigger-sources`) and the USB port labels that the kernel's `bcm-ns.dtsi` already defines (`ohci_port1`, `ehci_port1`, `xhci_port1`, …). Which LED belongs to which port: the existing R6400 device tree (`function-enumerator` 1 and 2), checked with a USB stick in each port of an R6400 v1 (front: USB 3.0, LED USB 1; back: USB 2.0, LED USB 2). No vendor source |
+
+890, 891 and 893–896 are now Rosen Penev's to carry; their sources are in the rc11 table below and
+in 896's own text. 892 is not in rc15.
 
 ## Sources per patch (rc13)
 
@@ -133,7 +147,8 @@ method is used.
 
 897 lets the BCM4331 (core rev 29, ucode 784) run up to four APs on one channel; 898 gives it the block of four
 MAC addresses that needs. Both were offered to Rosen Penev's series (openwrt/openwrt#25922) as part of
-neheb-35f92b8/.
+neheb-35f92b8/ (updated 2026-11-11: the first AP keeps the factory address); [patches](patches/) has the same
+code refreshed for his head 87e30600fa.
 
 | Part | Source |
 |---|---|
@@ -151,9 +166,10 @@ R6400, which one of us runs) pointed to the function; the disassembly of that on
 offsets it writes, and that led us to the compare in the ucode. No other part of wl was read for this, and no wl
 code is copied. We found the d11.h names only afterwards; with them and the ucode, every fact in 897 and 898 can
 be checked without wl. On 2026-11-11 we also read the SHM words back while Broadcom's driver ran several APs on
-the same chip (the table above): the same address, byte order and mask, without any wl code. Two differences
-with our patches: wl keeps its first AP on the factory address and uses a block of 16 (mask 0xf), where 897 and
-898 use a block of four and move the first AP to the locally administered form as well. The older d11.h names
+the same chip (the table above): the same address, byte order and mask, without any wl code. Like wl, 897 and 898
+keep the first AP on the factory address and put the further APs in a block of locally administered addresses;
+wl uses a block of 16 (mask 0xf), 897 and 898 a block of four (mask 3), enough for four APs. (The first version
+of 897/898, before 2026-11-11, moved the first AP into the block as well.) The older d11.h names
 word 6 (0x64c) `SHM_MBSS_BC_FID1`; the 784 ucode and the running wl both use it as the mask. The commit texts of
 897 and 898 say the same.
 
@@ -246,3 +262,5 @@ Dropped from the rc3–rc6 version:
 * 2026-11-10: patches 897 and 898 (several APs on the BCM4331, neheb-35f92b8/); summary bullet on decompiled
   code extended for them.
 * 2026-11-11: 897 and 898: the SHM read-back under Broadcom's driver added as a source.
+* 2026-11-11: rc15 (on his series at 87e30600fa; 897/898 reworked: the first AP keeps the factory
+  address; device tree patch 318; 892 dropped).

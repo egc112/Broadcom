@@ -8,7 +8,11 @@ the ucode does not acknowledge frames to the addresses in them. It
 compares the receiver address with a base address in SHM 0x640-0x644
 (SHM_MBSS_BSSID0-2 in Broadcom's d11.h, as shipped in router GPL source
 trees), ignoring the low bits of the last byte that are set in SHM 0x64c
-(ucode 0x083B-0x0842, read with b43-dasm). We first found this by
+(ucode 0x083B-0x0842, read with b43-dasm). Reading SHM back while
+Broadcom's own driver runs one, two and four APs on an R6400 v2 shows
+the same: base 0 with one AP; with more, the locally administered form
+of the factory address with the low four bits cleared, mask 0x000f, and
+the number of APs in 0x646 (SHM_MBSS_BCN_COUNT). We first found this by
 following wlc_write_mbss_basemac in Broadcom's prebuilt wl objects (its
 symbol name and the disassembly of that one function, for
 interoperability) to that compare. No wl code was copied.

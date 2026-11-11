@@ -12,7 +12,9 @@ On core rev 29, offer a block of four: the locally administered form of
 the SPROM address (bit 1 of the first byte set, so the block never holds
 the wired ports' global addresses) with the low two bits running 0-3,
 in wiphy->addresses, and the first of them as the permanent address.
-OpenWrt assigns them to the APs in order.
+OpenWrt assigns them to the APs in order. Broadcom's driver does the
+same with its further APs: reading them back on an R6400 v2, they get
+the locally administered form of the factory address, inside the block.
 
 The first AP's address changes once from the SPROM address to its
 locally administered form, also on single-AP setups.

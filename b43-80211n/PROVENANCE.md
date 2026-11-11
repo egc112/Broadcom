@@ -29,7 +29,8 @@ It is a factual record, not legal advice. Questions or corrections: please open 
   rewritten from open sources and measurements only; the full account is below. One later patch, 897
   (several APs on the BCM4331), uses two facts, an SHM address and a mask, that we first found by reading the
   disassembly of one function of Broadcom's wl driver. Both facts are documented without it: the address in
-  Broadcom's own public header, the mask in the ucode that b43 loads (see *Patches 897 and 898*).
+  Broadcom's own public header, the mask in the ucode that b43 loads, and both were read back from the chip
+  while Broadcom's own driver ran one, two and four APs on our R6400 v2 (see *Patches 897 and 898*).
 * This repository does not contain, and will not publish:
   * Broadcom's binary drivers;
   * decompiled or disassembled code;
@@ -138,7 +139,8 @@ neheb-35f92b8/.
 |---|---|
 | The base address the ucode compares the receiver address with: SHM 0x640–0x644 | Broadcom's `d11.h`, as shipped in router GPL source trees: `SHM_MBSS_BASE_ADDR (0x320 * 2)` with `SHM_MBSS_BSSID0`–`2` in its first three words (e.g. the DD-WRT tree, `src/linux/brcm/linux-2.6.23/brcm/include/d11.h`, and the Asus/FreshTomato tree, `release/src-rt-6.x.4708/include/d11.h`). b43-tools cites the same header for other SHM addresses. Only the address is used; nothing of the header is copied |
 | The mask: the low bits of the last address byte that are set in SHM 0x64c are ignored | The 784.2 ucode that b43 loads (`ucode29_mimo.fw`, extracted with b43-fwcutter from `broadcom-wl-6.30.163.46`, the file the b43 documentation tells users to download), read with the b43 project's disassembler b43-dasm: ucode 0x083B–0x0842 compares the receiver address with SHM words 0x320–0x322 under the mask built from word 0x326. That is studying the ucode we run to learn how to talk to it |
-| All BSSIDs in one aligned block of four (898) | Follows from the mask; the locally administered form of the factory address is our own choice |
+| All BSSIDs in one aligned block of four (898) | Follows from the mask. The locally administered form of the factory address is also what Broadcom's driver gives its further APs (read-back below) |
+| Read-back under Broadcom's driver (method 2 above) | SHM 0x640–0x64e read on our R6400 v2 while DD-WRT r56490 (wl 7.14.164.18) ran one, two and four APs, 2026-11-11. One AP: base 0, 0x64c = 0x000f. Two and four APs: base `ce:40:d0:62:f6:30` in 897's byte order, which is the locally administered form of the factory address `cc:40:d0:62:f6:3c` with the low four bits cleared; 0x64c = 0x000f; 0x646 = 2, then 4 (`SHM_MBSS_BCN_COUNT` in the same d11.h). The further APs got `ce:…:3d`, `3e` and `3f`, inside that block |
 | Beacons of the further APs from mac80211 at the primary's TBTT on the voice queue; their group keys in software; handing over the beacon template | Based on Ville Takio's multi-AP change for the AC-PHY cores, 12028df in aleferri/b43-ac-wip (GPL, his Signed-off-by) |
 | Spare rows of the address match table do not work for further BSSIDs | Measured on our R6400 v2: no acknowledgements to the addresses in rows 3, 6 and 12 |
 | The effect | Measured on the R6400 v1 and v2: 1 to 4 SSIDs beacon and carry traffic; soaks under load (see the patch texts) |
@@ -148,7 +150,12 @@ way. The symbol name `wlc_write_mbss_basemac` in Broadcom's prebuilt wl objects 
 R6400, which one of us runs) pointed to the function; the disassembly of that one function showed which SHM
 offsets it writes, and that led us to the compare in the ucode. No other part of wl was read for this, and no wl
 code is copied. We found the d11.h names only afterwards; with them and the ucode, every fact in 897 and 898 can
-be checked without wl. The commit text of 897 says the same.
+be checked without wl. On 2026-11-11 we also read the SHM words back while Broadcom's driver ran several APs on
+the same chip (the table above): the same address, byte order and mask, without any wl code. Two differences
+with our patches: wl keeps its first AP on the factory address and uses a block of 16 (mask 0xf), where 897 and
+898 use a block of four and move the first AP to the locally administered form as well. The older d11.h names
+word 6 (0x64c) `SHM_MBSS_BC_FID1`; the 784 ucode and the running wl both use it as the mask. The commit texts of
+897 and 898 say the same.
 
 ## Sources per patch (rc8)
 
@@ -238,3 +245,4 @@ Dropped from the rc3–rc6 version:
 * 2026-11-05: rc13 (newer 880, hostapd with 802.11ac).
 * 2026-11-10: patches 897 and 898 (several APs on the BCM4331, neheb-35f92b8/); summary bullet on decompiled
   code extended for them.
+* 2026-11-11: 897 and 898: the SHM read-back under Broadcom's driver added as a source.

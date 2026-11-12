@@ -65,7 +65,7 @@ Gentoo mirror and falls back to the Web Archive copy of the original site (both 
    **Linksys EA6900**; Kernel modules → Wireless Drivers → `kmod-b43`: bus BCMA, firmware
    **784.2 from driver 6.30.163.46**, **Enable support for AC-PHYs**; with firmware squashing on, the core
    revisions must include **42** and the PHY types **AC**, or the build leaves the AC-PHY firmware out
-   (`diffconfig` sets all of these, with a full `wpad` (`wpad-openssl`), `luci`, `irqbalance` and `iperf3`).
+   (`diffconfig` sets all of these, with a full `wpad` (`wpad-openssl`), `luci`, `irqbalance`, `iperf3`, `ethtool` and `ip-bridge`).
 5. `make -j$(nproc)`. The images are in `bin/targets/bcm53xx/generic/`. On a fresh tree a `tools/...` package can fail
    at high `-j` (a race in the parallel host tools, seen on r38134): run `make -j1 tools/install` first, then `make -j$(nproc)`.
 6. Install as in the main README, or upgrade a running EA6900 with
@@ -177,6 +177,19 @@ After reloading b43 by hand, run `/etc/rc.local` again.
 * No 802.11ac rates above VHT80. DFS channels are off in this build: the driver has radar detection behind
   `B43_DFS`, which needs `CFG80211_CERTIFICATION_ONUS`, and we have not tested it.
 * RX descriptor underruns: up to about 30 per hour under continuous load in our soaks, without visible effect.
+* **Software flow offloading** (Network → Firewall → Routing/NAT Offloading) does not work at the tested commit and
+  makes routing *slower*. This applies to the published image as well. OpenWrt main at r38134 pins firewall4
+  `e6f600c458`, which puts only `br-lan` and `wan` in the flowtable. Since openwrt/openwrt#25679, the kernel no
+  longer offloads a flow whose port (here `lan1`-`lan4`) is not in the flowtable. Measured on the EA6900, wired LAN
+  to WAN, upload/download: offloading off 293/336 Mbit/s, on 213/245, with firewall4 `3722eadc08` 621/738.
+  firewall4 master has the fix (openwrt/firewall4#108). Until OpenWrt main bumps it, leave software offloading
+  off, or bump firewall4 in your tree before step 5:
+  ```sh
+  sed -i 's/^PKG_SOURCE_DATE:=.*/PKG_SOURCE_DATE:=2026-11-08/
+          s/^PKG_SOURCE_VERSION:=.*/PKG_SOURCE_VERSION:=3722eadc088c3ab81389596ca9796112b436583a/
+          s/^PKG_MIRROR_HASH:=.*/PKG_MIRROR_HASH:=a95c6cfe419c7d4e22bda5608aa6e46c67dadc9c7096879702d614cc498759d0/' \
+      package/network/config/firewall4/Makefile
+  ```
 
 ## Reporting problems
 

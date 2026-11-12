@@ -80,7 +80,8 @@ wifi-scripts patch and 880 as in rc13 + one device tree patch:
 | 318 | Erik Conijn | The Linux device tree binding of the `usbport` LED trigger (`Documentation/devicetree/bindings/leds/common.yaml`, `trigger-sources`) and the USB port labels that the kernel's `bcm-ns.dtsi` already defines (`ohci_port1`, `ehci_port1`, `xhci_port1`, …). Which LED belongs to which port: the existing R6400 device tree (`function-enumerator` 1 and 2), checked with a USB stick in each port of an R6400 v1 (front: USB 3.0, LED USB 1; back: USB 2.0, LED USB 2). No vendor source |
 
 890, 891 and 893–896 are now Rosen Penev's to carry; their sources are in the rc11 table below and
-in 896's own text. 892 is not in rc15.
+in 896's own text. 892 is not in the rc15 images; since 2026-11-12 it is in [patches](patches/) again as 899,
+the same code applied after his series (sources: 892 in the rc11 table below).
 
 ## Sources per patch (rc13)
 

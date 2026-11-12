@@ -52,8 +52,11 @@ off) and 896 (only the NAPI poll walks the DMA RX ring: fixes a double free of R
 crashed an R6400 v2 with two stations under load). What each does is described in his PR, in the *Changes in* sections below and in the
 [rc13 version of this page](https://github.com/egc112/Broadcom/blob/b43-80211n-rc13/b43-80211n/README.md#what-is-in-rc13).
 
-**Gone in rc15: 892** (the `ht_txgain_idx` module parameter, see *Transmit power*). Upstream does
-not want new module parameters, so it is not in his series; it may come back in a later version.
+**892 is back as [899](patches/899-wifi-b43-HT-PHY-optional-ht-txgain-idx-module-parameter.patch)**
+(the optional `ht_txgain_idx` module parameter, see *Transmit power*), the same code, now applied
+after Rosen Penev's series instead of between his patches. It is **not in the rc15 images** (they
+were built without it) but is in [patches](patches/) for your own builds and will be in the next
+images. Upstream does not want new module parameters, so it is not in his series.
 
 897, 898, 318 and the wifi-scripts patch are by Erik Conijn and carry `Assisted-by:
 Claude:claude-opus-5-5`: they were written with the help of an AI assistant, which also ran most
@@ -94,7 +97,8 @@ work and for taking our patches in.
 ### Changes in rc15
 
 rc15 is rebased on Rosen Penev's series as of 87e30600fa (2026-11-10), which now contains our 890,
-891 and 893–896; adds 897 and 898 (up to four SSIDs) and 318 (USB LEDs); drops 892. OpenWrt base,
+891 and 893–896; adds 897 and 898 (up to four SSIDs) and 318 (USB LEDs); the rc15 images do not
+have 892 (in [patches](patches/) again as 899 since 2026-11-12). OpenWrt base,
 kernel, 880 and firmware are rc13's (r38137-a4076a8021, kernel 6.18.60, 784.2).
 
 Tests on the R6400 v2 (and v1 as a client):
@@ -370,8 +374,8 @@ uci set wireless.radio0.htmode='HT20'; uci commit wireless; wifi
 **Upgrading from rc9 to rc15:** nothing to change; the settings stay valid. The image brings
 firmware 784.2 along. A b43 module built for rc11 or rc12 does not fit rc13 or rc15 and the other
 way round (880 changes the kernel's SPROM structure): flash the image instead of copying a module.
-From rc13 to rc15: if `/etc/modules.d/b43` sets `ht_txgain_idx`, remove it (892 is gone; the kernel
-ignores it with an `unknown parameter` warning). For more SSIDs, add `wifi-iface` sections on the 2.4 GHz radio without a
+From rc13 to the rc15 images: if `/etc/modules.d/b43` sets `ht_txgain_idx`, it has no effect there
+(the images lack 892/899; the kernel ignores it with an `unknown parameter` warning). For more SSIDs, add `wifi-iface` sections on the 2.4 GHz radio without a
 `macaddr` option; a `macaddr` set by hand for a further SSID must lie in the same block of four as
 the other further SSIDs, or that SSID gets no frames (b43 logs `gets no frames: outside the BSSID
 block`).
@@ -448,12 +452,12 @@ gone. 802.11n, two streams, aggregation and the short guard interval are always 
 (802.11b) reception is off only when the network uses no 802.11b rates (the OpenWrt default)
 and stays on while scanning.
 
-These patches add no b43 parameter (rc13's `ht_txgain_idx`, patch 892, is gone, see *Transmit
-power*). The standard b43 parameters (`qos`, `nohwcrypt`, `hwtkip`, `btcoex`, `hwpctl`, `verbose`,
+The only b43 parameter these patches add is `ht_txgain_idx` (patch 899, in rc13 as 892; not in the
+rc15 images), see *Transmit power*. The standard b43 parameters (`qos`, `nohwcrypt`, `hwtkip`, `btcoex`, `hwpctl`, `verbose`,
 `pio`, `gpiomask`, `bad_frames_preempt`, `allhwsupport`, `fwpostfix`) are unchanged.
 
 Set parameters on one line in `/etc/modules.d/b43` and reboot (OpenWrt reads this file only at
-boot), e.g. `echo "b43 verbose=3" > /etc/modules.d/b43`. Check the values in use with
+boot), e.g. `echo "b43 ht_txgain_idx=30" > /etc/modules.d/b43`. Check the values in use with
 `grep . /sys/module/b43/parameters/*`.
 
 ## Transmit power
@@ -464,9 +468,16 @@ the hardware power control loop, which drove the external amplifiers into distor
 SPROM board flags (Rosen Penev's 830, based on our rc8 patch 824). A higher index is less
 power.
 
-rc13's `ht_txgain_idx` (patch 892) could override that choice; rc15 does not have it, because
-upstream does not want new module parameters and Rosen Penev's series has none. It may come back
-in a later version. Until then rc15 always uses the automatic index.
+`ht_txgain_idx` (patch 899, in rc13 as 892) overrides that choice: 0–127 selects the index, -1 the
+power control loop, -2 (the default) the automatic choice. It can be written live in
+`/sys/module/b43/parameters/ht_txgain_idx` and takes effect at the next `wifi`. Stay at or
+above the automatic index: a lower one gives more power than the board was measured with.
+Leave it at -2 unless you have a reason, such as less power at close range (e.g. 30 on the v1:
+about 3 dB weaker at a nearby client, with the same download speed).
+
+**The rc15 images do not have it**: there the automatic index is always used. Build with 899 (see
+*Building*) or wait for the next images. Upstream does not want new module parameters and Rosen
+Penev's series has none, so 899 stays in this repository only.
 
 ## Reporting problems
 
@@ -475,6 +486,7 @@ Please include:
 ```sh
 logread | grep -iE "b43|ieee80211" | tail -100
 iw dev <wifi interface> station dump
+cat /sys/module/b43/parameters/ht_txgain_idx 2>/dev/null
 ```
 
 and what the clients were doing (download/upload, which device, which channel). With
@@ -489,8 +501,8 @@ frames: most of those get through when they are sent again.
 ## Known limitations
 
 * 20 MHz only (no 40 MHz). The R6400's BCM4331 is 2.4 GHz only.
-* The transmit power setting of LuCI and `iw` does not lower the fixed gain on the R6400, and rc15
-  has no other way to do it (see *Transmit power*).
+* The transmit power setting of LuCI and `iw` does not lower the fixed gain on the R6400; use
+  `ht_txgain_idx` (patch 899, not in the rc15 images; see *Transmit power*).
 * Several SSIDs: one channel and one beacon interval for all; the further SSIDs' beacons go out on
   the voice queue; their broadcast and multicast frames are encrypted in software; the block acks
   carry the first SSID's address (receive aggregation on a further SSID was only tested with an

@@ -27,8 +27,8 @@ routing and NAT is done by the CPU, and a dual-core 800 MHz–1.4 GHz ARM cannot
 | IPv4 routing without NAT | **yes** (found in this research; Broadcom's driver never used it) |
 | Wired ports only (LAN ports and WAN port of the built-in switch) | yes |
 | Wi-Fi clients | no: the radios are not behind the switch (their traffic stays in software, fast path) |
-| IPv6 | not yet: the hardware has IPv6 entries, the layout still has to be worked out |
-| WAN with a VLAN tag (some ISPs) | not yet: planned |
+| IPv6 | not yet: the table layout and hash are now found and the FA routes IPv6 in tests; the driver part is next |
+| WAN with a VLAN tag (some ISPs) | **yes** (802.1Q tag on the WAN port; tested with VLAN 10) |
 | PPPoE | no: the FA has no field for it |
 | Byte counters | no: the FA counts packets only, so traffic statistics per connection are too low |
 
@@ -94,9 +94,14 @@ side, upload and download (Mbit/s):
 | same with 128 connections at once | 937 | | 0 % |
 | port forward (DNAT), internet → LAN / LAN → internet | 949 | 926 | 0 % |
 | routing without NAT | 943 | | 0 % |
+| WAN with a VLAN tag (VLAN 10) | 938 | 935 | 1–2 % |
 
 941 Mbit/s is the most a gigabit link can carry with TCP, so the FA is not the limit. DD-WRT with Broadcom's
 own driver reaches the same (950/949) on these routers.
+
+Upload and download at full speed **at the same time** give about 1130 Mbit/s in total, not 2 × 941: every
+routed packet crosses the link between the switch and the CPU/FA (switch port 8, 1 Gbit/s) twice, once in and
+once out, so that link carries both directions together. The same limit applies without the FA.
 
 ¹ fw4's "software flow offloading" with firewall4 3722eadc08 or newer, in OpenWrt main since 2026-11-12
 (dab12e7663). Older snapshots have a firewall4 bug that makes software offloading *slower* (213/245) on these
@@ -115,14 +120,26 @@ Working in the prototype, measured on the EA6900:
   connection tracking does not keep them around for two hours.
 - No flooding of offloaded packets to other ports.
 - TTL is decremented on offloaded packets.
+- WAN with a VLAN tag (802.1Q, as some ISPs need): both directions offloaded. The switch's VLAN table needs the
+  FA's output port as a member, which the module adds while a connection uses it and removes afterwards.
+- Packets with TTL (IPv6: hop limit) 0 or 1 never reach the FA: a switch rule hands them to the CPU, so the
+  router answers with "time exceeded" as it should (traceroute and mtr show the router), instead of the FA
+  dropping them silently (IPv4) or passing them on with hop limit 0 (IPv6). On by default; see *Settings*.
 - 2-hour soak test with full load in both directions, port forwards and DNS churn at the same time: no errors,
   69,070 hardware entries added and all removed again, connection tracking back to normal afterwards, CPU mostly
   0–8 %. The same load without the FA (software offloading): one core full, ping loss 8.3 % instead of
   0.8 %, average ping 10.7 ms instead of 1.2 ms, DNS timeouts 3.4 % instead of 0.14 %.
+- The same 2-hour soak over a VLAN-tagged WAN: equally clean (68,588 entries added and removed, CPU 0–9 %,
+  ping loss 0.66 %).
+- Pulling the WAN cable: after a short outage new connections go straight back to the FA; after a long one the
+  switch-over script falls back to the normal (software) path, and the network keeps working.
 
-Still to do before a real driver: IPv6, VLAN on the WAN port, and the other routers (the R6400 first needs
-openwrt/openwrt#25131). Then the proper OpenWrt patch: the FA code in the Ethernet driver (bgmac), active
-from boot instead of a switch-over script, and the two kernel changes cleaned up for upstream.
+Still to do before a real driver: IPv6 in the module (the hardware part is found, see test 8), and the other
+routers (the R6400 first needs openwrt/openwrt#25131). Then the proper OpenWrt patch: the FA code in the
+Ethernet driver (bgmac), active from boot instead of a switch-over script, the two kernel changes cleaned up for
+upstream, the VLAN table handled by the switch driver (b53) instead of the module, and offloading only while the
+FA path is actually active (after a fallback the prototype still adds entries, which does no harm but is
+pointless).
 
 ## Details (for the technically minded)
 
@@ -154,17 +171,40 @@ interface the MediaTek PPE uses): the firewall decides what is offloaded, the mo
 | 4 | **DNAT (port forward)** | WAN → LAN 927/949, LAN → WAN 949/926 Mbit/s, 0 retransmits, **0 % CPU**. Software: 729/746 and 617/602 Mbit/s with one core full. |
 | 5 | **Retransmits at flow start** | 0 in 20 of 20 runs, including each first second. |
 | — | **UDP** | Offloaded in all runs. The UDP upload loss in our setup (16 % at 900 Mbit/s) is the same in software, so it comes from the test setup, not the FA. |
-| 6 | **VLAN on the WAN port** | Not done yet (needs a tagged uplink). The FA has a tag field for it. |
+| 6 | **VLAN on the WAN port** | **Works.** Download (tag removed by the FA) worked at once: 931 Mbit/s. Upload (tag added by the FA) first failed: the switch dropped the FA's tagged output, because Linux's b53 switch driver only writes VLAN table entries when VLAN filtering is on, so VLAN 10 had no member ports. Fix: the module adds the WAN port and the FA port as tagged members while a connection uses the VLAN, and restores the entry afterwards. Then 938 up / 935 down at 1–2 % CPU (941/941 without VLAN); FIN/RST copies are recognised with the tag; 2-hour soak clean; UDP, a full table, firewall reloads, unloading under traffic, routing without NAT (TTL lowered) and WAN cable pulls all tested. |
 | 7 | **Routing without NAT** (action 0) | **Works** (Broadcom never used it): 943 Mbit/s at 0 % CPU, software 713. **TTL decremented** on every offloaded packet (508k packets arrived with TTL 63, none with 64). The retransmits seen in one direction were located *upstream* of the router by counting frames per hop: the router passes every frame on; TCP's normal probing loss just moves to the next bottleneck. |
-| 8 | **IPv6** | Not done yet. A v6 entry uses two table slots; Broadcom's public code does not give the layout, so it has to be found on the hardware. |
+| 8 | **IPv6** | In progress. Found on the hardware (Broadcom's public code never adds IPv6 entries): the FA's hash is the IPv4 one with the full 128-bit addresses (68 of 68 flows matched); an IPv6 flow takes **two** table slots, which must start at slot 0 or 2 of a hash row; the layout was confirmed field by field (flipping any one bit stops the hits). The FA routes IPv6 correctly in tests (30/30 packets, hop limit lowered). Next: IPv6 in the module itself. |
 | 9 | **TCP FIN/RST** (conntrack) | Problem: closed offloaded connections stayed ESTABLISHED in conntrack for ~2 h (429 leftovers after 4 test runs), because the FA forwards the FIN/RST itself. Fix, as in Broadcom's driver: a switch (CFP) rule copies FIN/RST from the LAN/WAN ports to the spare port 5; the module marks the flow as closing. Closed connections now leave conntrack within 45 s; 0 lost copies; throughput unchanged. |
+| 10 | **TTL / hop limit 1** | Problem: for an offloaded connection the FA **drops** IPv4 packets with TTL 1 without telling anyone (no ICMP "time exceeded"), and **forwards** IPv6 packets with hop limit 1 with hop limit 0, which a router must never do. Linux's own software offloading hands such packets back to the normal path. Fix: the switch can classify the TTL (we measured its four classes: 0, 1, 2–254, 255), so one switch rule sends TTL/hop limit 0–1 to the spare port 5 instead of the FA; port 5 carries the Broadcom tag, so the module knows the incoming port and gives the packet to Linux as if it came in there. Tested: Linux answers with "time exceeded" for IPv4 and IPv6, from the LAN and from the WAN side, also inside connections the FA already handles; a 41,000 packets/s flood of such packets lost none (and the router stayed more responsive than without the rule: ping 2 ms instead of 18 ms); throughput unchanged (941 Mbit/s); can be switched on and off while traffic runs; a 1-hour soak (60 rounds of full-speed traffic, each with these checks from the LAN and the WAN side) had no failure. |
+
+### Settings
+
+The prototype module has one setting meant for users (it will become an option of the real driver):
+
+| Setting | Default | What it does |
+|---|---|---|
+| `ttl_trap` | on | Sends packets with TTL / hop limit 0 or 1 past the FA to Linux (see test 10). Switch it off only to compare with the bare hardware behaviour. |
+
+Set it when the module loads (`insmod bcmfa ttl_trap=0`, or the line `bcmfa ttl_trap=0` in a file in
+`/etc/modules.d/`), or change it while the router runs; it takes effect at once:
+
+```sh
+cat /sys/module/bcmfa/parameters/ttl_trap        # Y = on, N = off
+echo 0 > /sys/module/bcmfa/parameters/ttl_trap   # off
+echo 1 > /sys/module/bcmfa/parameters/ttl_trap   # on
+```
 
 ### Limits of the hardware
 
 - **No PPPoE**: the FA entry has no field for it (Broadcom: "currently not supported for PPP").
 - **No byte counters**: an entry has a hit (packet) counter and a 3-bit timestamp only. Offloaded connections
   stay alive in conntrack through the packet counter, but their byte counts are too low.
-- **1024 entries** (two per connection, one per direction); IPv6 entries will need two slots each.
+- **Port 8 is 1 Gbit/s**: routed traffic crosses it twice, so both directions together top out at about
+  1130 Mbit/s (see *What does it give?*).
+- **1024 entries** (two per connection, one per direction); an IPv6 entry takes two slots, so a hash row holds
+  at most two IPv6 directions, or one IPv6 and two IPv4.
+- **No check for TTL / hop limit 1** of its own that Linux can live with (IPv4: silent drop; IPv6: forwarded with
+  hop limit 0); the switch rule above covers it.
 
 ## Sources
 

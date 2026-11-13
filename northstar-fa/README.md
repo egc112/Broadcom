@@ -98,8 +98,9 @@ side, upload and download (Mbit/s):
 941 Mbit/s is the most a gigabit link can carry with TCP, so the FA is not the limit. DD-WRT with Broadcom's
 own driver reaches the same (950/949) on these routers.
 
-¹ fw4's "software flow offloading" with firewall4 3722eadc08 or newer. Older snapshots have a firewall4 bug
-that makes software offloading *slower* (213/245) on these routers; see the note in the
+¹ fw4's "software flow offloading" with firewall4 3722eadc08 or newer, in OpenWrt main since 2026-11-12
+(dab12e7663). Older snapshots have a firewall4 bug that makes software offloading *slower* (213/245) on these
+routers; see the note in the
 [EA6900 build kit README](../linksys-ea6900/build-kit/README.md) (*Known limitations*).
 
 ## Status

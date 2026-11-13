@@ -182,8 +182,9 @@ After reloading b43 by hand, run `/etc/rc.local` again.
   `e6f600c458`, which puts only `br-lan` and `wan` in the flowtable. Since openwrt/openwrt#25679, the kernel no
   longer offloads a flow whose port (here `lan1`-`lan4`) is not in the flowtable. Measured on the EA6900, wired LAN
   to WAN, upload/download: offloading off 293/336 Mbit/s, on 213/245, with firewall4 `3722eadc08` 621/738.
-  firewall4 master has the fix (openwrt/firewall4#108). Until OpenWrt main bumps it, leave software offloading
-  off, or bump firewall4 in your tree before step 5:
+  firewall4 has the fix (openwrt/firewall4#108), and OpenWrt main has it since commit dab12e7663 (2026-11-12,
+  "firewall4: update to Git HEAD (2026-11-08)"). The kit's commit `5c5a157852` is older: leave software offloading
+  off, or bump firewall4 in your tree before step 5 (not needed when you build from main at dab12e7663 or later):
   ```sh
   sed -i 's/^PKG_SOURCE_DATE:=.*/PKG_SOURCE_DATE:=2026-11-08/
           s/^PKG_SOURCE_VERSION:=.*/PKG_SOURCE_VERSION:=3722eadc088c3ab81389596ca9796112b436583a/

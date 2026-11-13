@@ -36,6 +36,7 @@ It is a factual record, not legal advice. Questions or corrections: please open 
 | Linux nftables flowtable (`nf_flow_table`) | GPL-2.0 | the offload interface the prototype implements (`TC_SETUP_FT`) |
 | Linux `mtk_ppe_offload.c` (MediaTek PPE) | GPL-2.0 | pattern for parsing a flowtable rule into a hardware entry; no code copied |
 | Linux `bcm_sf2_cfp.c`, `bcm_sf2_regs.h`, `b53_regs.h` | GPL-2.0 | switch CFP field and action names (TTL range, redirect), the port-5 Broadcom tag enable bit |
+| Linux `nf_tables_api.c`, `nf_flow_table_core.c`, `net/core/dev.c` | GPL-2.0 | read to understand the order of flowtable unbind and teardown, and the VLAN untagging after a re-injected frame; no code copied |
 
 ## How the information was obtained
 
@@ -58,19 +59,28 @@ Some results go **beyond** what Broadcom's code does, and come from experiments 
   (`fa_napt_add()`). That the switch drops the FA's tagged output unless the VLAN table lists the ports as
   members, and that Linux's b53 driver leaves that entry empty for a VLAN on a standalone port, was found by
   experiment (switch discard counters, VLAN table read-back) and by reading the b53 source (`b53_vlan_add()`).
-* **IPv6** (in progress): Broadcom's driver never adds IPv6 entries; its dump code only shows that they use two
+* **IPv6**: Broadcom's driver never adds IPv6 entries; its dump code only shows that they use two
   table slots and which word holds the valid bit (`_fa_napt_del()`). The rest was found by experiment on the
   EA6900: the hash (Broadcom's IPv4 CRC-CCITT input with 128-bit addresses, matched against the FA's own flow ids
   for 68 of 68 flows), the field layout of both slots (candidate entries written until the FA's hit counter moved,
   then each field confirmed by flipping single bits: every flip stopped the hits), the rule that a pair starts at
   slot 0 or 2 of a hash row, and that the FA routes IPv6 with the hop limit lowered (packets counted at a
-  receiver).
+  receiver). The module's IPv6 code (placing the slot pairs, the order of writing and clearing them) is new;
+  it was checked by computing the hash and the slot contents on a PC and comparing them word by word with the
+  entries that the FA had accepted, and then by the hit counter of every entry in a full table.
 * **TTL / hop limit 1**: that the FA drops IPv4 TTL 1 silently and forwards IPv6 hop limit 1 as 0 was measured
   (packets counted at the receiver and on the router). The fix uses the switch's CFP "TTL range" field, which the
   Linux `bcm_sf2_cfp.c` driver and Broadcom's `bcmrobo.c` name but do not explain; its four values (TTL 0, 1,
   2–254, 255) were measured with copy rules and counters. The redirect action value and the port-5 Broadcom tag
   come from the Linux kernel (`bcm_sf2_regs.h`, `b53_regs.h`, `tag_brcm`); the tag's port field was checked on
   captured frames.
+* **Firewall reload**: that Linux disconnects a flowtable from its driver before it removes the flowtable's
+  connections was measured (the entries kept their hit counters rising) and then read in the kernel source
+  (`nf_tables_api.c`: the flowtable is unregistered at commit, `nf_flow_table_free()` runs later). The fix is new
+  code.
+* **VLAN-tagged packets on port 5**: that the switch's TTL rule also catches tagged frames was measured; handing
+  the frame to Linux with its tag kept relies on the kernel's receive loop untagging it again (`net/core/dev.c`,
+  read in the source).
 * **Hooking the FA into Linux's flowtable offload**, the DSA tag handling and the switch FDB handling are new
   code for Linux; Broadcom's driver works differently (its own CTF layer).
 

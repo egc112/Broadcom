@@ -180,6 +180,32 @@ Working in the prototype, measured on the EA6900:
 - Pulling the WAN cable: after a short outage new connections go straight back to the FA; after a long one the
   switch-over script falls back to the normal (software) path, and the network keeps working.
 
+### The OpenWrt driver (in progress, 2026-11-14)
+
+The prototype is being rewritten as proper kernel patches for OpenWrt's bcm53xx target (Linux 6.18): the FA
+code in the Ethernet driver (bgmac), the switch rules in the switch driver (b53). No module and no switch-over
+script any more: it is active from boot when the board's device tree asks for the FA tag. Measured on the
+EA6900 with test images:
+
+| Part | State | Result |
+|---|---|---|
+| FA set-up, following the tagger | tested | switches cleanly between the two tag formats |
+| IPv4 TCP/UDP offload (routing, NAT, port forwards) | tested | 941 / 941 Mbit/s, router 95–99 % idle; 30 firewall reloads clean |
+| TTL 0/1 handed to the CPU ("time exceeded" works) | tested | 4 of 5 answered (ICMP rate limit); without the rule: none |
+| TCP FIN/RST handed to the CPU | tested | hardware entry gone within 1 s, instead of after ~30 s |
+| LAN-to-LAN traffic with the rules on | tested | TTL-1 pings and TCP closes between two LAN ports work |
+| IPv6 TCP/UDP offload (routed) | tested | 928 / 928 Mbit/s (software path: 629), router 95–100 % idle |
+| VLAN-tagged WAN | written, not built or tested yet | — |
+
+How the rules reach the CPU: the switch redirects those frames to its port 5, which is wired to a second
+Ethernet interface of the SoC (eth0) and does not pass the FA. The driver brings eth0 up by itself. If eth0 is
+down, IPv4 offload continues without the rules, and IPv6 connections leave the hardware within a second and
+continue in software (the FA would otherwise forward hop limit 1 as 0).
+
+Still to do: test the VLAN WAN, byte counters (the FA only counts packets), the device trees of the other
+routers, IPv6 UDP / full-table / reload re-tests in the new driver, and the pull request. The patches build on
+two OpenWrt patches by Rosen Penev (a second CPU port for b53, openwrt/openwrt#26005).
+
 Next: the proper OpenWrt driver, in OpenWrt's bcm53xx target: the FA code in the Ethernet driver (bgmac), active
 from boot instead of a switch-over script, the two kernel changes cleaned up, the switch rules and the VLAN table
 handled through the switch driver (b53) instead of behind its back, a clean way to mark closing connections, and

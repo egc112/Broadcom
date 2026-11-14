@@ -129,6 +129,22 @@ Measured 2026-11-14 on the EA6900 (no offloading): after a run-time change of th
 switched GSO and GRO off on `wan` and `lan1` ("off [requested on]"), and the router did 275/336 Mbit/s instead of
 366/433. Switching them back on restored 366/433. After a normal boot they were on.
 
+### Boot message "bcma0:6 … failed with error -524": harmless
+
+Every Northstar router on stock OpenWrt (with or without the FA work) shows at boot:
+
+```
+bgmac_bcma bcma0:6: Unsupported core_unit 3
+bgmac_bcma bcma0:6: probe with driver bgmac_bcma failed with error -524
+```
+
+The SoC has four Ethernet MAC cores (GMAC0-3), and the bus driver offers all four to the Ethernet driver
+(`bgmac_bcma`). GMAC3 is not wired to a switch port: it is the core whose register space holds the FA. The driver
+looks for a MAC address for it (device tree, then the `et0macaddr`-`et2macaddr` NVRAM entries, which exist for
+GMAC0-2 only), finds none and gives up with `ENOTSUPP`, a kernel-internal error number (524) that has no name in
+user space. Nothing is lost: there is no port behind GMAC3, and the FA driver uses its registers without binding
+to it. Measured on the EA6900: the same message with and without the FA patches.
+
 ## Status
 
 Working in the prototype, measured on the EA6900:

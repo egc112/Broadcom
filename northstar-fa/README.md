@@ -113,6 +113,22 @@ once out, so that link carries both directions together. The same limit applies 
 routers; see the note in the
 [EA6900 build kit README](../linksys-ea6900/build-kit/README.md) (*Known limitations*).
 
+### Slower than expected? Check GSO and GRO first
+
+GSO and GRO (segmentation and receive offload in the kernel) on the switch ports make a large difference for
+everything the CPU forwards: no offloading, software offloading, and whatever the FA does not take. Which setting
+is fastest is not always the same (sometimes on, sometimes off), so with an unexpectedly slow result, check them
+before anything else and try both:
+
+```sh
+ethtool -k wan | grep -E '^generic-(segmentation|receive)-offload'   # "off [requested on]" = switched off by the kernel
+for p in wan lan1 lan2 lan3 lan4; do ethtool -K $p gso on gro on; done   # or: gso off gro off
+```
+
+Measured 2026-11-14 on the EA6900 (no offloading): after a run-time change of the switch tagging, the kernel had
+switched GSO and GRO off on `wan` and `lan1` ("off [requested on]"), and the router did 275/336 Mbit/s instead of
+366/433. Switching them back on restored 366/433. After a normal boot they were on.
+
 ## Status
 
 Working in the prototype, measured on the EA6900:

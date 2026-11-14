@@ -9,9 +9,10 @@ It is a factual record, not legal advice. Questions or corrections: please open 
 
 ## Summary
 
-* Nothing has been published as code yet. The prototype (a loadable kernel module and two small kernel
-  changes) exists only on our test router, as a test bed. The [README](README.md) describes what it does and what
-  we measured.
+* The OpenWrt driver patches are published in [patches/](patches/) (2026-11-14, work in progress). The file
+  with code ported from Broadcom's `et` driver (`bgmac-fa.c`) carries Broadcom's copyright notice and the ISC
+  permission text; each commit message names its sources and measurements. The earlier prototype (a loadable
+  module) was never published.
 * Everything is based on:
   * **open source code**: Broadcom's `et` Ethernet driver as Broadcom published it under the ISC license, and
     the Linux kernel (GPL-2.0);
@@ -89,8 +90,8 @@ Some results go **beyond** what Broadcom's code does, and come from experiments 
 What a published driver must do, so the provenance stays clean:
 
 * **Keep Broadcom's notice** in every file that contains code ported from `etc_fa.c` / `fa_core.h` /
-  `bcmrobo.c`: the copyright line and the ISC permission text, as `brcmsmac` does in the kernel. The private
-  prototype does not carry it yet (it is not published); the first published version will.
+  `bcmrobo.c`: the copyright line and the ISC permission text, as `brcmsmac` does in the kernel. The published
+  patches do (`drivers/net/ethernet/broadcom/bgmac-fa.c`, patch 723).
 * **Write new code where Linux has its own way**: the flowtable glue, DSA tagging and switch handling are written
   for Linux, not ported. Where the kernel already has an equivalent (for example its CRC-CCITT library), use it if
   it gives the same result as Broadcom's function.

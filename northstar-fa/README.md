@@ -195,16 +195,17 @@ EA6900 with test images:
 | TCP FIN/RST handed to the CPU | tested | hardware entry gone within 1 s, instead of after ~30 s |
 | LAN-to-LAN traffic with the rules on | tested | TTL-1 pings and TCP closes between two LAN ports work |
 | IPv6 TCP/UDP offload (routed) | tested | 928 / 928 Mbit/s (software path: 629), router 95–100 % idle |
-| VLAN-tagged WAN | written, not built or tested yet | — |
+| VLAN-tagged WAN (802.1Q, e.g. `wan.10`) | tested | IPv4 939 / 935, IPv6 925 / 920 Mbit/s, router 99–100 % idle; traps also catch TTL-1 frames arriving tagged from the WAN |
 
 How the rules reach the CPU: the switch redirects those frames to its port 5, which is wired to a second
 Ethernet interface of the SoC (eth0) and does not pass the FA. The driver brings eth0 up by itself. If eth0 is
 down, IPv4 offload continues without the rules, and IPv6 connections leave the hardware within a second and
 continue in software (the FA would otherwise forward hop limit 1 as 0).
 
-Still to do: test the VLAN WAN, byte counters (the FA only counts packets), the device trees of the other
-routers, IPv6 UDP / full-table / reload re-tests in the new driver, and the pull request. The patches build on
-two OpenWrt patches by Rosen Penev (a second CPU port for b53, openwrt/openwrt#26005).
+The patches are in [patches/](patches/) (328, 329, 721–731). Still to do: byte counters (the FA only counts
+packets), the device trees of the other routers, IPv6 UDP / full-table / reload re-tests in the new driver, and
+the pull request. The patches build on two OpenWrt patches by Rosen Penev (a second CPU port for b53,
+openwrt/openwrt#26005), already in OpenWrt.
 
 Next: the proper OpenWrt driver, in OpenWrt's bcm53xx target: the FA code in the Ethernet driver (bgmac), active
 from boot instead of a switch-over script, the two kernel changes cleaned up, the switch rules and the VLAN table

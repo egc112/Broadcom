@@ -196,22 +196,25 @@ EA6900 with test images:
 | LAN-to-LAN traffic with the rules on | tested | TTL-1 pings and TCP closes between two LAN ports work |
 | IPv6 TCP/UDP offload (routed) | tested | 928 / 928 Mbit/s (software path: 629), router 95–100 % idle |
 | VLAN-tagged WAN (802.1Q, e.g. `wan.10`) | tested | IPv4 939 / 935, IPv6 925 / 920 Mbit/s, router 99–100 % idle; traps also catch TTL-1 frames arriving tagged from the WAN |
+| Byte counters | decided: packets only | the FA counts packets per entry, not bytes; offloaded connections show correct packet counts but too few bytes (as with offloading on other routers) |
+| Soak tests, no VLAN | tested | 4 hours (374 rounds) + 2 hours (170 rounds) of IPv4, IPv6 and mixed traffic at full speed, TTL / hop-limit-1 checks from LAN and WAN (also inside offloaded connections), a firewall reload every 10th round, DNS churn: 0 kernel warnings, the table empty afterwards |
 
 How the rules reach the CPU: the switch redirects those frames to its port 5, which is wired to a second
 Ethernet interface of the SoC (eth0) and does not pass the FA. The driver brings eth0 up by itself. If eth0 is
 down, IPv4 offload continues without the rules, and IPv6 connections leave the hardware within a second and
 continue in software (the FA would otherwise forward hop limit 1 as 0).
 
-The patches are in [patches/](patches/) (328, 329, 721–731). Still to do: byte counters (the FA only counts
-packets), the device trees of the other routers, IPv6 UDP / full-table / reload re-tests in the new driver, and
-the pull request. The patches build on two OpenWrt patches by Rosen Penev (a second CPU port for b53,
-openwrt/openwrt#26005), already in OpenWrt.
+The patches are in [patches/](patches/) (328, 329, 721–731). The first soak found that the driver slept while
+waiting for each table access, under the lock that every flow addition takes: with about 250 flows the load
+average rose to 15 while the CPU was idle. 724 now busy-waits for those few microseconds, as Broadcom's own
+driver does; the second soak ran with that fix.
 
-Next: the proper OpenWrt driver, in OpenWrt's bcm53xx target: the FA code in the Ethernet driver (bgmac), active
-from boot instead of a switch-over script, the two kernel changes cleaned up, the switch rules and the VLAN table
-handled through the switch driver (b53) instead of behind its back, a clean way to mark closing connections, and
-offloading only while the FA path is actually active. Then the other routers (the R6400 first needs
-openwrt/openwrt#25131).
+Still to do: the device trees of the other routers (they need openwrt/openwrt#25131 first), IPv6 UDP /
+full-table / reload re-tests in the new driver, and the pull request, which depends on the EA6900 support in
+openwrt/openwrt#26316. Later, to research: PPPoE, NAT66, and a hybrid mode for Wi-Fi and PPPoE in which the FA
+does the lookup and the NAT and the CPU forwards the packet (an idea from the
+[forum thread](https://forum.openwrt.org/t/northstar-bcm4708-4709-fa-hardware-offload-how-should-tcp-fin-rst-reach-the-flowtable/255472)). The patches build on two OpenWrt patches by Rosen Penev (a second CPU port for b53,
+openwrt/openwrt#26005), already in OpenWrt.
 
 ## Details (for the technically minded)
 

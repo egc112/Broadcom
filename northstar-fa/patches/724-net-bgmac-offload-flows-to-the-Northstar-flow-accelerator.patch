@@ -1,5 +1,5 @@
 From: Erik Conijn <egc112@msn.com>
-Date: Sat, 14 Nov 2026 12:39:38 +0100
+Date: Sat, 14 Nov 2026 16:51:38 +0100
 Subject: [PATCH] net: bgmac: offload flows to the Northstar flow accelerator
 
 With the flow accelerator in the path (previous patch), let it forward
@@ -37,6 +37,11 @@ Three details found on the hardware:
 
 The tables are initialised on every open, so stop drops all flows; the
 flowtable then offloads the connections again from software.
+
+A table access busy-waits for the hardware, as etc_fa.c does: it takes
+microseconds. Sleeping there, under the lock that every add, removal
+and counter read takes, made the flowtable's workers queue up: with
+about 250 flows the load average reached 15 while the CPU was idle.
 
 The FA counts hits per entry but not bytes: the flowtable gets packet
 counts and the last-used time.
@@ -242,7 +247,7 @@ Signed-off-by: Erik Conijn <egc112@msn.com>
  };
  
  static u32 fa_read(struct bgmac *bgmac, u16 reg)
-@@ -169,6 +278,766 @@
+@@ -169,6 +278,767 @@
  	return 0;
  }
  
@@ -300,8 +305,9 @@ Signed-off-by: Erik Conijn <egc112@msn.com>
 +	u32 val;
 +	int err;
 +
-+	err = read_poll_timeout(fa_read, val, !(val & FA_DBG_MEM_ACC_BUSY),
-+				1, 10000, false, bgmac, FA_DBG_STATUS);
++	err = read_poll_timeout_atomic(fa_read, val,
++				       !(val & FA_DBG_MEM_ACC_BUSY),
++				       1, 10000, false, bgmac, FA_DBG_STATUS);
 +	if (err)
 +		dev_err(bgmac->dev, "flow accelerator: table access timed out\n");
 +	return err;
@@ -1009,7 +1015,7 @@ Signed-off-by: Erik Conijn <egc112@msn.com>
  static bool bgmac_fa_wanted(struct bgmac *bgmac)
  {
  #if IS_ENABLED(CONFIG_NET_DSA)
-@@ -183,38 +1052,59 @@
+@@ -183,38 +1053,59 @@
  
  static int bgmac_fa_open(struct bgmac *bgmac)
  {
@@ -1074,7 +1080,7 @@ Signed-off-by: Erik Conijn <egc112@msn.com>
  	struct bcma_device *gmac3;
  	struct bgmac_fa *fa;
  
-@@ -227,8 +1117,15 @@
+@@ -227,8 +1118,15 @@
  		return;
  
  	fa->core = gmac3;

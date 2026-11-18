@@ -111,7 +111,7 @@ once out, so that link carries both directions together. The same limit applies 
 ¹ fw4's "software flow offloading" with firewall4 3722eadc08 or newer, in OpenWrt main since 2026-11-12
 (dab12e7663). Older snapshots have a firewall4 bug that makes software offloading *slower* (213/245) on these
 routers; see the note in the
-[EA6900 build kit README](../linksys-ea6900/build-kit/README.md) (*Known limitations*).
+[EA6900 build kit README](https://github.com/egc112/Broadcom/blob/d07f0a7/linksys-ea6900/build-kit/README.md) (*Known limitations*; that kit is replaced by [b43-next-build-kit](../b43-next-build-kit/), which is based on a main with the fix).
 
 ### Slower than expected? Check GSO and GRO first
 

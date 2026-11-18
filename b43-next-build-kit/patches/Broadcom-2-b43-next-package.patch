@@ -1,0 +1,531 @@
+diff --git a/include/package-pack.mk b/include/package-pack.mk
+index 399b06be42..01518cc105 100644
+--- a/include/package-pack.mk
++++ b/include/package-pack.mk
+@@ -621,7 +621,7 @@ else
+ 	  $$(if $$(Package/$(1)/PROVIDES),--info "provides:$$(Package/$(1)/PROVIDES)") \
+ 	  $$(if $$(Package/$(1)/PRIORITY),--info "provider-priority:$$(Package/$(1)/PRIORITY)") \
+ 	  $$(APK_SCRIPTS_$(1)) \
+-	  --info "depends:$$(foreach depends,$$(subst $$(comma),$$(space),$$(subst $$(space),,$$(subst $$(paren_right),,$$(subst $$(paren_left),,$$(Package/$(1)/DEPENDS))))),$$(depends))" \
++	  --info "depends:$$(strip $$(foreach depends,$$(subst $$(comma),$$(space),$$(subst $$(space),,$$(subst $$(paren_right),,$$(subst $$(paren_left),,$$(Package/$(1)/DEPENDS))))),$$(depends)) $(foreach conflict,$(CONFLICTS),!$(conflict)))" \
+ 	  --files "$$(IDIR_$(1))" \
+ 	  $(if $(CONFIG_SIGN_EACH_PACKAGE),--sign $(BUILD_KEY_APK_SEC),) \
+ 	  --output "$$(PACK_$(1))"
+diff --git a/package/kernel/b43-next/Makefile b/package/kernel/b43-next/Makefile
+new file mode 100644
+index 0000000000..96ab347c49
+--- /dev/null
++++ b/package/kernel/b43-next/Makefile
+@@ -0,0 +1,98 @@
++include $(TOPDIR)/rules.mk
++
++PKG_NAME:=b43-next
++PKG_RELEASE:=1
++
++PKG_SOURCE_PROTO:=git
++PKG_SOURCE_URL:=https://github.com/aleferri/b43-next.git
++PKG_SOURCE_DATE:=2026-11-17
++PKG_SOURCE_VERSION:=51b501e30e4b6ac1f5d832058673da2e1f70284b
++PKG_MIRROR_HASH:=b66c743bac561552bd8db4cc17b0346242746db6786207a57682e6c31effb954
++
++PKG_LICENSE:=GPL-2.0-only
++PKG_LICENSE_FILES:=LICENSE
++PKG_MAINTAINER:=Ville Takio <ville+git@takio.fi>
++PKG_BUILD_PARALLEL:=1
++
++PKG_CONFIG_DEPENDS:=CONFIG_B43_NEXT_DFS
++
++STAMP_CONFIGURED_DEPENDS := $(STAGING_DIR)/usr/include/mac80211-backport/backport/autoconf.h
++
++include $(INCLUDE_DIR)/kernel.mk
++include $(INCLUDE_DIR)/package.mk
++
++define KernelPackage/b43-next
++  SUBMENU:=Wireless Drivers
++  TITLE:=Broadcom 43xx wireless support, out of tree (b43-next)
++  URL:=https://github.com/aleferri/b43-next
++  KCONFIG:=CONFIG_HW_RANDOM=y
++  DEPENDS:=@PCI_SUPPORT +kmod-mac80211 +kmod-lib-cordic +@DRIVER_11AC_SUPPORT \
++	+@KERNEL_PAGE_POOL +b43-firmware @!TARGET_uml
++  CONFLICTS:=kmod-b43
++  FILES:=$(PKG_BUILD_DIR)/b43-next.ko
++  AUTOLOAD:=$(call AutoProbe,b43-next)
++  MENU:=1
++endef
++
++define KernelPackage/b43-next/description
++ b43 with its own copies of the ssb and bcma buses, in one module that
++ loads next to the kernel's ssb and bcma, with the AC-PHY of the BCM4352
++ and BCM4360 and the 802.11n work of b43-next. It drives the PCIe cards
++ b43 drives; at boot, /etc/init.d/b43-next hands them from the kernel's
++ bcma or ssb PCI bridge to b43-next's and moves their radios' paths in
++ /etc/config/wireless along. The 802.11 cores built into a SoC stay with
++ kmod-b43.
++endef
++
++define KernelPackage/b43-next/config
++  if PACKAGE_kmod-b43-next
++
++	config B43_NEXT_DFS
++		bool "Radar channels in AP mode on the AC-PHY (not a certified detector)"
++		default y
++		help
++		  Lets an AP on the BCM4352/BCM4360 run on DFS channels, with the
++		  short-pulse radar detection of b43-next. Tested on the RT-AC66U
++		  B1 and the RT-AC68U V3; not a certified radar detector. Without
++		  it, the AC-PHY stays off the radar channels.
++
++  endif
++endef
++
++NOSTDINC_FLAGS := \
++	$(KERNEL_NOSTDINC_FLAGS) \
++	-I$(STAGING_DIR)/usr/include/mac80211-backport/uapi \
++	-I$(STAGING_DIR)/usr/include/mac80211-backport \
++	-I$(STAGING_DIR)/usr/include/mac80211/uapi \
++	-I$(STAGING_DIR)/usr/include/mac80211 \
++	-include backport/autoconf.h \
++	-include backport/backport.h
++
++# mac80211 comes from the backports, not from the kernel's .config. No SDIO
++# host, as in kmod-b43: on a kernel with MMC it would need kmod-mmc.
++PKG_MAKE_FLAGS := CONFIG_MAC80211=m CONFIG_MMC=
++ifdef CONFIG_LEDS_TRIGGERS
++  PKG_MAKE_FLAGS += CONFIG_MAC80211_LEDS=y
++endif
++ifdef CONFIG_B43_NEXT_DFS
++  PKG_MAKE_FLAGS += B43_NEXT_DFS=y CONFIG_CFG80211_CERTIFICATION_ONUS=y
++endif
++
++define Build/Compile
++	+$(KERNEL_MAKE) $(PKG_JOBS) \
++		$(PKG_MAKE_FLAGS) \
++		M="$(PKG_BUILD_DIR)" \
++		NOSTDINC_FLAGS="$(NOSTDINC_FLAGS)" \
++		modules
++	modinfo -F alias $(PKG_BUILD_DIR)/b43-next.ko | grep '^pci:' | sort -u \
++		> $(PKG_BUILD_DIR)/pci-aliases
++endef
++
++define KernelPackage/b43-next/install
++	$(INSTALL_DIR) $(1)/usr/share/b43-next
++	$(INSTALL_DATA) $(PKG_BUILD_DIR)/pci-aliases $(1)/usr/share/b43-next/
++	$(INSTALL_DIR) $(1)/etc/init.d
++	$(INSTALL_BIN) ./files/b43-next.init $(1)/etc/init.d/b43-next
++endef
++
++$(eval $(call KernelPackage,b43-next))
+diff --git a/package/kernel/b43-next/files/b43-next.init b/package/kernel/b43-next/files/b43-next.init
+new file mode 100644
+index 0000000000..6e9f4e8aab
+--- /dev/null
++++ b/package/kernel/b43-next/files/b43-next.init
+@@ -0,0 +1,226 @@
++#!/bin/sh /etc/rc.common
++# The PCIe cards of b43-next, held at boot by the kernel's bcma or ssb PCI
++# bridge (built in on bcm53xx): handed to bcma-next's or ssb-next's bridge
++# after the module is loaded (boot, S10) and before the wireless comes up
++# (wpad S19, network S20). Each radio of /etc/config/wireless on such a card
++# moves its path along: the card's bus becomes bcmnN instead of bcmaN, so
++# that wifi config finds it configured instead of adding a radio for it.
++#
++# stop (also when the package is removed) hands the cards back, and the
++# radios their paths from before: kept in b43_next_kernel_path, as the
++# kernel's bus numbers grow while it runs and are those of the boot again
++# only after a reboot. The option stays, and marks the radios as moved by
++# this script for the next start.
++
++START=15
++
++ALIASES=/usr/share/b43-next/pci-aliases
++# Written before the cards are handed over, removed after: if it is still
++# there, the last attempt did not finish (a hang, a power cut). That one is
++# tried once more; after a second, the cards stay with the kernel until the
++# marker is removed.
++MARKER=/etc/b43-next.binding
++PCI=/sys/bus/pci
++
++b43n_wanted() {
++	local alias modalias
++	modalias=$(cat "$1/modalias" 2>/dev/null) || return 1
++	while read -r alias; do
++		case "$modalias" in
++		$alias) return 0 ;;
++		esac
++	done < "$ALIASES"
++	return 1
++}
++
++b43n_driver() {
++	[ -e "$1/driver" ] && basename "$(readlink "$1/driver")"
++}
++
++# The radios of /etc/config/wireless on PCI device $1: their section names
++b43n_radios() {
++	local s path
++	for s in $(uci -q show wireless | sed -n "s/^wireless\.\([^.=]*\)=wifi-device$/\1/p"); do
++		path=$(uci -q get "wireless.$s.path") || continue
++		case "$path" in
++		*/$1/*) echo "$s" ;;
++		esac
++	done
++}
++
++# A device's path as wifi config writes it: below /sys/devices, without
++# the platform/ in front of a PCI bus
++b43n_wifi_path() {
++	local p=${1#/sys/devices/}
++	case "$p" in
++	platform/*/pci*) p=${p#platform/} ;;
++	esac
++	echo "$p"
++}
++
++# The path of the 802.11 core under PCI device $1: the parent of its phy,
++# or without one (a kernel bridge with no b43 loaded) the core of index $2
++b43n_core_path() {
++	local phy core
++	for phy in /sys/class/ieee80211/*; do
++		core=$(readlink -f "$phy/device")
++		case "$core" in
++		*/$1/*) b43n_wifi_path "$core"; return 0 ;;
++		esac
++	done
++	[ -n "$2" ] || return 1
++	core=$(ls -d "$PCI/devices/$1"/bcm*:"$2" "$PCI/devices/$1"/ssb*:"$2" 2>/dev/null | head -1)
++	[ -n "$core" ] || return 1
++	b43n_wifi_path "$(readlink -f "$core")"
++}
++
++# The radios of PCI device $1 that are its core's: those whose path is the
++# core's, and those the hand-over moved (they keep the kernel's path in
++# b43_next_kernel_path). A radio left by an earlier probe of the card
++# (another bcmaN, after b43 was loaded while the system ran) points at no
++# device and is left alone.
++b43n_live_radios() {
++	local s path kpath live
++	for s in $(b43n_radios "$1"); do
++		path=$(uci -q get "wireless.$s.path")
++		kpath=$(uci -q get "wireless.$s.b43_next_kernel_path")
++		live=$(b43n_core_path "$1" "${path##*:}") || continue
++		[ "$path" = "$live" ] || [ -n "$kpath" ] || continue
++		echo "$s"
++	done
++}
++
++# The paths of radios $2 of PCI device $1 as its core has them now
++b43n_set_paths() {
++	local s path new changed=
++	for s in $2; do
++		path=$(uci -q get "wireless.$s.path")
++		new=$(b43n_core_path "$1" "${path##*:}") || continue
++		[ "$path" = "$new" ] && continue
++		uci set "wireless.$s.path=$new"
++		changed=1
++	done
++	[ -z "$changed" ] || uci commit wireless
++}
++
++# The radios wifi config added for device $1 while it moved: all but $2
++b43n_drop_added() {
++	local s k keep=" "
++	for k in $2; do
++		keep="$keep$k "
++	done
++	for s in $(b43n_radios "$1"); do
++		case "$keep" in
++		*" $s "*) continue ;;
++		esac
++		logger -t b43-next "$1: removing the radio added for it ($s)"
++		uci -q delete "wireless.default_$s"
++		uci -q delete "wireless.$s"
++	done
++	uci commit wireless
++}
++
++start() {
++	local dev addr drv bus next before live bound= s path
++
++	[ -f "$ALIASES" ] || return 0
++	if [ ! -e "$MARKER" ]; then
++		: > "$MARKER"
++	elif [ "$(cat "$MARKER")" != retry ]; then
++		logger -t b43-next "the last hand-over did not finish; trying once more"
++		echo retry > "$MARKER"
++	else
++		logger -t b43-next "the last two hand-overs did not finish; the cards stay with the kernel (rm $MARKER to retry)"
++		return 0
++	fi
++	sync
++
++	# bcma-next numbers its buses from 0 while the module is loaded
++	next=$(ls /sys/bus/bcma-next/devices 2>/dev/null |
++		sed -n 's/^bcmn\([0-9]*\):.*/\1/p' | sort -n | tail -1)
++	next=${next:+$((next + 1))}
++	next=${next:-0}
++
++	for dev in "$PCI"/devices/*; do
++		addr=${dev##*/}
++		drv=$(b43n_driver "$dev")
++		case "$drv" in
++		bcma-next-pci-bridge|ssb-next-pci-bridge) continue ;;
++		esac
++		b43n_wanted "$dev" || continue
++
++		# The radios' new path, before the device moves: a bcma card's
++		# 802.11 core becomes bcmnN:1
++		before=$(b43n_radios "$addr")
++		live=$(b43n_live_radios "$addr")
++		for s in $live; do
++			path=$(uci -q get "wireless.$s.path")
++			case "$path" in
++			*/bcma[0-9]*:*)
++				uci -q get "wireless.$s.b43_next_kernel_path" >/dev/null ||
++					uci set "wireless.$s.b43_next_kernel_path=$path"
++				uci set "wireless.$s.path=${path%/*}/bcmn$next:${path##*:}"
++				;;
++			esac
++		done
++		[ -z "$live" ] || uci commit wireless
++
++		for bus in bcma-next-pci-bridge ssb-next-pci-bridge; do
++			echo "$bus" > "$dev/driver_override"
++			[ -e "$dev/driver" ] && echo "$addr" > "$dev/driver/unbind"
++			echo "$addr" > "$PCI/drivers_probe"
++			[ "$(b43n_driver "$dev")" = "$bus" ] && break
++		done
++		if [ "$(b43n_driver "$dev")" != "$bus" ]; then
++			logger -t b43-next "$addr: no b43-next bridge took it, back to the kernel"
++			echo > "$dev/driver_override"
++			echo "$addr" > "$PCI/drivers_probe"
++			b43n_set_paths "$addr" "$live"
++			continue
++		fi
++		[ "$bus" = bcma-next-pci-bridge ] && next=$((next + 1))
++		logger -t b43-next "$addr: $drv -> $bus"
++
++		# The path as it came out, and no radio added on the way
++		sleep 1
++		b43n_set_paths "$addr" "$live"
++		[ -z "$before" ] || b43n_drop_added "$addr" "$before"
++		bound=1
++	done
++
++	rm -f "$MARKER"
++	sync
++	# netifd keeps the paths it read; at boot it hasn't started yet
++	[ -z "$bound" ] || ubus call network reload 2>/dev/null
++	return 0
++}
++
++stop() {
++	local dev addr drv before live s path moved=
++
++	for dev in "$PCI"/devices/*; do
++		addr=${dev##*/}
++		drv=$(b43n_driver "$dev")
++		case "$drv" in
++		bcma-next-pci-bridge|ssb-next-pci-bridge) ;;
++		*) continue ;;
++		esac
++		before=$(b43n_radios "$addr")
++		live=$(b43n_live_radios "$addr")
++		echo "$addr" > "$dev/driver/unbind"
++		echo > "$dev/driver_override"
++		echo "$addr" > "$PCI/drivers_probe"
++		logger -t b43-next "$addr: $drv -> $(b43n_driver "$dev")"
++		sleep 1
++		b43n_set_paths "$addr" "$live"
++		[ -z "$before" ] || b43n_drop_added "$addr" "$before"
++		for s in $live; do
++			path=$(uci -q get "wireless.$s.b43_next_kernel_path") || continue
++			uci set "wireless.$s.path=$path"
++		done
++		[ -z "$before" ] || uci commit wireless
++		moved=1
++	done
++	[ -z "$moved" ] || ubus call network reload 2>/dev/null
++	return 0
++}
+diff --git a/package/kernel/mac80211/Makefile b/package/kernel/mac80211/Makefile
+index 19e7c577e4..a606214585 100644
+--- a/package/kernel/mac80211/Makefile
++++ b/package/kernel/mac80211/Makefile
+@@ -12,7 +12,7 @@ PKG_NAME:=mac80211
+ 
+ PKG_SOURCE_VERSION:=7.2
+ PKG_VERSION:=$(subst -,_,$(PKG_SOURCE_VERSION))
+-PKG_RELEASE:=15
++PKG_RELEASE:=16
+ PKG_LICENSE:=GPL-2.0-only
+ PKG_LICENSE_FILES:=COPYING
+ 
+@@ -397,3 +397,4 @@ endef
+ $(eval $(foreach drv,$(PKG_DRIVERS),$(call KernelPackage,$(drv))))
+ $(eval $(call KernelPackage,cfg80211))
+ $(eval $(call KernelPackage,mac80211))
++$(eval $(call BuildPackage,b43-firmware))
+diff --git a/package/kernel/mac80211/broadcom.mk b/package/kernel/mac80211/broadcom.mk
+index b48256c20b..0b9971fdaa 100644
+--- a/package/kernel/mac80211/broadcom.mk
++++ b/package/kernel/mac80211/broadcom.mk
+@@ -51,6 +51,14 @@ ifneq ($(CONFIG_B43_FW_4_178),)
+   PKG_B43_FWV4_SOURCE_URL:=@OPENWRT
+   PKG_B43_FWV4_HASH:=32f6ad98facbb9045646fdc8b54bb03086d204153253f9c65d0234a5d90ae53f
+ else
++ifneq ($(CONFIG_B43_FW_6_30),)
++  PKG_B43_FWV4_NAME:=broadcom-wl
++  PKG_B43_FWV4_VERSION:=6.30.163.46
++  PKG_B43_FWV4_OBJECT:=$(PKG_B43_FWV4_NAME)-$(PKG_B43_FWV4_VERSION).wl_apsta.o
++  PKG_B43_FWV4_SOURCE:=$(PKG_B43_FWV4_NAME)-$(PKG_B43_FWV4_VERSION).tar.bz2
++  PKG_B43_FWV4_SOURCE_URL:=@SF/b43-firmware
++  PKG_B43_FWV4_HASH:=a07c3b6b277833c7dbe61daa511f908cd66c5e2763eb7a0859abc36cd9335c2d
++else
+ ifneq ($(CONFIG_B43_FW_5_100_138),)
+   PKG_B43_FWV4_NAME:=broadcom-wl
+   PKG_B43_FWV4_VERSION:=5.100.138
+@@ -68,6 +76,7 @@ else
+ endif
+ endif
+ endif
++endif
+ ifneq ($(CONFIG_B43_OPENFIRMWARE),)
+   PKG_B43_FWV4_NAME:=broadcom-wl
+   PKG_B43_FWV4_VERSION:=5.2
+@@ -93,7 +102,7 @@ define KernelPackage/b43
+   	CONFIG_HW_RANDOM=y
+   # Depend on PCI_SUPPORT to make sure we can select kmod-bcma or kmod-ssb
+   DEPENDS += \
+-	@PCI_SUPPORT +kmod-mac80211 +kmod-lib-cordic \
++	@PCI_SUPPORT +kmod-mac80211 +kmod-lib-cordic +b43-firmware \
+ 	$(if $(CONFIG_PACKAGE_B43_USE_SSB),+kmod-ssb) \
+ 	$(if $(CONFIG_PACKAGE_B43_USE_BCMA),+kmod-bcma)
+   FILES:=$(PKG_BUILD_DIR)/drivers/net/wireless/broadcom/b43/b43.ko
+@@ -101,26 +110,25 @@ define KernelPackage/b43
+   MENU:=1
+ endef
+ 
+-define KernelPackage/b43/config
+-
+-config PACKAGE_B43_USE_SSB
+-	select PACKAGE_kmod-ssb
+-	tristate
+-	depends on !TARGET_bcm47xx
+-	default PACKAGE_kmod-b43 if PACKAGE_B43_BUSES_BCMA_AND_SSB
+-	default PACKAGE_kmod-b43 if PACKAGE_B43_BUSES_SSB
++define Package/b43-firmware
++  SECTION:=firmware
++  CATEGORY:=Firmware
++  TITLE:=Broadcom 43xx firmware (b43, b43-next)
++  URL:=https://wireless.wiki.kernel.org/en/users/drivers/b43/firmware
++  MENU:=1
++endef
+ 
+-config PACKAGE_B43_USE_BCMA
+-	select PACKAGE_kmod-bcma
+-	tristate
+-	depends on !TARGET_bcm47xx && !TARGET_bcm53xx
+-	default PACKAGE_kmod-b43 if PACKAGE_B43_BUSES_BCMA_AND_SSB
+-	default PACKAGE_kmod-b43 if PACKAGE_B43_BUSES_BCMA
++define Package/b43-firmware/description
++ The b43 firmware, cut from a Broadcom driver with b43-fwcutter, for
++ kmod-b43 and kmod-b43-next.
++endef
+ 
+-  if PACKAGE_kmod-b43
++define Package/b43-firmware/config
++  if PACKAGE_b43-firmware
+ 
+ 	choice
+ 		prompt "b43 firmware version"
++		default B43_FW_6_30 if PACKAGE_kmod-b43-next
+ 		default B43_FW_5_100_138
+ 		help
+ 		  This option allows you to select the version of the b43 firmware.
+@@ -155,6 +163,12 @@ config PACKAGE_B43_USE_BCMA
+ 
+ 		  If unsure, select the this firmware.
+ 
++	config B43_FW_6_30
++		bool "Firmware 784.2 from driver 6.30.163.46"
++		help
++		  The firmware with the microcode of the AC-PHY cores (core
++		  revision 42: BCM4352, BCM4360), which b43-next drives.
++
+ 	config B43_OPENFIRMWARE
+ 		bool "Open FirmWare for WiFi networks"
+ 		help
+@@ -173,6 +187,7 @@ config PACKAGE_B43_USE_BCMA
+ 	config B43_FW_SQUASH
+ 		bool "Remove unnecessary firmware files"
+ 		depends on !B43_OPENFIRMWARE
++		default n if PACKAGE_kmod-b43-next
+ 		default y
+ 		help
+ 		  This options allows you to remove unnecessary b43 firmware files
+@@ -186,6 +201,7 @@ config PACKAGE_B43_USE_BCMA
+ 		depends on B43_FW_SQUASH
+ 		default "5,6,7,8,9,10,11,13,15" if TARGET_bcm47xx_legacy
+ 		default "16,28,29,30" if TARGET_bcm47xx_mips74k
++		default "16,28,29,30,42" if PACKAGE_kmod-b43-next
+ 		default "5,6,7,8,9,10,11,13,15,16,28,29,30"
+ 		help
+ 		  This is a comma separated list of core revision numbers.
+@@ -201,6 +217,7 @@ config PACKAGE_B43_USE_BCMA
+ 		depends on B43_FW_SQUASH
+ 		default "G,N,LP" if TARGET_bcm47xx_legacy
+ 		default "N,HT" if TARGET_bcm47xx_mips74k
++		default "N,HT,AC" if PACKAGE_kmod-b43-next
+ 		default "G,N,LP,HT"
+ 		help
+ 		  This is a comma separated list of PHY types:
+@@ -220,6 +237,27 @@ config PACKAGE_B43_USE_BCMA
+ 		  Example (keep files for G-PHY and N-PHY):
+ 		    G,N
+ 
++  endif
++endef
++
++define KernelPackage/b43/config
++
++config PACKAGE_B43_USE_SSB
++	select PACKAGE_kmod-ssb
++	tristate
++	depends on !TARGET_bcm47xx
++	default PACKAGE_kmod-b43 if PACKAGE_B43_BUSES_BCMA_AND_SSB
++	default PACKAGE_kmod-b43 if PACKAGE_B43_BUSES_SSB
++
++config PACKAGE_B43_USE_BCMA
++	select PACKAGE_kmod-bcma
++	tristate
++	depends on !TARGET_bcm47xx && !TARGET_bcm53xx
++	default PACKAGE_kmod-b43 if PACKAGE_B43_BUSES_BCMA_AND_SSB
++	default PACKAGE_kmod-b43 if PACKAGE_B43_BUSES_BCMA
++
++  if PACKAGE_kmod-b43
++
+ 	choice
+ 		prompt "Supported buses"
+ 		default PACKAGE_B43_BUSES_BCMA_AND_SSB
+@@ -449,7 +487,7 @@ define KernelPackage/brcmfmac/config
+ endef
+ 
+ 
+-define KernelPackage/b43/install
++define Package/b43-firmware/install
+ 	rm -rf $(1)/lib/firmware/
+ ifeq ($(CONFIG_B43_OPENFIRMWARE),y)
+ 	tar xzf "$(DL_DIR)/$(PKG_B43_FWV4_SOURCE)" -C "$(PKG_BUILD_DIR)"
+diff --git a/tools/Makefile b/tools/Makefile
+index ff4d38ed02..863346d4c9 100644
+--- a/tools/Makefile
++++ b/tools/Makefile
+@@ -17,7 +17,7 @@ ifeq ($(CONFIG_EXTERNAL_TOOLCHAIN),)
+     BUILD_ISL = y
+   endif
+ endif
+-ifneq ($(CONFIG_SDK)$(CONFIG_PACKAGE_kmod-b43)$(CONFIG_BRCMSMAC_USE_FW_FROM_WL),)
++ifneq ($(CONFIG_SDK)$(CONFIG_PACKAGE_kmod-b43)$(CONFIG_PACKAGE_b43-firmware)$(CONFIG_BRCMSMAC_USE_FW_FROM_WL),)
+   BUILD_B43_TOOLS = y
+ endif
+ ifneq ($(CONFIG_SDK)$(CONFIG_TARGET_INITRAMFS_COMPRESSION_BZIP2),)

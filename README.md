@@ -5,7 +5,8 @@ Patches and files for Broadcom BCM53xx ARM routers running OpenWrt, e.g. the Net
 | Folder | What |
 |---|---|
 | [b43-80211n](b43-80211n/) | **b43: 802.11n with A-MPDU for the BCM4331 2.4 GHz radio** (Netgear R6400 v1/v2): test version rc15 (up to four SSIDs), patches on top of Rosen Penev's openwrt/openwrt#25922 + build instructions (the older stand-alone rc8 is kept there too); [provenance and legal notes](b43-80211n/PROVENANCE.md). Test images: see [Releases](../../releases). |
-| [linksys-ea6900](linksys-ea6900/) | **OpenWrt for the Linksys EA6900 v1** (with the Asus-style XVortex CFE): install from DD-WRT, recovery, patches for an own build. Test version; both radios with an experimental b43 AC-PHY build kit. |
+| [linksys-ea6900](linksys-ea6900/) | **OpenWrt for the Linksys EA6900 v1** (with the Asus-style XVortex CFE): install from DD-WRT, recovery, patches for an own build. Test version; build with [b43-next-build-kit](b43-next-build-kit/). |
+| [b43-next-build-kit](b43-next-build-kit/) | **One build kit for the EA6900 and the R6400 v1/v2** with [b43-next](https://github.com/aleferri/b43-next) as the Wi-Fi driver (BCM4331 + BCM4360): OpenWrt main + four patches; replaces the EA6900 build kit and the b43-80211n patch series. |
 | [northstar-fa](northstar-fa/) | **Research: the hardware flow accelerator (FA)** in BCM4708/BCM4709/BCM47094 routers under OpenWrt: what it is, how to check whether your router has one, measurements (941 Mbit/s NAT at 0 % CPU on the EA6900). Prototype only, nothing to install yet. |
 
 Questions and test reports: please open an issue.

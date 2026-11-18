@@ -79,7 +79,7 @@ hardware.
 
 ## Build kit
 
-[`../build-kit/`](../build-kit/) is a recipe for the image we test: a plain OpenWrt tree plus the parts
+Replaced on 2026-11-18 by [`b43-next-build-kit`](../../b43-next-build-kit/), which lists its own sources; the text below describes the last version of [`../build-kit/`](https://github.com/egc112/Broadcom/tree/d07f0a7/linksys-ea6900/build-kit), now in git history. It was a recipe for the image we tested: a plain OpenWrt tree plus the parts
 below. Tested on OpenWrt main r38134-5c5a157852, 2026-11-05. Alessio Ferri's driver is included
 unchanged and documented by his own provenance. The kit has no b43 patches of our own any more: they are
 merged in b43-ac-wip and come with his `816-02` and `816-03`. The sources of our remaining parts, and of

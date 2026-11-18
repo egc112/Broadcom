@@ -46,12 +46,16 @@ in `/etc/config/wireless` along.
 When openwrt#26717 gets merged into OpenWrt, `Broadcom-2` is no longer needed (apart from the pin). The same
 goes for `Broadcom-1` once openwrt#26316 is merged.
 
-## Tested (R6400 v2, 2026-11-17/18)
+## Tested (R6400 v2 and EA6900, 2026-11-17/18)
 
-BCM4331 at 2.4 GHz, 4 SSIDs, DL-WRX36 client, TCP to a wired LAN host: HT20 about 150 up / 105 down, HT40
-about 325 up / 210 down Mbit/s, MCS 23 (three streams). A 6-hour soak of b43-next (ht-fixes with our
-block ack patch, two clients on two SSIDs) ran without errors. The EA6900 is tested with b43-next main (2.4 GHz 132-145 Mbit/s, 5 GHz
-210 / 370), not yet with this kit's image.
+BCM4331 at 2.4 GHz, 4 SSIDs, DL-WRX36 client, TCP to a wired LAN host: HT20 about 150 up / 105 down, HT40 about
+325 up / 210 down Mbit/s, MCS 23 (three streams). A 2-hour soak of this kit's image (with the previous pin
+51b501e; the HT40- fix does not touch HT20; two clients at 2.4 GHz on two SSIDs, one at 5 GHz, each alone and
+all at once) ran without stalls or errors; the 5 GHz radio (BCM4360, VHT80) gave about 360 down / 380 up Mbit/s
+alone.
+
+EA6900 with an image built from this kit (2026-11-18), MT6000 client, iperf3 to the router itself: 2.4 GHz
+139-143 Mbit/s both ways, 5 GHz VHT80 372 down / 204-210 up Mbit/s; no driver warnings.
 
 ## Known issues
 
@@ -60,10 +64,11 @@ block ack patch, two clients on two SSIDs) ran without errors. The EA6900 is tes
 - With `legacy_rates` off (the OpenWrt default) the AP beacons at 6 Mb/s and does not answer probe
   requests sent at CCK rates; some scanners then show the AP coming and going. `option legacy_rates '1'`
   on the radio changes that.
-- "PHY transmission error" lines in the log under heavy load in both directions; no failed frames, no
-  effect on throughput.
-- The R6400's 5 GHz radio (BCM4360): tested only briefly so far (R6400 v2, VHT80, 3 streams: about 290 up /
-  410 down Mbit/s to a wired LAN host).
+- "PHY transmission error": on the 5 GHz radio (BCM4360) now and then one warning at a `wifi` reload, harmless (the
+  AC-PHY only logs it). On the 2.4 GHz radio (BCM4331) none on this image in 2 h 40 min of load on both bands
+  (2026-11-18); there each error counts towards a controller restart after 1000, so report it if it does show up.
+- The R6400's 5 GHz radio (BCM4360) at full upload speed: "RX descriptor underrun" warnings (34 in 2 hours); the
+  RX ring was full and the driver empties it again, throughput unaffected. The EA6900 shows the same.
 
 ## Sources
 

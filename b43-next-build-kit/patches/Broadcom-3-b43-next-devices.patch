@@ -4,7 +4,7 @@
  
  IEEE8021X := wpad-basic-mbedtls
  B43 := $(IEEE8021X) kmod-b43
-+B43_NEXT := $(IEEE8021X) kmod-b43-next
++B43_NEXT := wpad-openssl kmod-b43-next
  BRCMFMAC_43602A1 := $(IEEE8021X) kmod-brcmfmac brcmfmac-firmware-43602a1-pcie
  BRCMFMAC_4366B1 := $(IEEE8021X) kmod-brcmfmac brcmfmac-firmware-4366b1-pcie
  BRCMFMAC_4366C0 := $(IEEE8021X) kmod-brcmfmac brcmfmac-firmware-4366c0-pcie

@@ -15,7 +15,7 @@ patch series in [b43-80211n](../b43-80211n/): their work is in b43-next now.
 |---|---|
 | `patches/Broadcom-1-EA6900-board.patch` | EA6900 board support (dts, image, board.d, nvram), as submitted in [openwrt/openwrt#26316](https://github.com/openwrt/openwrt/pull/26316) |
 | `patches/Broadcom-2-b43-next-package.patch` | the `kmod-b43-next` package from [openwrt/openwrt#26717](https://github.com/openwrt/openwrt/pull/26717) at 96c3718543 (with the firmware as a separate `b43-firmware` package), pinned to b43-next fe3b1fd (ht-fixes: HT40 on the HT-PHY + the HT40- beacon fix); `tools/Makefile` also builds b43-fwcutter for `b43-firmware` |
-| `patches/Broadcom-3-b43-next-devices.patch` | the R6400 v1, v2, v2-otp and the EA6900 get `kmod-b43-next` instead of kmod-b43 |
+| `patches/Broadcom-3-b43-next-devices.patch` | the R6400 v1, v2, v2-otp and the EA6900 get `kmod-b43-next` and `wpad-openssl` instead of kmod-b43 and wpad-basic-mbedtls |
 | `patches/Broadcom-4-irqbalance-enable.patch` | switches irqbalance on when it is installed (the package installs disabled) |
 | `diffconfig` | EA6900, R6400 v1, R6400 v2 in one multi-profile build; kmod-b43-next, LuCI, irqbalance, iperf3, iw-full |
 | `irqpin.rc.local` | a fixed IRQ layout for test comparisons only; not built in, copy it by hand to `/etc/rc.local` |
@@ -30,6 +30,13 @@ Tested on OpenWrt main 5732bcbeff (2026-11-18). The R6400 itself is in OpenWrt m
     /path/to/b43-next-build-kit/apply.sh .
     ./scripts/feeds update -a && ./scripts/feeds install -a
     make defconfig && make -j$(nproc)
+
+**wpad and per-device packages.** The kit gives these devices `wpad-openssl` as a device package. Keep
+`CONFIG_TARGET_PER_DEVICE_ROOTFS` ("Use a per-device root filesystem that adds profile packages") on: in a
+multi-profile build without it, the device packages (the Wi-Fi driver, the wpad, the USB modules) do not end up
+in the images. A device package is installed on top of your own selection, so two wpad variants in one image
+stop the build with `unable to select packages ... conflicts`. To use another wpad, remove the kit's per device
+in menuconfig (Target Devices, the device's packages field): `-wpad-openssl wpad-basic-mbedtls`.
 
 Images: `bin/targets/bcm53xx/generic/`: `*linksys_ea6900-squashfs.trx`, `*netgear_r6400-v1-squashfs.chk`,
 `*netgear_r6400-v2-squashfs.chk`. Install the EA6900 as described in [linksys-ea6900](../linksys-ea6900/).

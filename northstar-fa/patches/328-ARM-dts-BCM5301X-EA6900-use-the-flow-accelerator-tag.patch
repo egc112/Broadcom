@@ -13,11 +13,9 @@ Signed-off-by: Erik Conijn <egc112@msn.com>
  arch/arm/boot/dts/broadcom/bcm4708-linksys-ea6900.dts | 2 ++
  1 file changed, 2 insertions(+)
 
-diff --git a/arch/arm/boot/dts/broadcom/bcm4708-linksys-ea6900.dts b/arch/arm/boot/dts/broadcom/bcm4708-linksys-ea6900.dts
-index 77f4d9f..8bea7ef 100644
 --- a/arch/arm/boot/dts/broadcom/bcm4708-linksys-ea6900.dts
 +++ b/arch/arm/boot/dts/broadcom/bcm4708-linksys-ea6900.dts
-@@ -148,6 +148,8 @@ port@7 {
+@@ -148,6 +148,8 @@
  
  		port@8 {
  			label = "cpu";

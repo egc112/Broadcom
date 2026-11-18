@@ -81,8 +81,6 @@ Signed-off-by: Erik Conijn <egc112@msn.com>
  drivers/net/ethernet/broadcom/bgmac.h    |   3 +
  4 files changed, 931 insertions(+), 9 deletions(-)
 
-diff --git a/drivers/net/ethernet/broadcom/Kconfig b/drivers/net/ethernet/broadcom/Kconfig
-index 47e9ece..cfc3016 100644
 --- a/drivers/net/ethernet/broadcom/Kconfig
 +++ b/drivers/net/ethernet/broadcom/Kconfig
 @@ -172,6 +172,7 @@ config BGMAC_BCMA
@@ -93,8 +91,6 @@ index 47e9ece..cfc3016 100644
  	select PHYLIB
  	select FIXED_PHY
  	help
-diff --git a/drivers/net/ethernet/broadcom/bgmac-fa.c b/drivers/net/ethernet/broadcom/bgmac-fa.c
-index 4a28603..e278a7e 100644
 --- a/drivers/net/ethernet/broadcom/bgmac-fa.c
 +++ b/drivers/net/ethernet/broadcom/bgmac-fa.c
 @@ -18,10 +18,10 @@
@@ -261,7 +257,7 @@ index 4a28603..e278a7e 100644
  };
  
  static u32 fa_read(struct bgmac *bgmac, u16 reg)
-@@ -169,6 +278,767 @@ static int bgmac_fa_bypass(struct bgmac *bgmac)
+@@ -169,6 +278,767 @@ static int bgmac_fa_bypass(struct bgmac
  	return 0;
  }
  
@@ -1029,7 +1025,7 @@ index 4a28603..e278a7e 100644
  static bool bgmac_fa_wanted(struct bgmac *bgmac)
  {
  #if IS_ENABLED(CONFIG_NET_DSA)
-@@ -183,38 +1053,59 @@ static bool bgmac_fa_wanted(struct bgmac *bgmac)
+@@ -183,38 +1053,59 @@ static bool bgmac_fa_wanted(struct bgmac
  
  static int bgmac_fa_open(struct bgmac *bgmac)
  {
@@ -1110,11 +1106,9 @@ index 4a28603..e278a7e 100644
  }
  EXPORT_SYMBOL_GPL(bgmac_fa_probe);
  
-diff --git a/drivers/net/ethernet/broadcom/bgmac.c b/drivers/net/ethernet/broadcom/bgmac.c
-index abcf185..7409b78 100644
 --- a/drivers/net/ethernet/broadcom/bgmac.c
 +++ b/drivers/net/ethernet/broadcom/bgmac.c
-@@ -1212,6 +1212,9 @@ static int bgmac_stop(struct net_device *net_dev)
+@@ -1212,6 +1212,9 @@ static int bgmac_stop(struct net_device
  {
  	struct bgmac *bgmac = netdev_priv(net_dev);
  
@@ -1124,7 +1118,7 @@ index abcf185..7409b78 100644
  	netif_carrier_off(net_dev);
  
  	phy_stop(net_dev->phydev);
-@@ -1262,6 +1265,17 @@ static int bgmac_change_mtu(struct net_device *net_dev, int mtu)
+@@ -1262,6 +1265,17 @@ static int bgmac_change_mtu(struct net_d
  	return 0;
  }
  
@@ -1142,7 +1136,7 @@ index abcf185..7409b78 100644
  static const struct net_device_ops bgmac_netdev_ops = {
  	.ndo_open		= bgmac_open,
  	.ndo_stop		= bgmac_stop,
-@@ -1271,6 +1285,7 @@ static const struct net_device_ops bgmac_netdev_ops = {
+@@ -1271,6 +1285,7 @@ static const struct net_device_ops bgmac
  	.ndo_validate_addr	= eth_validate_addr,
  	.ndo_eth_ioctl           = phy_do_ioctl_running,
  	.ndo_change_mtu		= bgmac_change_mtu,
@@ -1150,7 +1144,7 @@ index abcf185..7409b78 100644
  };
  
  /**************************************************
-@@ -1545,6 +1560,11 @@ int bgmac_enet_probe(struct bgmac *bgmac)
+@@ -1545,6 +1560,11 @@ int bgmac_enet_probe(struct bgmac *bgmac
  	net_dev->features = NETIF_F_SG | NETIF_F_IP_CSUM | NETIF_F_IPV6_CSUM;
  	net_dev->hw_features = net_dev->features;
  	net_dev->vlan_features = net_dev->features;
@@ -1162,8 +1156,6 @@ index abcf185..7409b78 100644
  
  	/* Omit FCS from max MTU size */
  	net_dev->max_mtu = BGMAC_RX_MAX_FRAME_SIZE - ETH_FCS_LEN;
-diff --git a/drivers/net/ethernet/broadcom/bgmac.h b/drivers/net/ethernet/broadcom/bgmac.h
-index 558a66d..78c2e17 100644
 --- a/drivers/net/ethernet/broadcom/bgmac.h
 +++ b/drivers/net/ethernet/broadcom/bgmac.h
 @@ -499,6 +499,9 @@ struct bgmac {

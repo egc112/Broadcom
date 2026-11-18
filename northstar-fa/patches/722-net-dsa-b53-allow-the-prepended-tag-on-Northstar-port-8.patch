@@ -22,8 +22,6 @@ Signed-off-by: Erik Conijn <egc112@msn.com>
  drivers/net/dsa/b53/b53_common.c              | 48 +++++++++++++++++++
  2 files changed, 50 insertions(+)
 
-diff --git a/Documentation/devicetree/bindings/net/dsa/dsa-port.yaml b/Documentation/devicetree/bindings/net/dsa/dsa-port.yaml
-index 814c4a1..d7bc0cf 100644
 --- a/Documentation/devicetree/bindings/net/dsa/dsa-port.yaml
 +++ b/Documentation/devicetree/bindings/net/dsa/dsa-port.yaml
 @@ -51,6 +51,8 @@ properties:
@@ -35,11 +33,9 @@ index 814c4a1..d7bc0cf 100644
        - dsa
        - edsa
        - ocelot
-diff --git a/drivers/net/dsa/b53/b53_common.c b/drivers/net/dsa/b53/b53_common.c
-index 9a1444b..5b577e9 100644
 --- a/drivers/net/dsa/b53/b53_common.c
 +++ b/drivers/net/dsa/b53/b53_common.c
-@@ -2600,6 +2600,53 @@ enum dsa_tag_protocol b53_get_tag_protocol(struct dsa_switch *ds, int port,
+@@ -2600,6 +2600,53 @@ out:
  }
  EXPORT_SYMBOL(b53_get_tag_protocol);
  
@@ -93,7 +89,7 @@ index 9a1444b..5b577e9 100644
  int b53_mirror_add(struct dsa_switch *ds, int port,
  		   struct dsa_mall_mirror_tc_entry *mirror, bool ingress,
  		   struct netlink_ext_ack *extack)
-@@ -2766,6 +2813,7 @@ static const struct phylink_mac_ops b53_phylink_mac_ops = {
+@@ -2766,6 +2813,7 @@ static const struct phylink_mac_ops b53_
  
  static const struct dsa_switch_ops b53_switch_ops = {
  	.get_tag_protocol	= b53_get_tag_protocol,

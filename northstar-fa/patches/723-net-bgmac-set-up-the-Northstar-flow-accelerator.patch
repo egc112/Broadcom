@@ -31,8 +31,6 @@ Signed-off-by: Erik Conijn <egc112@msn.com>
  5 files changed, 254 insertions(+), 1 deletion(-)
  create mode 100644 drivers/net/ethernet/broadcom/bgmac-fa.c
 
-diff --git a/drivers/net/ethernet/broadcom/Makefile b/drivers/net/ethernet/broadcom/Makefile
-index 10cc1c9..0742e2e 100644
 --- a/drivers/net/ethernet/broadcom/Makefile
 +++ b/drivers/net/ethernet/broadcom/Makefile
 @@ -13,7 +13,7 @@ obj-$(CONFIG_BNX2X) += bnx2x/
@@ -44,11 +42,9 @@ index 10cc1c9..0742e2e 100644
  obj-$(CONFIG_BGMAC_PLATFORM) += bgmac-platform.o
  obj-$(CONFIG_SYSTEMPORT) += bcmsysport.o
  obj-$(CONFIG_BNXT) += bnxt/
-diff --git a/drivers/net/ethernet/broadcom/bgmac-bcma.c b/drivers/net/ethernet/broadcom/bgmac-bcma.c
-index 36f9bad..046036d 100644
 --- a/drivers/net/ethernet/broadcom/bgmac-bcma.c
 +++ b/drivers/net/ethernet/broadcom/bgmac-bcma.c
-@@ -311,6 +311,10 @@ static int bgmac_probe(struct bcma_device *core)
+@@ -311,6 +311,10 @@ static int bgmac_probe(struct bcma_devic
  	bgmac->cmn_maskset32 = bcma_bgmac_cmn_maskset32;
  	bgmac->phy_connect = bcma_phy_connect;
  
@@ -59,9 +55,6 @@ index 36f9bad..046036d 100644
  	err = bgmac_enet_probe(bgmac);
  	if (err)
  		goto err1;
-diff --git a/drivers/net/ethernet/broadcom/bgmac-fa.c b/drivers/net/ethernet/broadcom/bgmac-fa.c
-new file mode 100644
-index 0000000..4a28603
 --- /dev/null
 +++ b/drivers/net/ethernet/broadcom/bgmac-fa.c
 @@ -0,0 +1,237 @@
@@ -302,11 +295,9 @@ index 0000000..4a28603
 +MODULE_AUTHOR("Erik Conijn");
 +MODULE_DESCRIPTION("Broadcom Northstar flow accelerator");
 +MODULE_LICENSE("Dual BSD/GPL");
-diff --git a/drivers/net/ethernet/broadcom/bgmac.c b/drivers/net/ethernet/broadcom/bgmac.c
-index 3e9c571..abcf185 100644
 --- a/drivers/net/ethernet/broadcom/bgmac.c
 +++ b/drivers/net/ethernet/broadcom/bgmac.c
-@@ -1177,6 +1177,12 @@ static int bgmac_open(struct net_device *net_dev)
+@@ -1177,6 +1177,12 @@ static int bgmac_open(struct net_device
  	struct bgmac *bgmac = netdev_priv(net_dev);
  	int err = 0;
  
@@ -319,8 +310,6 @@ index 3e9c571..abcf185 100644
  	bgmac_chip_reset(bgmac);
  
  	err = bgmac_dma_init(bgmac);
-diff --git a/drivers/net/ethernet/broadcom/bgmac.h b/drivers/net/ethernet/broadcom/bgmac.h
-index 6fee9a4..558a66d 100644
 --- a/drivers/net/ethernet/broadcom/bgmac.h
 +++ b/drivers/net/ethernet/broadcom/bgmac.h
 @@ -436,6 +436,8 @@ struct bgmac_rx_header {
@@ -342,7 +331,7 @@ index 6fee9a4..558a66d 100644
  };
  
  struct bgmac *bgmac_alloc(struct device *dev);
-@@ -506,6 +511,7 @@ int bgmac_enet_resume(struct bgmac *bgmac);
+@@ -506,6 +511,7 @@ int bgmac_enet_resume(struct bgmac *bgma
  
  struct mii_bus *bcma_mdio_mii_register(struct bgmac *bgmac);
  void bcma_mdio_mii_unregister(struct mii_bus *mii_bus);

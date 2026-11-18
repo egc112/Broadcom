@@ -18,8 +18,6 @@ Signed-off-by: Erik Conijn <egc112@msn.com>
  net/dsa/tag_brcm.c | 29 ++++++++++++++++++++---------
  1 file changed, 20 insertions(+), 9 deletions(-)
 
-diff --git a/net/dsa/tag_brcm.c b/net/dsa/tag_brcm.c
-index a5b36cf..4e58639 100644
 --- a/net/dsa/tag_brcm.c
 +++ b/net/dsa/tag_brcm.c
 @@ -53,6 +53,12 @@
@@ -35,7 +33,7 @@ index a5b36cf..4e58639 100644
  
  /* Ingress fields */
  /* 1st byte in the tag */
-@@ -150,21 +156,26 @@ static struct sk_buff *brcm_tag_rcv_ll(struct sk_buff *skb,
+@@ -150,21 +156,26 @@ static struct sk_buff *brcm_tag_rcv_ll(s
  {
  	int source_port;
  	u8 *brcm_tag;
@@ -45,7 +43,8 @@ index a5b36cf..4e58639 100644
  		return NULL;
  
  	brcm_tag = skb->data - offset;
--
++	opcode = (brcm_tag[0] >> BRCM_OPCODE_SHIFT) & BRCM_OPCODE_MASK;
+ 
 -	/* The opcode should never be different than 0b000 */
 -	if (unlikely((brcm_tag[0] >> BRCM_OPCODE_SHIFT) & BRCM_OPCODE_MASK))
 -		return NULL;
@@ -54,8 +53,6 @@ index a5b36cf..4e58639 100644
 -	 * handle it
 -	 */
 -	if (unlikely(brcm_tag[2] & BRCM_EG_RC_RSVD))
-+	opcode = (brcm_tag[0] >> BRCM_OPCODE_SHIFT) & BRCM_OPCODE_MASK;
-+
 +	if (likely(!opcode)) {
 +		/* We should never see a reserved reason code without knowing
 +		 * how to handle it

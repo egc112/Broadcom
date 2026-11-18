@@ -23,11 +23,9 @@ Signed-off-by: Erik Conijn <egc112@msn.com>
  net/dsa/tag_brcm.c | 8 +++++++-
  1 file changed, 7 insertions(+), 1 deletion(-)
 
-diff --git a/net/dsa/tag_brcm.c b/net/dsa/tag_brcm.c
-index 4e58639..cac75e5 100644
 --- a/net/dsa/tag_brcm.c
 +++ b/net/dsa/tag_brcm.c
-@@ -187,7 +187,13 @@ static struct sk_buff *brcm_tag_rcv_ll(struct sk_buff *skb,
+@@ -187,7 +187,13 @@ static struct sk_buff *brcm_tag_rcv_ll(s
  	/* Remove Broadcom tag and update checksum */
  	skb_pull_rcsum(skb, BRCM_TAG_LEN);
  

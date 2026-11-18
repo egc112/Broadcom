@@ -44,7 +44,10 @@ and counter read takes, made the flowtable's workers queue up: with
 about 250 flows the load average reached 15 while the CPU was idle.
 
 The FA counts hits per entry but not bytes: the flowtable gets packet
-counts and the last-used time.
+counts and the last-used time. One hit is one packet: on a Linksys
+EA6900, three runs of 74998 and 100002 UDP datagrams through an
+offloaded flow each ended with the conntrack packet counter at that
+number plus one, for the datagram that set the flow up.
 
 Known limits, for the patches that follow: the FA drops IPv4 packets
 with TTL 1 silently instead of passing them to Linux for the ICMP time

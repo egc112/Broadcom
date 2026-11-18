@@ -37,7 +37,7 @@ Signed-off-by: Erik Conijn <egc112@msn.com>
  	B53_FA_TRAP_NUM,
  };
  
-@@ -677,8 +679,31 @@
+@@ -680,8 +682,31 @@
  	mask[6] |= CFP_DATA6_TTL_RANGE_HIGH;
  	err = b53_cfp_redirect(dev, B53_FA_TRAP_TTL, data, mask, map);
  	mask[6] &= ~CFP_DATA6_TTL_RANGE_HIGH;

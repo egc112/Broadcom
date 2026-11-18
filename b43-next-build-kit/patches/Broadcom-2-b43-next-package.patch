@@ -13,7 +13,7 @@ index 399b06be42..01518cc105 100644
  	  --output "$$(PACK_$(1))"
 diff --git a/package/kernel/b43-next/Makefile b/package/kernel/b43-next/Makefile
 new file mode 100644
-index 0000000000..96ab347c49
+index 0000000000..b21c2ac62f
 --- /dev/null
 +++ b/package/kernel/b43-next/Makefile
 @@ -0,0 +1,98 @@
@@ -24,9 +24,9 @@ index 0000000000..96ab347c49
 +
 +PKG_SOURCE_PROTO:=git
 +PKG_SOURCE_URL:=https://github.com/aleferri/b43-next.git
-+PKG_SOURCE_DATE:=2026-11-17
-+PKG_SOURCE_VERSION:=51b501e30e4b6ac1f5d832058673da2e1f70284b
-+PKG_MIRROR_HASH:=b66c743bac561552bd8db4cc17b0346242746db6786207a57682e6c31effb954
++PKG_SOURCE_DATE:=2026-11-18
++PKG_SOURCE_VERSION:=fe3b1fd7d0672b35f14a83051b44eb5d1a66c5c6
++PKG_MIRROR_HASH:=f2625302d89b31e0e3e241f8dfc5f1e5ecbac6e499af05a0e92e473344e5874b
 +
 +PKG_LICENSE:=GPL-2.0-only
 +PKG_LICENSE_FILES:=LICENSE

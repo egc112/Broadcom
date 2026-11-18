@@ -14,7 +14,7 @@ patch series in [b43-80211n](../b43-80211n/): their work is in b43-next now.
 | File | What |
 |---|---|
 | `patches/Broadcom-1-EA6900-board.patch` | EA6900 board support (dts, image, board.d, nvram), as submitted in [openwrt/openwrt#26316](https://github.com/openwrt/openwrt/pull/26316) |
-| `patches/Broadcom-2-b43-next-package.patch` | the `kmod-b43-next` package from [openwrt/openwrt#26717](https://github.com/openwrt/openwrt/pull/26717) at 96c3718543 (with the firmware as a separate `b43-firmware` package), pinned to b43-next 51b501e (HT40 on the HT-PHY); `tools/Makefile` also builds b43-fwcutter for `b43-firmware` |
+| `patches/Broadcom-2-b43-next-package.patch` | the `kmod-b43-next` package from [openwrt/openwrt#26717](https://github.com/openwrt/openwrt/pull/26717) at 96c3718543 (with the firmware as a separate `b43-firmware` package), pinned to b43-next fe3b1fd (ht-fixes: HT40 on the HT-PHY + the HT40- beacon fix); `tools/Makefile` also builds b43-fwcutter for `b43-firmware` |
 | `patches/Broadcom-3-b43-next-devices.patch` | the R6400 v1, v2, v2-otp and the EA6900 get `kmod-b43-next` instead of kmod-b43 |
 | `patches/Broadcom-4-irqbalance-enable.patch` | switches irqbalance on when it is installed (the package installs disabled) |
 | `diffconfig` | EA6900, R6400 v1, R6400 v2 in one multi-profile build; kmod-b43-next, LuCI, irqbalance, iperf3, iw-full |
@@ -48,15 +48,15 @@ block ack patch, two clients on two SSIDs) ran without errors. The EA6900 is tes
 
 ## Known issues
 
-- **HT40- (control channel above the secondary, e.g. ch 11):** the first SSID's beacon goes out on the
-  secondary 20 MHz, not on the control channel. Fixed in [aleferri/b43-next#35](https://github.com/aleferri/b43-next/pull/35)
-  (tested on the R6400 v2), not yet in this kit's pin. Until then use HT40+ (ch 1-7) or HT20.
+- HT40- (control channel above the secondary, e.g. ch 11): fixed in this pin (aleferri/b43-next#35); before it,
+  the first SSID's beacon went out on the secondary 20 MHz.
 - With `legacy_rates` off (the OpenWrt default) the AP beacons at 6 Mb/s and does not answer probe
   requests sent at CCK rates; some scanners then show the AP coming and going. `option legacy_rates '1'`
   on the radio changes that.
 - "PHY transmission error" lines in the log under heavy load in both directions; no failed frames, no
   effect on throughput.
-- The R6400's 5 GHz radio (BCM4360) under b43-next: it comes up, but is not tested yet.
+- The R6400's 5 GHz radio (BCM4360): tested only briefly so far (R6400 v2, VHT80, 3 streams: about 290 up /
+  410 down Mbit/s to a wired LAN host).
 
 ## Sources
 

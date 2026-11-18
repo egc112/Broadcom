@@ -1,6 +1,8 @@
+From 1cf984275e087fe4357b9ad890641772a98f5bc1 Mon Sep 17 00:00:00 2001
 From: Erik Conijn <egc112@msn.com>
 Date: Sat, 14 Nov 2026 13:44:04 +0100
-Subject: [PATCH] ARM: dts: BCM5301X: EA6900: add port 5 for the flow accelerator traps
+Subject: [PATCH] ARM: dts: BCM5301X: EA6900: add port 5 for the flow
+ accelerator traps
 
 Describe switch port 5, connected to gmac0, as a second CPU port. b53
 redirects the frames that the flow accelerator in front of port 8
@@ -10,9 +12,14 @@ so the port names the same one as port 8; it carries the regular tag.
 Assisted-by: Claude:claude-opus-5-5
 Signed-off-by: Erik Conijn <egc112@msn.com>
 ---
+ arch/arm/boot/dts/broadcom/bcm4708-linksys-ea6900.dts | 11 ++++++++++-
+ 1 file changed, 10 insertions(+), 1 deletion(-)
+
+diff --git a/arch/arm/boot/dts/broadcom/bcm4708-linksys-ea6900.dts b/arch/arm/boot/dts/broadcom/bcm4708-linksys-ea6900.dts
+index 8bea7ef..791f611 100644
 --- a/arch/arm/boot/dts/broadcom/bcm4708-linksys-ea6900.dts
 +++ b/arch/arm/boot/dts/broadcom/bcm4708-linksys-ea6900.dts
-@@ -139,7 +139,16 @@
+@@ -139,7 +139,16 @@ port@4 {
  		};
  
  		port@5 {

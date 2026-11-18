@@ -1,6 +1,8 @@
+From 2a4e066a4cdebd06c099892e13894e815584f5d0 Mon Sep 17 00:00:00 2001
 From: Erik Conijn <egc112@msn.com>
 Date: Sat, 14 Nov 2026 13:44:19 +0100
-Subject: [PATCH] net: dsa: b53: trap TCP FIN and RST from the Northstar flow accelerator
+Subject: [PATCH] net: dsa: b53: trap TCP FIN and RST from the Northstar flow
+ accelerator
 
 The flow accelerator also forwards the FIN and RST of a connection it
 holds, so the flowtable never sees the connection end. Its entries stay
@@ -26,9 +28,15 @@ accelerator, its entries after the end of the test:
 Assisted-by: Claude:claude-opus-5-5
 Signed-off-by: Erik Conijn <egc112@msn.com>
 ---
+ drivers/net/dsa/b53/b53_common.c | 27 ++++++++++++++++++++++++++-
+ drivers/net/dsa/b53/b53_regs.h   |  3 +++
+ 2 files changed, 29 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/net/dsa/b53/b53_common.c b/drivers/net/dsa/b53/b53_common.c
+index 69ab969..bdaee84 100644
 --- a/drivers/net/dsa/b53/b53_common.c
 +++ b/drivers/net/dsa/b53/b53_common.c
-@@ -654,6 +654,8 @@
+@@ -654,6 +654,8 @@ static int b53_cfp_redirect(struct b53_device *dev, int index,
  /* The CFP rules for the flow accelerator, from the first one on */
  enum {
  	B53_FA_TRAP_TTL,
@@ -37,7 +45,7 @@ Signed-off-by: Erik Conijn <egc112@msn.com>
  	B53_FA_TRAP_NUM,
  };
  
-@@ -680,8 +682,31 @@
+@@ -680,8 +682,31 @@ static int b53_fa_trap_set(struct b53_device *dev, u16 src, u16 map)
  	mask[6] |= CFP_DATA6_TTL_RANGE_HIGH;
  	err = b53_cfp_redirect(dev, B53_FA_TRAP_TTL, data, mask, map);
  	mask[6] &= ~CFP_DATA6_TTL_RANGE_HIGH;
@@ -70,6 +78,8 @@ Signed-off-by: Erik Conijn <egc112@msn.com>
  }
  
  static void b53_fa_trap_clear(struct b53_device *dev)
+diff --git a/drivers/net/dsa/b53/b53_regs.h b/drivers/net/dsa/b53/b53_regs.h
+index c3dd0bf..f0de2e4 100644
 --- a/drivers/net/dsa/b53/b53_regs.h
 +++ b/drivers/net/dsa/b53/b53_regs.h
 @@ -608,6 +608,9 @@

@@ -1,3 +1,4 @@
+From 0c19670ac205a8368583473563cfde8a958dc527 Mon Sep 17 00:00:00 2001
 From: Erik Conijn <egc112@msn.com>
 Date: Sat, 14 Nov 2026 16:51:38 +0100
 Subject: [PATCH] net: bgmac: offload flows to the Northstar flow accelerator
@@ -74,9 +75,17 @@ it. That is the flowtable core, not this driver.
 Assisted-by: Claude:claude-opus-5-5
 Signed-off-by: Erik Conijn <egc112@msn.com>
 ---
+ drivers/net/ethernet/broadcom/Kconfig    |   1 +
+ drivers/net/ethernet/broadcom/bgmac-fa.c | 916 ++++++++++++++++++++++-
+ drivers/net/ethernet/broadcom/bgmac.c    |  20 +
+ drivers/net/ethernet/broadcom/bgmac.h    |   3 +
+ 4 files changed, 931 insertions(+), 9 deletions(-)
+
+diff --git a/drivers/net/ethernet/broadcom/Kconfig b/drivers/net/ethernet/broadcom/Kconfig
+index 47e9ece..cfc3016 100644
 --- a/drivers/net/ethernet/broadcom/Kconfig
 +++ b/drivers/net/ethernet/broadcom/Kconfig
-@@ -172,6 +172,7 @@
+@@ -172,6 +172,7 @@ config BGMAC_BCMA
  	depends on BCMA && BCMA_HOST_SOC
  	depends on BCM47XX || ARCH_BCM_5301X || COMPILE_TEST
  	select BGMAC
@@ -84,6 +93,8 @@ Signed-off-by: Erik Conijn <egc112@msn.com>
  	select PHYLIB
  	select FIXED_PHY
  	help
+diff --git a/drivers/net/ethernet/broadcom/bgmac-fa.c b/drivers/net/ethernet/broadcom/bgmac-fa.c
+index 4a28603..e278a7e 100644
 --- a/drivers/net/ethernet/broadcom/bgmac-fa.c
 +++ b/drivers/net/ethernet/broadcom/bgmac-fa.c
 @@ -18,10 +18,10 @@
@@ -250,7 +261,7 @@ Signed-off-by: Erik Conijn <egc112@msn.com>
  };
  
  static u32 fa_read(struct bgmac *bgmac, u16 reg)
-@@ -169,6 +278,767 @@
+@@ -169,6 +278,767 @@ static int bgmac_fa_bypass(struct bgmac *bgmac)
  	return 0;
  }
  
@@ -1018,7 +1029,7 @@ Signed-off-by: Erik Conijn <egc112@msn.com>
  static bool bgmac_fa_wanted(struct bgmac *bgmac)
  {
  #if IS_ENABLED(CONFIG_NET_DSA)
-@@ -183,38 +1053,59 @@
+@@ -183,38 +1053,59 @@ static bool bgmac_fa_wanted(struct bgmac *bgmac)
  
  static int bgmac_fa_open(struct bgmac *bgmac)
  {
@@ -1083,7 +1094,7 @@ Signed-off-by: Erik Conijn <egc112@msn.com>
  	struct bcma_device *gmac3;
  	struct bgmac_fa *fa;
  
-@@ -227,8 +1118,15 @@
+@@ -227,8 +1118,15 @@ void bgmac_fa_probe(struct bgmac *bgmac)
  		return;
  
  	fa->core = gmac3;
@@ -1099,9 +1110,11 @@ Signed-off-by: Erik Conijn <egc112@msn.com>
  }
  EXPORT_SYMBOL_GPL(bgmac_fa_probe);
  
+diff --git a/drivers/net/ethernet/broadcom/bgmac.c b/drivers/net/ethernet/broadcom/bgmac.c
+index abcf185..7409b78 100644
 --- a/drivers/net/ethernet/broadcom/bgmac.c
 +++ b/drivers/net/ethernet/broadcom/bgmac.c
-@@ -1212,6 +1212,9 @@
+@@ -1212,6 +1212,9 @@ static int bgmac_stop(struct net_device *net_dev)
  {
  	struct bgmac *bgmac = netdev_priv(net_dev);
  
@@ -1111,7 +1124,7 @@ Signed-off-by: Erik Conijn <egc112@msn.com>
  	netif_carrier_off(net_dev);
  
  	phy_stop(net_dev->phydev);
-@@ -1262,6 +1265,17 @@
+@@ -1262,6 +1265,17 @@ static int bgmac_change_mtu(struct net_device *net_dev, int mtu)
  	return 0;
  }
  
@@ -1129,7 +1142,7 @@ Signed-off-by: Erik Conijn <egc112@msn.com>
  static const struct net_device_ops bgmac_netdev_ops = {
  	.ndo_open		= bgmac_open,
  	.ndo_stop		= bgmac_stop,
-@@ -1271,6 +1285,7 @@
+@@ -1271,6 +1285,7 @@ static const struct net_device_ops bgmac_netdev_ops = {
  	.ndo_validate_addr	= eth_validate_addr,
  	.ndo_eth_ioctl           = phy_do_ioctl_running,
  	.ndo_change_mtu		= bgmac_change_mtu,
@@ -1137,7 +1150,7 @@ Signed-off-by: Erik Conijn <egc112@msn.com>
  };
  
  /**************************************************
-@@ -1545,6 +1560,11 @@
+@@ -1545,6 +1560,11 @@ int bgmac_enet_probe(struct bgmac *bgmac)
  	net_dev->features = NETIF_F_SG | NETIF_F_IP_CSUM | NETIF_F_IPV6_CSUM;
  	net_dev->hw_features = net_dev->features;
  	net_dev->vlan_features = net_dev->features;
@@ -1149,9 +1162,11 @@ Signed-off-by: Erik Conijn <egc112@msn.com>
  
  	/* Omit FCS from max MTU size */
  	net_dev->max_mtu = BGMAC_RX_MAX_FRAME_SIZE - ETH_FCS_LEN;
+diff --git a/drivers/net/ethernet/broadcom/bgmac.h b/drivers/net/ethernet/broadcom/bgmac.h
+index 558a66d..78c2e17 100644
 --- a/drivers/net/ethernet/broadcom/bgmac.h
 +++ b/drivers/net/ethernet/broadcom/bgmac.h
-@@ -499,6 +499,9 @@
+@@ -499,6 +499,9 @@ struct bgmac {
  	/* optional: the flow accelerator in front of this MAC (bgmac-fa.c) */
  	struct bgmac_fa *fa;
  	int (*fa_open)(struct bgmac *bgmac);

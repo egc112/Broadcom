@@ -3,9 +3,10 @@
 > **Status: research prototype, nothing to install yet.** Under OpenWrt the flow accelerator ("FA") in these
 > routers works. It routes and NATs at full gigabit speed with the router's CPU idle. But it runs as a test module
 > that needs two kernel changes and a switch-over script. This page explains what the FA is, how to check whether
-> your router has one, and what we measured. The features are now done (IPv4, IPv6, VLAN WAN); the proper
-> OpenWrt driver is the next step.
-> Tested on the Linksys EA6900 v1. Not in OpenWrt or the Linux kernel.
+> your router has one, and what we measured. The features are done (IPv4, IPv6, VLAN WAN), and the OpenWrt
+> driver for IPv4 is submitted as [openwrt/openwrt#26789](https://github.com/openwrt/openwrt/pull/26789)
+> (2026-11-18, under review; see *The pull request*).
+> Tested on the Linksys EA6900 v1. Not in OpenWrt or the Linux kernel yet.
 > Based on Broadcom's public, ISC-licensed driver source and our own measurements only: see
 > [PROVENANCE.md](PROVENANCE.md).
 
@@ -27,7 +28,7 @@ routing and NAT is done by the CPU, and a dual-core 800 MHz–1.4 GHz ARM cannot
 | IPv4 port forwards (DNAT), internet → LAN | **yes** |
 | IPv4 routing without NAT | **yes** (found in this research; Broadcom's driver never used it) |
 | Wired ports only (LAN ports and WAN port of the built-in switch) | yes |
-| Wi-Fi clients | no: the radios are not behind the switch (their traffic stays in software, fast path) |
+| Wi-Fi clients | no: the radios are not behind the switch (their traffic stays in software, fast path; see *Wi-Fi*) |
 | IPv6 TCP and UDP, routed (as home IPv6 is) | **yes** (found in this research; Broadcom's driver never used it) |
 | IPv6 with NAT (NAT66, IPv6 port forwards) | not yet: the FA has NAT fields for IPv6, but they are untested; these stay in software |
 | WAN with a VLAN tag (some ISPs) | **yes** (802.1Q tag on the WAN port; tested with VLAN 10) |
@@ -210,11 +211,64 @@ average rose to 15 while the CPU was idle. 724 now busy-waits for those few micr
 driver does; the second soak ran with that fix.
 
 Still to do: the device trees of the other routers (they need openwrt/openwrt#25131 first), IPv6 UDP /
-full-table / reload re-tests in the new driver, and the pull request, which depends on the EA6900 support in
-openwrt/openwrt#26316. Later, to research: PPPoE, NAT66, and a hybrid mode for Wi-Fi and PPPoE in which the FA
-does the lookup and the NAT and the CPU forwards the packet (an idea from the
-[forum thread](https://forum.openwrt.org/t/northstar-bcm4708-4709-fa-hardware-offload-how-should-tcp-fin-rst-reach-the-flowtable/255472)). The patches build on two OpenWrt patches by Rosen Penev (a second CPU port for b53,
-openwrt/openwrt#26005), already in OpenWrt.
+full-table / reload re-tests in the new driver, and the pull requests for IPv6 and the VLAN-tagged WAN (728-731)
+after the first one. Later, to research: PPPoE, NAT66, and port 8 at 2 Gbit/s (would lift the ~1130 Mbit/s
+both-ways limit). A hybrid mode for Wi-Fi, in which the FA does the lookup and the NAT and the CPU forwards the
+packet (an idea from the
+[forum thread](https://forum.openwrt.org/t/northstar-bcm4708-4709-fa-hardware-offload-how-should-tcp-fin-rst-reach-the-flowtable/255472)),
+was researched and is not worth building: see *Wi-Fi*. The patches build on two OpenWrt patches by Rosen Penev
+(a second CPU port for b53, openwrt/openwrt#26005), already in OpenWrt.
+
+### The pull request (2026-11-18)
+
+[openwrt/openwrt#26789](https://github.com/openwrt/openwrt/pull/26789) adds the IPv4 part (patches 721-727 and
+the EA6900 device tree changes 328/329). It needs openwrt/openwrt#25131 (port 8 as the CPU port) and
+openwrt/openwrt#26316 (EA6900 support) merged first. IPv6 and the VLAN-tagged WAN follow as separate PRs.
+
+One change against the prototype: TCP FIN/RST and TTL 0/1 frames addressed through the router are **redirected**
+to port 5 by the switch, not copied. They take the normal software path, so nothing has to drop a duplicate,
+and the flowtable sees the close and removes the hardware entry. Tested with the image of the PR (wired hosts on
+the WAN and LAN side, iperf3):
+
+| Test | Result |
+|---|---|
+| TCP LAN to WAN, both directions | 941 Mbit/s, CPU 97 % idle |
+| port forward, WAN host to LAN host | 943 / 946 Mbit/s at 0 % CPU (software flowtable: 477 / 548, one core full) |
+| hit counters as flow statistics | one hit = one packet: 74,998 and 100,002 UDP datagrams counted exactly (plus the one that set up the flow, in software) |
+| TTL 1 inside an offloaded flow | rule on: "time exceeded" comes back; rule off: dropped silently |
+| TCP FIN and RST inside an offloaded flow | rule on: hardware entries gone within 1 s; rule off: the entry stays |
+| `fw4 reload` during a transfer, 20 times | every transfer continues, 12-second averages 891-941 Mbit/s |
+| offloading off/on 10 times, port 5 down/up 10 times, 3 reboots, flowtable modules unloaded and reloaded 10 times | 940-941 Mbit/s after each, no kernel warnings |
+| 1-hour soak through the port forward (TCP each way, UDP 300 Mbit/s, 15 rounds) | 940-941 Mbit/s, UDP 0-0.0013 % loss, no kernel warnings, no memory growth |
+
+The patch files are generated with `git format-patch` and refreshed the way OpenWrt's `make target/linux/refresh`
+does, as OpenWrt's formality check asks.
+
+## Wi-Fi (researched 2026-11-18)
+
+**The FA cannot carry Wi-Fi traffic, and on the EA6900 it would not help if it could.**
+
+- The radios sit on PCIe, so their frames never pass port 8 and the FA never sees them. Broadcom's own driver
+  refuses an FA entry unless both sides are Ethernet (GMAC) interfaces (`fa_napt_add()` in `etc_fa.c`); its
+  firmware forwards Wi-Fi in software (CTF). OpenWrt's equivalent is the software flowtable, and Wi-Fi
+  connections do use it with `flow_offloading_hw` on (the hardware refuses them, the software path takes them).
+- Measured on the EA6900 (5 GHz, VHT80, 3-stream client, routed to a wired host on the WAN side, software
+  flowtable): about **410 Mbit/s** WAN to client and **315 Mbit/s** client to WAN. The limit is the CPU: the Wi-Fi
+  driver's (b43-next) 5 GHz interrupt thread takes 85-92 % of one core in both directions, and to the client the
+  other core is full with receiving from the switch and sending to the radio.
+- The same transfer **bridged** (a wired LAN host to the Wi-Fi client: no routing, no NAT, no flowtable) is not
+  faster (395-398 Mbit/s); routing, NAT and the flowtable together cost about 10 % of one core. A hybrid mode
+  (FA does the lookup and NAT, the CPU only forwards) could at most save those 10 % and give no extra
+  throughput, while every Wi-Fi packet would also have to cross port 8 to the FA and back. Not worth building.
+- The software flowtable itself does help: +26 % to the client and +57 % from the client against plain
+  forwarding. It is on with OpenWrt's `flow_offloading`.
+- firewall4 adds Wi-Fi interfaces to the flowtable only when it (re)loads after they exist. At boot that can be
+  too early ([openwrt/firewall4#123](https://github.com/openwrt/firewall4/pull/123) fixes that). On our EA6900 the
+  IPv6 WAN coming up a moment after the radios made firewall4 reload again, so the boot gap did not show; on a
+  setup without IPv6 on the WAN it can.
+
+So any further Wi-Fi speed-up has to come from the Wi-Fi driver's receive path (it runs in a threaded
+interrupt without NAPI), not from the FA.
 
 ## Details (for the technically minded)
 

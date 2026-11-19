@@ -1,0 +1,14 @@
+--- a/target/linux/bcm53xx/base-files/etc/hotplug.d/net/30-wifi-rps
++++ b/target/linux/bcm53xx/base-files/etc/hotplug.d/net/30-wifi-rps
+@@ -0,0 +1,11 @@
++# RPS for the Wi-Fi AP interfaces: hand the forwarding to the CPU that does
++# not take the radio's interrupt. bcm53xx's packet steering skips Wi-Fi, and
++# packet steering does not run again when "wifi" creates the AP interfaces.
++[ "$ACTION" = add ] || exit 0
++case "$INTERFACE" in phy*-ap*) ;; *) exit 0 ;; esac
++irq=$(cat /sys/class/net/$INTERFACE/device/../irq 2>/dev/null) || exit 0
++aff=$(cat /proc/irq/$irq/smp_affinity 2>/dev/null) || exit 0
++case $((0x$aff)) in
++	1) echo 2 > /sys/class/net/$INTERFACE/queues/rx-0/rps_cpus ;;
++	2) echo 1 > /sys/class/net/$INTERFACE/queues/rx-0/rps_cpus ;;
++esac

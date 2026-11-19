@@ -17,6 +17,7 @@ patch series in [b43-80211n](../b43-80211n/): their work is in b43-next now.
 | `patches/Broadcom-2-b43-next-package.patch` | the `kmod-b43-next` package from [openwrt/openwrt#26717](https://github.com/openwrt/openwrt/pull/26717) at 96c3718543 (with the firmware as a separate `b43-firmware` package), pinned to b43-next fe3b1fd (ht-fixes: HT40 on the HT-PHY + the HT40- beacon fix); `tools/Makefile` also builds b43-fwcutter for `b43-firmware` |
 | `patches/Broadcom-3-b43-next-devices.patch` | the R6400 v1, v2, v2-otp and the EA6900 get `kmod-b43-next` and `wpad-openssl` instead of kmod-b43 and wpad-basic-mbedtls |
 | `patches/Broadcom-4-irqbalance-enable.patch` | switches irqbalance on when it is installed (the package installs disabled) |
+| `patches/Broadcom-5-wifi-rps-hotplug.patch` | a hotplug script that switches RPS on for the Wi-Fi AP interfaces, see [below](#rps-on-for-the-wi-fi-interfaces) |
 | `diffconfig` | EA6900, R6400 v1, R6400 v2 in one multi-profile build; kmod-b43-next, LuCI, irqbalance, iperf3, iw-full |
 | `irqpin.rc.local` | a fixed IRQ layout for test comparisons only; not built in, copy it by hand to `/etc/rc.local` |
 | `apply.sh` | applies the patches to an OpenWrt tree and puts the diffconfig in place |
@@ -46,16 +47,19 @@ in `/etc/config/wireless` along.
 When openwrt#26717 gets merged into OpenWrt, `Broadcom-2` is no longer needed (apart from the pin). The same
 goes for `Broadcom-1` once openwrt#26316 is merged.
 
-## Switch RPS on for the Wi-Fi interfaces
+## RPS on for the Wi-Fi interfaces
 
-Do this on every image. On these two-core routers a radio's interrupt thread receives the frames and also
+On these two-core routers a radio's interrupt thread receives the frames and also
 forwards them (bridge, Ethernet) on the same CPU; at full 5 GHz speed that CPU is the limit. RPS (receive packet
 steering) hands the forwarding to the other CPU. OpenWrt's packet steering does not do it on bcm53xx: the
 target's own `/usr/libexec/platform/packet-steering.sh` replaces the generic script and sets only `eth0` and
-`br-lan`. So set it per AP interface with a hotplug script, `/etc/hotplug.d/net/30-wifi-rps`:
+`br-lan`; and packet steering does not run again when `wifi` creates the AP interfaces, on any target. The kit
+therefore sets RPS per AP interface with a hotplug script, `/etc/hotplug.d/net/30-wifi-rps`, built in by
+`Broadcom-5-wifi-rps-hotplug.patch` (in bcm53xx's base-files, so on all bcm53xx images of the build):
 
     # RPS for the Wi-Fi AP interfaces: hand the forwarding to the CPU that does
-    # not take the radio's interrupt (bcm53xx's packet steering skips Wi-Fi).
+    # not take the radio's interrupt. bcm53xx's packet steering skips Wi-Fi, and
+    # packet steering does not run again when "wifi" creates the AP interfaces.
     [ "$ACTION" = add ] || exit 0
     case "$INTERFACE" in phy*-ap*) ;; *) exit 0 ;; esac
     irq=$(cat /sys/class/net/$INTERFACE/device/../irq 2>/dev/null) || exit 0
@@ -66,8 +70,8 @@ target's own `/usr/libexec/platform/packet-steering.sh` replaces the generic scr
     esac
 
 It runs whenever an AP interface is created (boot, `wifi`, a radio reload). Check with
-`cat /sys/class/net/phy*-ap*/queues/rx-0/rps_cpus`: 1 or 2, not 0. To build it into the image, put it in
-`files/etc/hotplug.d/net/30-wifi-rps` in the OpenWrt tree.
+`cat /sys/class/net/phy*-ap*/queues/rx-0/rps_cpus`: 1 or 2, not 0. On an image built without the kit, copy the
+script by hand to `/etc/hotplug.d/net/30-wifi-rps` and run `wifi`.
 
 Measured on the R6400 v2 (5 GHz VHT80, MT6000 client, bridged to a wired PC, 60 s runs, 2026-11-19): upload 365
 to 398 Mbit/s, download 319 to 349, and no "RX descriptor underrun" (without RPS about one every 4 minutes at full
@@ -107,7 +111,7 @@ EA6900 with an image built from this kit (2026-11-18), MT6000 client, iperf3 to 
 | `Broadcom-1` | Erik Conijn | board support as submitted to OpenWrt and reviewed there, openwrt/openwrt#26316; no b43 code |
 | `Broadcom-2` | Ville Takio (flatstik) | his openwrt/openwrt#26717, unchanged apart from two lines of ours: the b43-next pin (`PKG_SOURCE_*`, `PKG_MIRROR_HASH`) and the `tools/Makefile` condition |
 | b43-next itself | Alessio Ferri and contributors | downloaded at build time; its sources are documented in its own repository |
-| `Broadcom-3`, `Broadcom-4`, `diffconfig`, `apply.sh` | Erik Conijn | OpenWrt's own image Makefile and package configuration |
+| `Broadcom-3`, `Broadcom-4`, `Broadcom-5`, `diffconfig`, `apply.sh` | Erik Conijn | OpenWrt's own image Makefile and package configuration |
 | `irqpin.rc.local` | Erik Conijn | throughput measurements on the EA6900 (2026-10-29) |
 
 The b43 firmware (from Broadcom's driver 6.30.163.46) is downloaded at build time, as for OpenWrt's kmod-b43;

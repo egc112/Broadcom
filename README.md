@@ -9,4 +9,6 @@ Patches and files for Broadcom BCM53xx ARM routers running OpenWrt, e.g. the Net
 | [b43-next-build-kit](b43-next-build-kit/) | **One build kit for the EA6900 and the R6400 v1/v2** with [b43-next](https://github.com/aleferri/b43-next) as the Wi-Fi driver (BCM4331 + BCM4360): OpenWrt main + four patches; replaces the EA6900 build kit and the b43-80211n patch series. |
 | [northstar-fa](northstar-fa/) | **Research: the hardware flow accelerator (FA)** in BCM4708/BCM4709/BCM47094 routers under OpenWrt: what it is, how to check whether your router has one, measurements (941 Mbit/s NAT at 0 % CPU on the EA6900). Prototype only, nothing to install yet. |
 
+What it adds up to: [measured best-case figures for the R6400 v2](r6400-v2-showcase.md), wired and Wi-Fi, from 802.11g at about 10 Mbit/s to 941 Mbit/s at 1 % CPU.
+
 Questions and test reports: please open an issue.

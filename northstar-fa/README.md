@@ -205,10 +205,15 @@ Ethernet interface of the SoC (eth0) and does not pass the FA. The driver brings
 down, IPv4 offload continues without the rules, and IPv6 connections leave the hardware within a second and
 continue in software (the FA would otherwise forward hop limit 1 as 0).
 
-The patches are in [patches/](patches/) (328, 329, 721–731). The first soak found that the driver slept while
+The patches are in [patches/](patches/) (328, 329, 721–731, and 330 for the R6400 v2). The first soak found that the driver slept while
 waiting for each table access, under the lock that every flow addition takes: with about 250 flows the load
 average rose to 15 while the CPU was idle. 724 now busy-waits for those few microseconds, as Broadcom's own
 driver does; the second soak ran with that fix.
+
+The R6400 v2 (BCM47094) runs it too since 2026-11-19, with patch 330 for its device tree: CPU port 8 as
+openwrt/openwrt#25131 sets it for the R6400 V1 file (here only in the V2 file), the MAC address of gmac2 from
+nvram, and ports 5 and 8 as on the EA6900. First boot worked unchanged: IPv4 941/941 and IPv6 928/928 Mbit/s at
+98 % idle, and the TTL, FIN and RST traps behave as on the EA6900.
 
 Still to do: the device trees of the other routers (they need openwrt/openwrt#25131 first), IPv6 UDP /
 full-table / reload re-tests in the new driver, and the pull requests for IPv6 and the VLAN-tagged WAN (728-731)

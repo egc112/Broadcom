@@ -1,0 +1,64 @@
+From: Erik Conijn <egc112@msn.com>
+Subject: [PATCH] ARM: dts: BCM5301X: R6400 V2: use the flow accelerator
+
+Private test patch, not for upstream as it is: move the CPU port of the
+R6400 V2 from port 5 to port 8 as openwrt/openwrt#25131 does for the
+R6400 V1 file (only in the V2 file here, so the V1 image is unchanged),
+with the board MAC address for gmac2 from nvram, and set it up for the
+flow accelerator as the EA6900 does (patches 328 and 329): the
+prepended tag on port 8, port 5 back as the trap port.
+
+Assisted-by: Claude:claude-opus-5-5
+Signed-off-by: Erik Conijn <egc112@msn.com>
+---
+--- a/arch/arm/boot/dts/broadcom/bcm47094-netgear-r6400-v2.dts
++++ b/arch/arm/boot/dts/broadcom/bcm47094-netgear-r6400-v2.dts
+@@ -14,6 +14,48 @@
+ / {
+ 	compatible = "netgear,r6400-v2", "brcm,bcm47094", "brcm,bcm4708";
+ 	model = "Netgear R6400 V2";
++
++	nvram@1c080000 {
++		compatible = "brcm,nvram";
++		reg = <0x1c080000 0x180000>;
++
++		et0macaddr: et0macaddr {
++			#nvmem-cell-cells = <1>;
++		};
++	};
++};
++
++/* Port 8 is the CPU port, through the flow accelerator: gmac2 needs the
++ * board MAC address, the bootloader sets it only for gmac0
++ */
++&gmac2 {
++	nvmem-cells = <&et0macaddr 0>;
++	nvmem-cell-names = "mac-address";
++};
++
++&srab {
++	ports {
++		port@5 {
++			/* takes the flow accelerator's traps, see b53_common.c;
++			 * one tagger per tree, and this port carries the
++			 * regular tag
++			 */
++			/delete-property/ label;
++			dsa-tag-protocol = "brcm-prepend";
++
++			fixed-link {
++				speed = <1000>;
++				full-duplex;
++			};
++		};
++
++		port@8 {
++			label = "cpu";
++			/* through the flow accelerator, see bgmac-fa.c */
++			dsa-tag-protocol = "brcm-prepend";
++			status = "okay";
++		};
++	};
+ };
+ 
+ /*

@@ -14,7 +14,7 @@ patch series in [b43-80211n](../b43-80211n/): their work is in b43-next now.
 | File | What |
 |---|---|
 | `patches/Broadcom-1-EA6900-board.patch` | EA6900 board support (dts, image, board.d, nvram), as submitted in [openwrt/openwrt#26316](https://github.com/openwrt/openwrt/pull/26316) |
-| `patches/Broadcom-2-b43-next-package.patch` | the `kmod-b43-next` package from [openwrt/openwrt#26717](https://github.com/openwrt/openwrt/pull/26717) at 96c3718543 (with the firmware as a separate `b43-firmware` package), pinned to b43-next 42a5567 (main of 2026-11-19), with [aleferri/b43-next#39](https://github.com/aleferri/b43-next/pull/39) (AC aggregation epochs per TX FIFO) as the package patch `patches/100-b43-track-AC-aggregation-epochs-per-TX-FIFO.patch`, since its branch is based on an older commit (not yet measured); `tools/Makefile` also builds b43-fwcutter for `b43-firmware` |
+| `patches/Broadcom-2-b43-next-package.patch` | the `kmod-b43-next` package from [openwrt/openwrt#26717](https://github.com/openwrt/openwrt/pull/26717) at 96c3718543 (with the firmware as a separate `b43-firmware` package), pinned to b43-next 4854b6f (main of 2026-11-19, with [aleferri/b43-next#39](https://github.com/aleferri/b43-next/pull/39) merged: AC aggregation epochs per TX FIFO, no throughput change in an A/B on the R6400 v2); `tools/Makefile` also builds b43-fwcutter for `b43-firmware` |
 | `patches/Broadcom-3-b43-next-devices.patch` | the R6400 v1, v2, v2-otp and the EA6900 get `kmod-b43-next` and `wpad-openssl` instead of kmod-b43 and wpad-basic-mbedtls |
 | `patches/Broadcom-4-irqbalance-enable.patch` | switches irqbalance on when it is installed (the package installs disabled) |
 | `patches/Broadcom-5-wifi-rps-hotplug.patch` | a hotplug script that switches RPS on for the Wi-Fi AP interfaces, see [below](#rps-on-for-the-wi-fi-interfaces) |
@@ -44,7 +44,7 @@ Images: `bin/targets/bcm53xx/generic/`: `*linksys_ea6900-squashfs.trx`, `*netgea
 At boot, `/etc/init.d/b43-next` hands the PCIe radios from the kernel's bcma to b43-next and moves their paths
 in `/etc/config/wireless` along.
 
-When openwrt#26717 gets merged into OpenWrt, `Broadcom-2` is no longer needed (apart from the pin and, until aleferri/b43-next#39 is merged, its `patches/100-…` file). The same
+When openwrt#26717 gets merged into OpenWrt, `Broadcom-2` is no longer needed (apart from the pin). The same
 goes for `Broadcom-1` once openwrt#26316 is merged.
 
 ## RPS on for the Wi-Fi interfaces
@@ -111,7 +111,7 @@ EA6900 with an image built from this kit (2026-11-18), MT6000 client, iperf3 to 
 | Part | Author | Based on |
 |---|---|---|
 | `Broadcom-1` | Erik Conijn | board support as submitted to OpenWrt and reviewed there, openwrt/openwrt#26316; no b43 code |
-| `Broadcom-2` | Ville Takio (flatstik) | his openwrt/openwrt#26717, unchanged apart from two lines of ours: the b43-next pin (`PKG_SOURCE_*`, `PKG_MIRROR_HASH`) and the `tools/Makefile` condition; its `patches/100-…` is Dharmik Parmar's aleferri/b43-next#39, unchanged |
+| `Broadcom-2` | Ville Takio (flatstik) | his openwrt/openwrt#26717, unchanged apart from two lines of ours: the b43-next pin (`PKG_SOURCE_*`, `PKG_MIRROR_HASH`) and the `tools/Makefile` condition |
 | b43-next itself | Alessio Ferri and contributors | downloaded at build time; its sources are documented in its own repository |
 | `Broadcom-3`, `Broadcom-4`, `Broadcom-5`, `diffconfig`, `apply.sh` | Erik Conijn | OpenWrt's own image Makefile and package configuration |
 | `irqpin.rc.local` | Erik Conijn | throughput measurements on the EA6900 (2026-10-29) |

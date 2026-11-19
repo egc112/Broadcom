@@ -46,6 +46,35 @@ in `/etc/config/wireless` along.
 When openwrt#26717 gets merged into OpenWrt, `Broadcom-2` is no longer needed (apart from the pin). The same
 goes for `Broadcom-1` once openwrt#26316 is merged.
 
+## Switch RPS on for the Wi-Fi interfaces
+
+Do this on every image. On these two-core routers a radio's interrupt thread receives the frames and also
+forwards them (bridge, Ethernet) on the same CPU; at full 5 GHz speed that CPU is the limit. RPS (receive packet
+steering) hands the forwarding to the other CPU. OpenWrt's packet steering does not do it on bcm53xx: the
+target's own `/usr/libexec/platform/packet-steering.sh` replaces the generic script and sets only `eth0` and
+`br-lan`. So set it per AP interface with a hotplug script, `/etc/hotplug.d/net/30-wifi-rps`:
+
+    # RPS for the Wi-Fi AP interfaces: hand the forwarding to the CPU that does
+    # not take the radio's interrupt (bcm53xx's packet steering skips Wi-Fi).
+    [ "$ACTION" = add ] || exit 0
+    case "$INTERFACE" in phy*-ap*) ;; *) exit 0 ;; esac
+    irq=$(cat /sys/class/net/$INTERFACE/device/../irq 2>/dev/null) || exit 0
+    aff=$(cat /proc/irq/$irq/smp_affinity 2>/dev/null) || exit 0
+    case $((0x$aff)) in
+    	1) echo 2 > /sys/class/net/$INTERFACE/queues/rx-0/rps_cpus ;;
+    	2) echo 1 > /sys/class/net/$INTERFACE/queues/rx-0/rps_cpus ;;
+    esac
+
+It runs whenever an AP interface is created (boot, `wifi`, a radio reload). Check with
+`cat /sys/class/net/phy*-ap*/queues/rx-0/rps_cpus`: 1 or 2, not 0. To build it into the image, put it in
+`files/etc/hotplug.d/net/30-wifi-rps` in the OpenWrt tree.
+
+Measured on the R6400 v2 (5 GHz VHT80, MT6000 client, bridged to a wired PC, 60 s runs, 2026-11-19): upload 365
+to 398 Mbit/s, download 319 to 349, and no "RX descriptor underrun" (without RPS about one every 4 minutes at full
+upload). Do not give both CPUs (`3`): a single flow then lands on one CPU by hash, and in our runs it mostly
+stayed on the busy one. The 2.4 GHz radio gets the same setting but was not measured on its own. If irqbalance
+moves a radio's interrupt later, the setting does not follow until the next `wifi`.
+
 ## Tested (R6400 v2 and EA6900, 2026-11-17/18)
 
 BCM4331 at 2.4 GHz, 4 SSIDs, DL-WRX36 client, TCP to a wired LAN host: HT20 about 150 up / 105 down, HT40 about
@@ -68,7 +97,8 @@ EA6900 with an image built from this kit (2026-11-18), MT6000 client, iperf3 to 
   AC-PHY only logs it). On the 2.4 GHz radio (BCM4331) none on this image in 2 h 40 min of load on both bands
   (2026-11-18); there each error counts towards a controller restart after 1000, so report it if it does show up.
 - The R6400's 5 GHz radio (BCM4360) at full upload speed: "RX descriptor underrun" warnings (34 in 2 hours); the
-  RX ring was full and the driver empties it again, throughput unaffected. The EA6900 shows the same.
+  RX ring was full and the driver empties it again, throughput unaffected. The EA6900 shows the same. With RPS on
+  (see above) none in our runs on the R6400 v2.
 
 ## Sources
 

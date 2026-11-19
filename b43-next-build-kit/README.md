@@ -76,8 +76,10 @@ script by hand to `/etc/hotplug.d/net/30-wifi-rps` and run `wifi`.
 Measured on the R6400 v2 (5 GHz VHT80, MT6000 client, bridged to a wired PC, 60 s runs, 2026-11-19): upload 365
 to 398 Mbit/s, download 319 to 349, and no "RX descriptor underrun" (without RPS about one every 4 minutes at full
 upload). Do not give both CPUs (`3`): a single flow then lands on one CPU by hash, and in our runs it mostly
-stayed on the busy one. The 2.4 GHz radio gets the same setting but was not measured on its own. If irqbalance
-moves a radio's interrupt later, the setting does not follow until the next `wifi`.
+stayed on the busy one. The 2.4 GHz radio gets the same setting but was not measured on its own. At boot the script
+waits in the background until irqbalance has pinned the radio's interrupt to one CPU (about 35 s after boot on the
+R6400 v2) and logs what it set (`logread | grep wifi-rps`). If irqbalance moves a radio's interrupt later, the
+setting does not follow until the next `wifi`.
 
 ## Tested (R6400 v2 and EA6900, 2026-11-17/18)
 

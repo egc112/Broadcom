@@ -1,14 +1,32 @@
---- a/target/linux/bcm53xx/base-files/etc/hotplug.d/net/30-wifi-rps
+diff --git a/target/linux/bcm53xx/base-files/etc/hotplug.d/net/30-wifi-rps b/target/linux/bcm53xx/base-files/etc/hotplug.d/net/30-wifi-rps
+new file mode 100644
+index 0000000000..dba79adaee
+--- /dev/null
 +++ b/target/linux/bcm53xx/base-files/etc/hotplug.d/net/30-wifi-rps
-@@ -0,0 +1,11 @@
+@@ -0,0 +1,26 @@
 +# RPS for the Wi-Fi AP interfaces: hand the forwarding to the CPU that does
 +# not take the radio's interrupt. bcm53xx's packet steering skips Wi-Fi, and
 +# packet steering does not run again when "wifi" creates the AP interfaces.
 +[ "$ACTION" = add ] || exit 0
 +case "$INTERFACE" in phy*-ap*) ;; *) exit 0 ;; esac
 +irq=$(cat /sys/class/net/$INTERFACE/device/../irq 2>/dev/null) || exit 0
-+aff=$(cat /proc/irq/$irq/smp_affinity 2>/dev/null) || exit 0
-+case $((0x$aff)) in
-+	1) echo 2 > /sys/class/net/$INTERFACE/queues/rx-0/rps_cpus ;;
-+	2) echo 1 > /sys/class/net/$INTERFACE/queues/rx-0/rps_cpus ;;
-+esac
++# The radio's first interface comes before its interrupt is requested, and at
++# boot the interrupt goes to both CPUs until irqbalance pins it: wait for both
++# in the background, without holding up the other events
++(
++	n=0
++	while :; do
++		case $((0x$(cat /proc/irq/$irq/smp_affinity 2>/dev/null || echo 0))) in
++		1) cpus=2; break ;;
++		2) cpus=1; break ;;
++		esac
++		n=$((n + 1))
++		[ $n -lt 600 ] || {
++			logger -t wifi-rps "$INTERFACE: IRQ $irq not pinned to one CPU, no RPS"
++			exit 0
++		}
++		sleep 1
++	done
++	echo $cpus > /sys/class/net/$INTERFACE/queues/rx-0/rps_cpus &&
++		logger -t wifi-rps "$INTERFACE: RPS on CPU mask $cpus after $n s"
++) </dev/null >/dev/null 2>&1 &

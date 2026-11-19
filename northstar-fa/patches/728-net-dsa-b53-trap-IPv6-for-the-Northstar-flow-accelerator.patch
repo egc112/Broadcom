@@ -31,7 +31,7 @@ Signed-off-by: Erik Conijn <egc112@msn.com>
  #include <linux/export.h>
  #include <linux/gpio.h>
  #include <linux/kernel.h>
-@@ -656,6 +657,8 @@
+@@ -656,6 +657,8 @@ enum {
  	B53_FA_TRAP_TTL,
  	B53_FA_TRAP_FIN,
  	B53_FA_TRAP_RST,
@@ -40,7 +40,7 @@ Signed-off-by: Erik Conijn <egc112@msn.com>
  	B53_FA_TRAP_NUM,
  };
  
-@@ -665,20 +668,20 @@
+@@ -665,23 +668,23 @@ static int b53_fa_trap_set(struct b53_de
  	u32 mask[B53_CFP_NUM_KEY_REGS] = {
  		CFP_DATA0_SLICE_VALID | CFP_DATA0_SLICE_ID_MASK
  	};
@@ -56,11 +56,17 @@ Signed-off-by: Erik Conijn <egc112@msn.com>
  	mask[7] = 0xff & ~src;
  
 -	/* TTL 0 or 1, which the flow accelerator drops after its decrement
--	 * instead of leaving the ICMP time exceeded message to the host
+-	 * instead of leaving the ICMP time exceeded message to the host.
+-	 * The TTL range field (bits 4:3) holds 0 for TTL 0, 1 for TTL 1,
+-	 * 2 for TTL 2 to 254 and 3 for TTL 255 (measured on a BCM4708), so
+-	 * a clear bit 4 matches exactly TTL 0 and 1.
 +	/* IPv4 and IPv6 with TTL or hop limit 0 or 1. The flow accelerator
 +	 * drops such an IPv4 frame after its decrement instead of leaving
 +	 * the ICMP time exceeded message to the host, and forwards an IPv6
-+	 * one with hop limit 0.
++	 * one with hop limit 0. The TTL range field (bits 4:3) holds 0 for
++	 * TTL 0, 1 for TTL 1, 2 for TTL 2 to 254 and 3 for TTL 255
++	 * (measured on a BCM4708), so a clear bit 4 matches exactly TTL 0
++	 * and 1.
  	 */
 -	mask[6] |= CFP_DATA6_TTL_RANGE_HIGH;
 +	mask[6] = CFP_DATA6_L3_FRAMING_NOT_IP | CFP_DATA6_TTL_RANGE_HIGH;
@@ -69,7 +75,7 @@ Signed-off-by: Erik Conijn <egc112@msn.com>
  	if (err)
  		return err;
  
-@@ -688,22 +691,36 @@
+@@ -691,22 +694,36 @@ static int b53_fa_trap_set(struct b53_de
  	 */
  	b53_write8(dev, B53_CFP_PAGE, B53_CFP_UDF_0_A_0,
  		   CFP_UDF_EOL3 | B53_CFP_UDF_TCP_FLAGS);
@@ -118,7 +124,7 @@ Signed-off-by: Erik Conijn <egc112@msn.com>
  }
  
  static void b53_fa_trap_clear(struct b53_device *dev)
-@@ -3089,6 +3106,19 @@
+@@ -3092,6 +3109,19 @@ static const struct dsa_switch_ops b53_s
  	.port_change_mtu	= b53_change_mtu,
  };
  

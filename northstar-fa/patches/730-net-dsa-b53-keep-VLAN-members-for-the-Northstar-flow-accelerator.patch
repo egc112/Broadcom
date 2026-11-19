@@ -39,7 +39,7 @@ Signed-off-by: Erik Conijn <egc112@msn.com>
 ---
 --- a/drivers/net/dsa/b53/b53_common.c
 +++ b/drivers/net/dsa/b53/b53_common.c
-@@ -252,15 +252,19 @@
+@@ -252,15 +252,19 @@ static int b53_do_vlan_op(struct b53_dev
  	return -EIO;
  }
  
@@ -63,7 +63,7 @@ Signed-off-by: Erik Conijn <egc112@msn.com>
  			if (dev->core_rev >= 3)
  				entry |= VA_VALID_25_R4 | vid << VA_VID_HIGH_S;
  			else
-@@ -273,9 +277,9 @@
+@@ -273,9 +277,9 @@ static void b53_set_vlan_entry(struct b5
  	} else if (is5365(dev)) {
  		u16 entry = 0;
  
@@ -75,7 +75,7 @@ Signed-off-by: Erik Conijn <egc112@msn.com>
  
  		b53_write16(dev, B53_VLAN_PAGE, B53_VLAN_WRITE_65, entry);
  		b53_write16(dev, B53_VLAN_PAGE, B53_VLAN_TABLE_ACCESS_65, vid |
-@@ -283,18 +287,28 @@
+@@ -283,18 +287,28 @@ static void b53_set_vlan_entry(struct b5
  	} else {
  		b53_write16(dev, B53_ARLIO_PAGE, dev->vta_regs[1], vid);
  		b53_write32(dev, B53_ARLIO_PAGE, dev->vta_regs[2],
@@ -106,7 +106,7 @@ Signed-off-by: Erik Conijn <egc112@msn.com>
  	if (is5325(dev)) {
  		u32 entry = 0;
  
-@@ -329,6 +343,8 @@
+@@ -329,6 +343,8 @@ static void b53_get_vlan_entry(struct b5
  		vlan->untag = (entry >> VTE_UNTAG_S) & VTE_MEMBERS;
  		vlan->valid = true;
  	}
@@ -115,7 +115,7 @@ Signed-off-by: Erik Conijn <egc112@msn.com>
  }
  
  static void b53_set_eap_mode(struct b53_device *dev, int port, int mode)
-@@ -1213,7 +1229,9 @@
+@@ -1216,7 +1232,9 @@ int b53_configure_vlan(struct dsa_switch
  		for (i = def_vid; i < dev->num_vlans; i++)
  			b53_set_vlan_entry(dev, i, &vl);
  	} else {
@@ -125,7 +125,7 @@ Signed-off-by: Erik Conijn <egc112@msn.com>
  	}
  
  	b53_enable_vlan(dev, -1, dev->vlan_enabled, dev->vlan_filtering);
-@@ -1244,7 +1262,7 @@
+@@ -1247,7 +1265,7 @@ int b53_configure_vlan(struct dsa_switch
  		for (vid = def_vid + 1; vid < dev->num_vlans; vid++) {
  			v = &dev->vlans[vid];
  
@@ -134,7 +134,7 @@ Signed-off-by: Erik Conijn <egc112@msn.com>
  				continue;
  
  			b53_set_vlan_entry(dev, vid, v);
-@@ -1257,6 +1275,13 @@
+@@ -1260,6 +1278,13 @@ int b53_configure_vlan(struct dsa_switch
  					    B53_VLAN_PORT_DEF_TAG(i),
  					    dev->ports[i].pvid);
  		}
@@ -148,7 +148,7 @@ Signed-off-by: Erik Conijn <egc112@msn.com>
  	}
  
  	return 0;
-@@ -3119,6 +3144,43 @@
+@@ -3122,6 +3147,43 @@ bool b53_fa_trap_active(struct dsa_switc
  }
  EXPORT_SYMBOL(b53_fa_trap_active);
  
@@ -192,7 +192,7 @@ Signed-off-by: Erik Conijn <egc112@msn.com>
  static const struct b53_arl_ops b53_arl_ops_25 = {
  	.arl_read_entry = b53_arl_read_entry_25,
  	.arl_write_entry = b53_arl_write_entry_25,
-@@ -3605,6 +3667,7 @@
+@@ -3608,6 +3670,7 @@ struct b53_device *b53_switch_alloc(stru
  	mutex_init(&dev->reg_mutex);
  	mutex_init(&dev->stats_mutex);
  	mutex_init(&dev->arl_mutex);
@@ -202,7 +202,7 @@ Signed-off-by: Erik Conijn <egc112@msn.com>
  }
 --- a/drivers/net/dsa/b53/b53_priv.h
 +++ b/drivers/net/dsa/b53/b53_priv.h
-@@ -126,6 +126,7 @@
+@@ -126,6 +126,7 @@ struct b53_port {
  struct b53_vlan {
  	u16 members;
  	u16 untag;
@@ -210,7 +210,7 @@ Signed-off-by: Erik Conijn <egc112@msn.com>
  	bool valid;
  };
  
-@@ -137,6 +138,7 @@
+@@ -137,6 +138,7 @@ struct b53_device {
  	struct mutex reg_mutex;
  	struct mutex stats_mutex;
  	struct mutex arl_mutex;
@@ -228,7 +228,7 @@ Signed-off-by: Erik Conijn <egc112@msn.com>
  #include <linux/kconfig.h>
  #include <linux/types.h>
  
-@@ -14,11 +15,18 @@
+@@ -14,11 +15,18 @@ struct dsa_switch;
  
  #if IS_REACHABLE(CONFIG_B53)
  bool b53_fa_trap_active(struct dsa_switch *ds, int port);

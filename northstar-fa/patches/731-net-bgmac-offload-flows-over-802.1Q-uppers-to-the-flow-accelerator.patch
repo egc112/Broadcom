@@ -74,7 +74,7 @@ Signed-off-by: Erik Conijn <egc112@msn.com>
  #define FA_NH_DA			19	/* 48 bits */
  
  /* pool entry */
-@@ -167,6 +172,7 @@
+@@ -167,6 +172,7 @@ struct bgmac_fa_tuple {
  struct bgmac_fa_next_hop {
  	u8 mac[ETH_ALEN];
  	struct dsa_port *dp;		/* egress port */
@@ -82,7 +82,7 @@ Signed-off-by: Erik Conijn <egc112@msn.com>
  	int refs;
  	bool fdb;			/* static switch FDB entry added for it */
  };
-@@ -431,8 +437,22 @@
+@@ -431,8 +437,22 @@ static int bgmac_fa_bucket(const struct
  
  /* ---------- next hops and pools, shared and refcounted ---------- */
  
@@ -106,7 +106,7 @@ Signed-off-by: Erik Conijn <egc112@msn.com>
  {
  	struct bgmac_fa *fa = bgmac->fa;
  	struct bgmac_fa_next_hop *nh;
-@@ -441,7 +461,8 @@
+@@ -441,7 +461,8 @@ static int bgmac_fa_next_hop_get(struct
  
  	for (i = 0; i < FA_NEXT_HOPS; i++) {
  		nh = &fa->next_hop[i];
@@ -116,7 +116,7 @@ Signed-off-by: Erik Conijn <egc112@msn.com>
  			nh->refs++;
  			return i;
  		}
-@@ -451,17 +472,29 @@
+@@ -451,17 +472,29 @@ static int bgmac_fa_next_hop_get(struct
  	if (free < 0)
  		return -ENOSPC;
  
@@ -151,7 +151,7 @@ Signed-off-by: Erik Conijn <egc112@msn.com>
  	nh->refs = 1;
  	nh->fdb = false;
  
-@@ -473,7 +506,7 @@
+@@ -473,7 +506,7 @@ static int bgmac_fa_next_hop_get(struct
  	if (!dsa_port_bridge_dev_get(dp) && dp->ds->ops->port_fdb_add) {
  		struct dsa_db db = { .type = DSA_DB_PORT, .dp = dp };
  
@@ -160,7 +160,7 @@ Signed-off-by: Erik Conijn <egc112@msn.com>
  		if (err)
  			netdev_warn(bgmac->net_dev,
  				    "flow accelerator: no switch FDB entry for %pM on port %d: %d\n",
-@@ -483,25 +516,37 @@
+@@ -483,25 +516,37 @@ static int bgmac_fa_next_hop_get(struct
  	}
  
  	return free;
@@ -200,7 +200,7 @@ Signed-off-by: Erik Conijn <egc112@msn.com>
  }
  
  static int bgmac_fa_pool_get(struct bgmac *bgmac, const u8 *mac, bool external)
-@@ -556,6 +601,7 @@
+@@ -556,6 +601,7 @@ struct bgmac_fa_rule {
  	__be32 nat_ip;
  	__be16 nat_port;
  	bool snat, dnat;		/* neither: routing only */
@@ -208,7 +208,7 @@ Signed-off-by: Erik Conijn <egc112@msn.com>
  	struct dsa_port *in, *out;
  };
  
-@@ -600,6 +646,7 @@
+@@ -600,6 +646,7 @@ static int bgmac_fa_parse(struct bgmac *
  	struct flow_rule *rule = flow_cls_offload_flow_rule(f);
  	struct flow_action_entry *act;
  	bool snat_port = false, dnat_port = false;
@@ -216,7 +216,7 @@ Signed-off-by: Erik Conijn <egc112@msn.com>
  	struct net_device *out = NULL;
  	int i;
  
-@@ -609,10 +656,21 @@
+@@ -609,10 +656,21 @@ static int bgmac_fa_parse(struct bgmac *
  	    !flow_rule_match_key(rule, FLOW_DISSECTOR_KEY_CONTROL) ||
  	    !flow_rule_match_key(rule, FLOW_DISSECTOR_KEY_BASIC) ||
  	    !flow_rule_match_key(rule, FLOW_DISSECTOR_KEY_PORTS) ||
@@ -239,7 +239,7 @@ Signed-off-by: Erik Conijn <egc112@msn.com>
  	{
  		struct flow_match_meta m;
  		struct net_device *in;
-@@ -708,11 +766,29 @@
+@@ -708,11 +766,29 @@ static int bgmac_fa_parse(struct bgmac *
  		case FLOW_ACTION_CSUM:
  		case FLOW_ACTION_PRIORITY:
  			break;
@@ -270,7 +270,7 @@ Signed-off-by: Erik Conijn <egc112@msn.com>
  	/* IPv6 is routed only (its NAT mangles were refused above), and
  	 * needs the switch to trap hop limit 1 in front of the FA
  	 */
-@@ -899,7 +975,8 @@
+@@ -899,7 +975,8 @@ static int bgmac_fa_flow_add(struct bgma
  	flow->idx = base + i;
  	flow->lastused = jiffies;
  

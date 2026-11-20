@@ -6,7 +6,7 @@
 > your router has one, and what we measured. The features are done (IPv4, IPv6, VLAN WAN), and the OpenWrt
 > driver is submitted as [openwrt/openwrt#26789](https://github.com/openwrt/openwrt/pull/26789)
 > (2026-11-18, IPv6 and VLAN added 2026-11-20, under review; see *The pull request*).
-> Tested on the Linksys EA6900 v1. Not in OpenWrt or the Linux kernel yet.
+> Tested on the Linksys EA6900 v1 and the Netgear R6400 v2. Not in OpenWrt or the Linux kernel yet.
 > Based on Broadcom's public, ISC-licensed driver source and our own measurements only: see
 > [PROVENANCE.md](PROVENANCE.md).
 
@@ -28,8 +28,8 @@ routing and NAT is done by the CPU, and a dual-core 800 MHz–1.4 GHz ARM cannot
 | IPv4 port forwards (DNAT), internet → LAN | **yes** |
 | IPv4 routing without NAT | **yes** (found in this research; Broadcom's driver never used it) |
 | Wired ports only (LAN ports and WAN port of the built-in switch) | yes |
-| Wi-Fi clients | no: the radios are not behind the switch (their traffic stays in software, fast path; see *Wi-Fi*) |
-| IPv6 TCP and UDP, routed (as home IPv6 is) | **yes** (found in this research; Broadcom's driver never used it) |
+| Wi-Fi clients | no: the radios are not behind the switch, so their traffic stays in the software flowtable. What helps instead is packet steering (RPS) for the Wi-Fi interfaces; see *Wi-Fi* |
+| IPv6 TCP and UDP, routed (as home IPv6 is) | **yes**, also over a VLAN-tagged WAN (found in this research; Broadcom's driver never used it) |
 | IPv6 with NAT (NAT66, IPv6 port forwards) | not yet: the FA has NAT fields for IPv6, but they are untested; these stay in software |
 | WAN with a VLAN tag (some ISPs) | **yes** (802.1Q tag on the WAN port; tested with VLAN 10) |
 | PPPoE | no: the FA has no field for it |
@@ -198,6 +198,7 @@ EA6900 with test images:
 | IPv6 TCP/UDP offload (routed) | tested | 928 / 928 Mbit/s (software path: 629), router 95–100 % idle |
 | VLAN-tagged WAN (802.1Q, e.g. `wan.10`) | tested | IPv4 939 / 935, IPv6 925 / 920 Mbit/s, router 99–100 % idle; traps also catch TTL-1 frames arriving tagged from the WAN |
 | Byte counters | decided: packets only | the FA counts packets per entry, not bytes; offloaded connections show correct packet counts but too few bytes (as with offloading on other routers) |
+| Table race (2026-11-20) | tested | the race Florian Fainelli's upstream series guards against (a lookup during a table write copying a key into another slot): 64 verified UDP flows plus a stream of new flows at line rate, IPv4 and IPv6, EA6900 and R6400 v2: no packet misrouted or wrongly NATed |
 | Soak tests, no VLAN | tested | 4 hours (374 rounds) + 2 hours (170 rounds) of IPv4, IPv6 and mixed traffic at full speed, TTL / hop-limit-1 checks from LAN and WAN (also inside offloaded connections), a firewall reload every 10th round, DNS churn: 0 kernel warnings, the table empty afterwards |
 
 How the rules reach the CPU: the switch redirects those frames to its port 5, which is wired to a second
@@ -215,8 +216,8 @@ openwrt/openwrt#25131 sets it for the R6400 V1 file (here only in the V2 file), 
 nvram, and ports 5 and 8 as on the EA6900. First boot worked unchanged: IPv4 941/941 and IPv6 928/928 Mbit/s at
 98 % idle, and the TTL, FIN and RST traps behave as on the EA6900.
 
-Still to do: the device trees of the other routers (they need openwrt/openwrt#25131 first), IPv6 UDP /
-full-table / reload re-tests in the new driver. Later, to research: PPPoE, NAT66, and port 8 at 2 Gbit/s (would lift the ~1130 Mbit/s
+Still to do: the device trees of the other routers (they need openwrt/openwrt#25131 first). IPv6 is done in
+the new driver as well (TCP and UDP, firewall reloads, soaks, the table-race test below). Later, to research: PPPoE, NAT66, and port 8 at 2 Gbit/s (would lift the ~1130 Mbit/s
 both-ways limit). A hybrid mode for Wi-Fi, in which the FA does the lookup and the NAT and the CPU forwards the
 packet (an idea from the
 [forum thread](https://forum.openwrt.org/t/northstar-bcm4708-4709-fa-hardware-offload-how-should-tcp-fin-rst-reach-the-flowtable/255472)),
@@ -254,7 +255,7 @@ the WAN and LAN side, iperf3):
 The patch files are generated with `git format-patch` and refreshed the way OpenWrt's `make target/linux/refresh`
 does, as OpenWrt's formality check asks.
 
-## Wi-Fi (researched 2026-11-18)
+## Wi-Fi (researched 2026-11-18/19)
 
 **The FA cannot carry Wi-Fi traffic, and on the EA6900 it would not help if it could.**
 
@@ -277,8 +278,19 @@ does, as OpenWrt's formality check asks.
   IPv6 WAN coming up a moment after the radios made firewall4 reload again, so the boot gap did not show; on a
   setup without IPv6 on the WAN it can.
 
-So any further Wi-Fi speed-up has to come from the Wi-Fi driver's receive path (it runs in a threaded
-interrupt without NAPI), not from the FA.
+So any further Wi-Fi speed-up has to come from the CPU side, not from the FA:
+
+- **Packet steering (RPS) for the Wi-Fi interfaces** (2026-11-19, R6400 v2). The radio's interrupt thread receives
+  each frame and, without RPS, also forwards it on the same core, which is then the limit. RPS hands the forwarding
+  to the other core. OpenWrt's packet steering does not do this on bcm53xx (the target's own script sets only
+  `eth0` and `br-lan`, and it does not run again when `wifi` creates the AP interfaces), so the
+  [b43-next build kit](../b43-next-build-kit/#rps-on-for-the-wi-fi-interfaces) adds a hotplug script that sets
+  it per AP interface, to the core that does not take that radio's interrupt. With irqbalance putting the two
+  radios on different cores, the R6400 v2 reaches **424 / 356 Mbit/s** (5 GHz, client to LAN / LAN to client) and
+  **235 / 199 Mbit/s** (2.4 GHz, 40 MHz), and the "RX descriptor underrun" errors at full upload are gone.
+- RPS on the Ethernet side stays off: moving it to the second core cost 5 GHz download speed (337 instead of 356
+  Mbit/s).
+- Beyond that the limit is the Wi-Fi driver's receive path (a threaded interrupt without NAPI).
 
 ## Details (for the technically minded)
 

@@ -30,7 +30,7 @@ routing and NAT is done by the CPU, and a dual-core 800 MHz–1.4 GHz ARM cannot
 | Wired ports only (LAN ports and WAN port of the built-in switch) | yes |
 | Wi-Fi clients | no: the radios are not behind the switch, so their traffic stays in the software flowtable. What helps instead is packet steering (RPS) for the Wi-Fi interfaces; see *Wi-Fi* |
 | IPv6 TCP and UDP, routed (as home IPv6 is) | **yes**, also over a VLAN-tagged WAN (found in this research; Broadcom's driver never used it) |
-| IPv6 with NAT (NAT66, IPv6 port forwards) | not yet: the FA has NAT fields for IPv6, but they are untested; these stay in software |
+| IPv6 with NAT (NAT66, IPv6 port forwards) | no, by choice: these stay in software. Home IPv6 is routed, so this is rare. The IPv6 entry does have a 128-bit NAT address and a NAT port field (found while mapping the IPv6 layout), but Broadcom's driver never used them and they are untested; the driver refuses such connections |
 | WAN with a VLAN tag (some ISPs) | **yes** (802.1Q tag on the WAN port; tested with VLAN 10) |
 | PPPoE | no: the FA has no field for it |
 | Byte counters | no: the FA counts packets only, so traffic statistics per connection are too low |

@@ -1,4 +1,4 @@
-From 0c19670ac205a8368583473563cfde8a958dc527 Mon Sep 17 00:00:00 2001
+From 24f5f4efb6f6bface0846a2eae9c0d1a7d4796e2 Mon Sep 17 00:00:00 2001
 From: Erik Conijn <egc112@msn.com>
 Date: Sat, 14 Nov 2026 16:51:38 +0100
 Subject: [PATCH] net: bgmac: offload flows to the Northstar flow accelerator
@@ -43,6 +43,11 @@ A table access busy-waits for the hardware, as etc_fa.c does: it takes
 microseconds. Sleeping there, under the lock that every add, removal
 and counter read takes, made the flowtable's workers queue up: with
 about 250 flows the load average reached 15 while the CPU was idle.
+On the A2 revision of the BCM4707 family (not BCM47094), etc_fa.c also
+lowers the hardware queue threshold and waits 1 ms around each table
+access (WAR777). Here that is done once per locked operation, so a flow
+add or removal waits once, not for each of its table accesses. No A2
+board was available to test it.
 
 The FA counts hits per entry but not bytes: the flowtable gets packet
 counts and the last-used time. One hit is one packet: on a Linksys
@@ -76,10 +81,10 @@ Assisted-by: Claude:claude-opus-5-5
 Signed-off-by: Erik Conijn <egc112@msn.com>
 ---
  drivers/net/ethernet/broadcom/Kconfig    |   1 +
- drivers/net/ethernet/broadcom/bgmac-fa.c | 916 ++++++++++++++++++++++-
+ drivers/net/ethernet/broadcom/bgmac-fa.c | 927 ++++++++++++++++++++++-
  drivers/net/ethernet/broadcom/bgmac.c    |  20 +
  drivers/net/ethernet/broadcom/bgmac.h    |   3 +
- 4 files changed, 931 insertions(+), 9 deletions(-)
+ 4 files changed, 942 insertions(+), 9 deletions(-)
 
 --- a/drivers/net/ethernet/broadcom/Kconfig
 +++ b/drivers/net/ethernet/broadcom/Kconfig
@@ -257,7 +262,7 @@ Signed-off-by: Erik Conijn <egc112@msn.com>
  };
  
  static u32 fa_read(struct bgmac *bgmac, u16 reg)
-@@ -169,6 +278,767 @@ static int bgmac_fa_bypass(struct bgmac
+@@ -169,6 +278,778 @@ static int bgmac_fa_bypass(struct bgmac
  	return 0;
  }
  
@@ -291,9 +296,11 @@ Signed-off-by: Erik Conijn <egc112@msn.com>
 +	fa_put_bits(e, pos + 32, 16, upper_32_bits(v));
 +}
 +
-+/* CTF_FA_WAR777_ON/OFF: Broadcom lowers the hardware queue threshold
-+ * around every table access on the A2 revision of the BCM4707 family
-+ * (except BCM47094).
++/* CTF_FA_WAR777_ON/OFF: on the A2 revision of the BCM4707 family (except
++ * BCM47094) Broadcom lowers the hardware queue threshold and waits 1 ms
++ * before it accesses a table. Here that is done once per locked operation
++ * (a flow add, removal, counter read or flush) rather than per access: the
++ * threshold stays low for all accesses in between.
 + */
 +static void bgmac_fa_war777(struct bgmac *bgmac, bool on)
 +{
@@ -308,6 +315,19 @@ Signed-off-by: Erik Conijn <egc112@msn.com>
 +	fa_write(bgmac, FA_CONTROL, val);
 +	if (on)
 +		usleep_range(1000, 1500);
++}
++
++/* fa->lock for an operation that accesses the tables */
++static void bgmac_fa_lock(struct bgmac *bgmac)
++{
++	mutex_lock(&bgmac->fa->lock);
++	bgmac_fa_war777(bgmac, true);
++}
++
++static void bgmac_fa_unlock(struct bgmac *bgmac)
++{
++	bgmac_fa_war777(bgmac, false);
++	mutex_unlock(&bgmac->fa->lock);
 +}
 +
 +static int bgmac_fa_tbl_wait(struct bgmac *bgmac)
@@ -328,7 +348,6 @@ Signed-off-by: Erik Conijn <egc112@msn.com>
 +{
 +	int i, err;
 +
-+	bgmac_fa_war777(bgmac, true);
 +	fa_write(bgmac, FA_MEM_ACC_CTL, FA_MEM_ACC_READ |
 +		 FIELD_PREP(FA_MEM_ACC_TABLE, tbl) |
 +		 FIELD_PREP(FA_MEM_ACC_INDEX, idx));
@@ -342,7 +361,6 @@ Signed-off-by: Erik Conijn <egc112@msn.com>
 +			d[i] = fa_read(bgmac, FA_MEM_ACC_DATA(i));
 +		err = bgmac_fa_tbl_wait(bgmac);
 +	}
-+	bgmac_fa_war777(bgmac, false);
 +
 +	return err;
 +}
@@ -352,14 +370,12 @@ Signed-off-by: Erik Conijn <egc112@msn.com>
 +{
 +	int i, err;
 +
-+	bgmac_fa_war777(bgmac, true);
 +	fa_write(bgmac, FA_MEM_ACC_CTL, FIELD_PREP(FA_MEM_ACC_TABLE, tbl) |
 +		 FIELD_PREP(FA_MEM_ACC_INDEX, idx));
 +	/* word 0 last: it starts the write */
 +	for (i = n - 1; i >= 0; i--)
 +		fa_write(bgmac, FA_MEM_ACC_DATA(i), d[i]);
 +	err = bgmac_fa_tbl_wait(bgmac);
-+	bgmac_fa_war777(bgmac, false);
 +
 +	return err;
 +}
@@ -920,7 +936,7 @@ Signed-off-by: Erik Conijn <egc112@msn.com>
 +	if (type != TC_SETUP_CLSFLOWER)
 +		return -EOPNOTSUPP;
 +
-+	mutex_lock(&bgmac->fa->lock);
++	bgmac_fa_lock(bgmac);
 +	switch (f->command) {
 +	case FLOW_CLS_REPLACE:
 +		if (tc_can_offload(bgmac->net_dev))
@@ -937,7 +953,7 @@ Signed-off-by: Erik Conijn <egc112@msn.com>
 +	default:
 +		err = -EOPNOTSUPP;
 +	}
-+	mutex_unlock(&bgmac->fa->lock);
++	bgmac_fa_unlock(bgmac);
 +
 +	return err;
 +}
@@ -999,9 +1015,9 @@ Signed-off-by: Erik Conijn <egc112@msn.com>
 +			return -ENOENT;
 +
 +		if (!flow_block_cb_decref(block_cb)) {
-+			mutex_lock(&fa->lock);
++			bgmac_fa_lock(bgmac);
 +			bgmac_fa_flush(bgmac, flow_block_cb_priv(block_cb));
-+			mutex_unlock(&fa->lock);
++			bgmac_fa_unlock(bgmac);
 +			flow_block_cb_remove(block_cb, f);
 +			list_del(&block_cb->driver_list);
 +		}
@@ -1025,7 +1041,7 @@ Signed-off-by: Erik Conijn <egc112@msn.com>
  static bool bgmac_fa_wanted(struct bgmac *bgmac)
  {
  #if IS_ENABLED(CONFIG_NET_DSA)
-@@ -183,38 +1053,59 @@ static bool bgmac_fa_wanted(struct bgmac
+@@ -183,38 +1064,59 @@ static bool bgmac_fa_wanted(struct bgmac
  
  static int bgmac_fa_open(struct bgmac *bgmac)
  {
@@ -1076,10 +1092,10 @@ Signed-off-by: Erik Conijn <egc112@msn.com>
 +{
 +	struct bgmac_fa *fa = bgmac->fa;
 +
-+	mutex_lock(&fa->lock);
++	bgmac_fa_lock(bgmac);
 +	fa->active = false;
 +	bgmac_fa_flush(bgmac, NULL);
-+	mutex_unlock(&fa->lock);
++	bgmac_fa_unlock(bgmac);
 +}
 +
  /* Called for GMAC2 of a Northstar SoC; the FA is in its path to port 8 */
@@ -1090,7 +1106,7 @@ Signed-off-by: Erik Conijn <egc112@msn.com>
  	struct bcma_device *gmac3;
  	struct bgmac_fa *fa;
  
-@@ -227,8 +1118,15 @@ void bgmac_fa_probe(struct bgmac *bgmac)
+@@ -227,8 +1129,15 @@ void bgmac_fa_probe(struct bgmac *bgmac)
  		return;
  
  	fa->core = gmac3;

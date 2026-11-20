@@ -1,4 +1,4 @@
-From 2a4e066a4cdebd06c099892e13894e815584f5d0 Mon Sep 17 00:00:00 2001
+From f5b2c9e566df70535cf6055d8675b1d743882073 Mon Sep 17 00:00:00 2001
 From: Erik Conijn <egc112@msn.com>
 Date: Sat, 14 Nov 2026 13:44:19 +0100
 Subject: [PATCH] net: dsa: b53: trap TCP FIN and RST from the Northstar flow

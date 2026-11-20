@@ -4,8 +4,8 @@
 > routers works. It routes and NATs at full gigabit speed with the router's CPU idle. But it runs as a test module
 > that needs two kernel changes and a switch-over script. This page explains what the FA is, how to check whether
 > your router has one, and what we measured. The features are done (IPv4, IPv6, VLAN WAN), and the OpenWrt
-> driver for IPv4 is submitted as [openwrt/openwrt#26789](https://github.com/openwrt/openwrt/pull/26789)
-> (2026-11-18, under review; see *The pull request*).
+> driver is submitted as [openwrt/openwrt#26789](https://github.com/openwrt/openwrt/pull/26789)
+> (2026-11-18, IPv6 and VLAN added 2026-11-20, under review; see *The pull request*).
 > Tested on the Linksys EA6900 v1. Not in OpenWrt or the Linux kernel yet.
 > Based on Broadcom's public, ISC-licensed driver source and our own measurements only: see
 > [PROVENANCE.md](PROVENANCE.md).
@@ -216,8 +216,7 @@ nvram, and ports 5 and 8 as on the EA6900. First boot worked unchanged: IPv4 941
 98 % idle, and the TTL, FIN and RST traps behave as on the EA6900.
 
 Still to do: the device trees of the other routers (they need openwrt/openwrt#25131 first), IPv6 UDP /
-full-table / reload re-tests in the new driver, and the pull requests for IPv6 and the VLAN-tagged WAN (728-731)
-after the first one. Later, to research: PPPoE, NAT66, and port 8 at 2 Gbit/s (would lift the ~1130 Mbit/s
+full-table / reload re-tests in the new driver. Later, to research: PPPoE, NAT66, and port 8 at 2 Gbit/s (would lift the ~1130 Mbit/s
 both-ways limit). A hybrid mode for Wi-Fi, in which the FA does the lookup and the NAT and the CPU forwards the
 packet (an idea from the
 [forum thread](https://forum.openwrt.org/t/northstar-bcm4708-4709-fa-hardware-offload-how-should-tcp-fin-rst-reach-the-flowtable/255472)),
@@ -226,9 +225,15 @@ was researched and is not worth building: see *Wi-Fi*. The patches build on two 
 
 ### The pull request (2026-11-18)
 
-[openwrt/openwrt#26789](https://github.com/openwrt/openwrt/pull/26789) adds the IPv4 part (patches 721-727 and
-the EA6900 device tree changes 328/329). It needs openwrt/openwrt#25131 (port 8 as the CPU port) and
-openwrt/openwrt#26316 (EA6900 support) merged first. IPv6 and the VLAN-tagged WAN follow as separate PRs.
+[openwrt/openwrt#26789](https://github.com/openwrt/openwrt/pull/26789) adds the driver (patches 721-731: IPv4, and
+since 2026-11-20 also IPv6 and the VLAN-tagged WAN) and the EA6900 device tree changes 328/329. It needs
+openwrt/openwrt#25131 (port 8 as the CPU port) and openwrt/openwrt#26316 (EA6900 support) merged first.
+
+Upstream: Florian Fainelli (Broadcom) posted a Linux driver for the FA to netdev on 2026-11-16
+([net-next 0/9](https://patchwork.kernel.org/project/netdevbpf/list/?series=1213213)), for now IPv4 NAT between
+standalone ports on the BCM4708/53011/53012. That is where the FA belongs in the long run: once it is in the
+kernel and in OpenWrt, OpenWrt can switch to it and #26789 can go. Until then #26789 covers the usual OpenWrt
+setup (a LAN bridge, IPv6, a VLAN WAN, the BCM47094).
 
 One change against the prototype: TCP FIN/RST and TTL 0/1 frames addressed through the router are **redirected**
 to port 5 by the switch, not copied. They take the normal software path, so nothing has to drop a duplicate,

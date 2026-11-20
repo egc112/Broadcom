@@ -1,6 +1,8 @@
+From 0feddab655459d3c808d39e4fad72142d6489af8 Mon Sep 17 00:00:00 2001
 From: Erik Conijn <egc112@msn.com>
 Date: Sat, 14 Nov 2026 16:51:38 +0100
-Subject: [PATCH] net: bgmac: offload IPv6 flows to the Northstar flow accelerator
+Subject: [PATCH] net: bgmac: offload IPv6 flows to the Northstar flow
+ accelerator
 
 The flow accelerator can forward IPv6, which Broadcom's driver does not
 use: fa_napt_add() refuses it. The registers for the IPv6 next header
@@ -47,6 +49,9 @@ software.
 Assisted-by: Claude:claude-fable-5-2
 Signed-off-by: Erik Conijn <egc112@msn.com>
 ---
+ drivers/net/ethernet/broadcom/bgmac-fa.c | 215 ++++++++++++++++++-----
+ 1 file changed, 173 insertions(+), 42 deletions(-)
+
 --- a/drivers/net/ethernet/broadcom/bgmac-fa.c
 +++ b/drivers/net/ethernet/broadcom/bgmac-fa.c
 @@ -39,6 +39,13 @@
@@ -101,7 +106,7 @@ Signed-off-by: Erik Conijn <egc112@msn.com>
  };
  
  struct bgmac_fa_next_hop {
-@@ -168,7 +187,8 @@
+@@ -168,7 +187,8 @@ struct bgmac_fa_flow {
  	unsigned long cookie;
  	struct bgmac_fa_block *block;
  	struct bgmac_fa_tuple t;
@@ -111,7 +116,7 @@ Signed-off-by: Erik Conijn <egc112@msn.com>
  	u32 hits;			/* last read from the entry */
  	u64 lastused;
  };
-@@ -383,22 +403,30 @@
+@@ -394,22 +414,30 @@ static int bgmac_fa_tbl_write(struct bgm
  
  /* The software hash (fa_crc_ccitt()): CRC-ITU-T over 7 zero bits, the
   * source and destination address, a TCP bit and the source and
@@ -151,7 +156,7 @@ Signed-off-by: Erik Conijn <egc112@msn.com>
  }
  
  /* ---------- next hops and pools, shared and refcounted ---------- */
-@@ -528,7 +556,7 @@
+@@ -539,7 +567,7 @@ struct bgmac_fa_rule {
  	__be32 nat_ip;
  	__be16 nat_port;
  	bool snat, dnat;		/* neither: routing only */
@@ -160,7 +165,7 @@ Signed-off-by: Erik Conijn <egc112@msn.com>
  };
  
  /* a user port of the switch behind this conduit */
-@@ -580,7 +608,6 @@
+@@ -591,7 +619,6 @@ static int bgmac_fa_parse(struct bgmac *
  	if (!flow_rule_match_key(rule, FLOW_DISSECTOR_KEY_META) ||
  	    !flow_rule_match_key(rule, FLOW_DISSECTOR_KEY_CONTROL) ||
  	    !flow_rule_match_key(rule, FLOW_DISSECTOR_KEY_BASIC) ||
@@ -168,7 +173,7 @@ Signed-off-by: Erik Conijn <egc112@msn.com>
  	    !flow_rule_match_key(rule, FLOW_DISSECTOR_KEY_PORTS) ||
  	    flow_rule_match_key(rule, FLOW_DISSECTOR_KEY_VLAN) ||
  	    flow_rule_match_key(rule, FLOW_DISSECTOR_KEY_CVLAN))
-@@ -589,22 +616,26 @@
+@@ -600,22 +627,26 @@ static int bgmac_fa_parse(struct bgmac *
  	{
  		struct flow_match_meta m;
  		struct net_device *in;
@@ -200,7 +205,7 @@ Signed-off-by: Erik Conijn <egc112@msn.com>
  			return -EOPNOTSUPP;
  	}
  	{
-@@ -615,7 +646,13 @@
+@@ -626,7 +657,13 @@ static int bgmac_fa_parse(struct bgmac *
  		if (r->t.proto != IPPROTO_TCP && r->t.proto != IPPROTO_UDP)
  			return -EOPNOTSUPP;
  	}
@@ -215,7 +220,7 @@ Signed-off-by: Erik Conijn <egc112@msn.com>
  		struct flow_match_ipv4_addrs m;
  
  		flow_rule_match_ipv4_addrs(rule, &m);
-@@ -676,6 +713,22 @@
+@@ -687,6 +724,22 @@ static int bgmac_fa_parse(struct bgmac *
  		}
  	}
  
@@ -238,7 +243,7 @@ Signed-off-by: Erik Conijn <egc112@msn.com>
  	/* One kind of NAT at most: the entry overwrites the source or the
  	 * destination, address and port together.
  	 */
-@@ -718,18 +771,57 @@
+@@ -729,18 +782,57 @@ static bool bgmac_fa_tuple_offloaded(str
  	struct bgmac_fa_flow *flow;
  	int bkt;
  
@@ -301,7 +306,7 @@ Signed-off-by: Erik Conijn <egc112@msn.com>
  	for (i = 0; i < FA_FLOW_BUCKET; i++)
  		n += !test_bit(base + i, fa->used);
  	return n;
-@@ -743,7 +835,7 @@
+@@ -754,7 +846,7 @@ static int bgmac_fa_free_slots(struct bg
  static bool bgmac_fa_reply_fits(struct bgmac_fa *fa,
  				const struct bgmac_fa_rule *r, int base)
  {
@@ -310,7 +315,7 @@ Signed-off-by: Erik Conijn <egc112@msn.com>
  	int rbase;
  
  	if (r->dnat) {		/* reply: from the NAT address and port */
-@@ -758,8 +850,10 @@
+@@ -769,8 +861,10 @@ static bool bgmac_fa_reply_fits(struct b
  		rt.dport = r->nat_port;
  	} else {
  		rt.sip = r->t.dip;
@@ -321,7 +326,7 @@ Signed-off-by: Erik Conijn <egc112@msn.com>
  		rt.dport = r->t.sport;
  	}
  
-@@ -767,14 +861,14 @@
+@@ -778,14 +872,14 @@ static bool bgmac_fa_reply_fits(struct b
  		return true;
  
  	rbase = bgmac_fa_bucket(&rt);
@@ -338,7 +343,7 @@ Signed-off-by: Erik Conijn <egc112@msn.com>
  	struct bgmac_fa_flow *flow;
  	struct bgmac_fa_rule r;
  	int base, i, err;
-@@ -790,10 +884,8 @@
+@@ -801,10 +895,8 @@ static int bgmac_fa_flow_add(struct bgma
  		return err;
  
  	base = bgmac_fa_bucket(&r.t);
@@ -351,7 +356,7 @@ Signed-off-by: Erik Conijn <egc112@msn.com>
  		return -ENOSPC;
  
  	flow = kzalloc(sizeof(*flow), GFP_KERNEL);
-@@ -803,6 +895,7 @@
+@@ -814,6 +906,7 @@ static int bgmac_fa_flow_add(struct bgma
  	flow->cookie = f->cookie;
  	flow->block = block;
  	flow->t = r.t;
@@ -359,7 +364,7 @@ Signed-off-by: Erik Conijn <egc112@msn.com>
  	flow->idx = base + i;
  	flow->lastused = jiffies;
  
-@@ -830,16 +923,33 @@
+@@ -841,16 +934,33 @@ static int bgmac_fa_flow_add(struct bgma
  	fa_put_bits(e, FA_FLOW_ACTION, 2, action);
  	fa_put_bits(e, FA_FLOW_POOL, 2, flow->pool);
  	fa_put_bits(e, FA_FLOW_NEXT_HOP, 7, flow->next_hop);
@@ -403,7 +408,7 @@ Signed-off-by: Erik Conijn <egc112@msn.com>
  
  	err = bgmac_fa_tbl_write(bgmac, FA_TBL_FLOW, flow->idx, e,
  				 FA_FLOW_WORDS);
-@@ -847,6 +957,8 @@
+@@ -858,6 +968,8 @@ static int bgmac_fa_flow_add(struct bgma
  		goto put_pool;
  
  	set_bit(flow->idx, fa->used);
@@ -412,7 +417,7 @@ Signed-off-by: Erik Conijn <egc112@msn.com>
  	hash_add(fa->flows, &flow->node, flow->cookie);
  
  	return 0;
-@@ -862,16 +974,24 @@
+@@ -873,16 +985,24 @@ free:
  
  static void bgmac_fa_flow_remove(struct bgmac *bgmac, struct bgmac_fa_flow *flow)
  {
@@ -438,7 +443,7 @@ Signed-off-by: Erik Conijn <egc112@msn.com>
  	bgmac_fa_pool_put(bgmac, flow->pool);
  	bgmac_fa_next_hop_put(bgmac, flow->next_hop);
  	hash_del(&flow->node);
-@@ -897,6 +1017,17 @@
+@@ -908,6 +1028,17 @@ static int bgmac_fa_flow_stats(struct bg
  	if (!flow)
  		return -ENOENT;
  

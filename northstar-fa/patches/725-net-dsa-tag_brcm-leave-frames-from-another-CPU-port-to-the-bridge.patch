@@ -1,4 +1,4 @@
-From 9c00306a369b0c999d5ccce9b36f3657ed8684db Mon Sep 17 00:00:00 2001
+From 5f14bf1210958c0af39fa30930484164503e0022 Mon Sep 17 00:00:00 2001
 From: Erik Conijn <egc112@msn.com>
 Date: Sat, 14 Nov 2026 13:51:39 +0100
 Subject: [PATCH] net: dsa: tag_brcm: leave frames from another CPU port to the

@@ -1,4 +1,4 @@
-From 4060a070353c4179d7d082db7a06942eb7a5aee6 Mon Sep 17 00:00:00 2001
+From 1ee9ebbf6aa71ea1dbd0a454530e247d69d9f425 Mon Sep 17 00:00:00 2001
 From: Erik Conijn <egc112@msn.com>
 Date: Sat, 14 Nov 2026 10:31:54 +0100
 Subject: [PATCH] net: dsa: b53: allow the prepended tag on Northstar port 8
@@ -35,9 +35,9 @@ Signed-off-by: Erik Conijn <egc112@msn.com>
        - ocelot
 --- a/drivers/net/dsa/b53/b53_common.c
 +++ b/drivers/net/dsa/b53/b53_common.c
-@@ -2600,6 +2600,53 @@ out:
+@@ -582,6 +582,17 @@ void b53_imp_vlan_setup(struct dsa_switc
  }
- EXPORT_SYMBOL(b53_get_tag_protocol);
+ EXPORT_SYMBOL(b53_imp_vlan_setup);
  
 +/* The BCM5301x (Northstar) switches with a flow accelerator in front of
 + * port 8: switch revision 3 or later, or any BCM47094. As on BCM58xx, the
@@ -50,6 +50,13 @@ Signed-off-by: Erik Conijn <egc112@msn.com>
 +	       (dev->core_rev >= 3 || of_machine_is_compatible("brcm,bcm47094"));
 +}
 +
+ static int b53_port_change_conduit(struct dsa_switch *ds, int port,
+ 				   struct net_device *conduit,
+ 				   struct netlink_ext_ack *extack)
+@@ -2600,6 +2611,42 @@ out:
+ }
+ EXPORT_SYMBOL(b53_get_tag_protocol);
+ 
 +static int b53_change_tag_protocol(struct dsa_switch *ds,
 +				   enum dsa_tag_protocol proto)
 +{

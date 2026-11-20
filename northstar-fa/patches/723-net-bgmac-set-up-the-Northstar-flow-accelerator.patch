@@ -1,4 +1,4 @@
-From 268c640759a78e7067034f5068f3644fa2e8f48f Mon Sep 17 00:00:00 2001
+From ec8a9c67d2faa8d4a52c6a2d978d925eea1af420 Mon Sep 17 00:00:00 2001
 From: Erik Conijn <egc112@msn.com>
 Date: Sat, 14 Nov 2026 11:38:47 +0100
 Subject: [PATCH] net: bgmac: set up the Northstar flow accelerator

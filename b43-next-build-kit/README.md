@@ -7,7 +7,8 @@ of the R6400) and the BCM4360 (AC-PHY, both radios of the EA6900 and the 5 GHz r
 
 Test version, 2026-11-19. It replaces the earlier EA6900 kit (b43-ac-wip, `linksys-ea6900/build-kit/`,
 [last version](https://github.com/egc112/Broadcom/tree/d07f0a7/linksys-ea6900/build-kit)) and the R6400
-patch series in [b43-80211n](../b43-80211n/): their work is in b43-next now.
+patch series in [b43-80211n](../b43-80211n/): their work is in b43-next now. Since 2026-11-20 the kit also builds in
+the hardware flow accelerator of the EA6900 and the R6400 v2 (`Broadcom-6`, see [below](#flow-accelerator-ea6900-and-r6400-v2)).
 
 ## Contents
 
@@ -18,6 +19,7 @@ patch series in [b43-80211n](../b43-80211n/): their work is in b43-next now.
 | `patches/Broadcom-3-b43-next-devices.patch` | the R6400 v1, v2, v2-otp and the EA6900 get `kmod-b43-next` and `wpad-openssl` instead of kmod-b43 and wpad-basic-mbedtls |
 | `patches/Broadcom-4-irqbalance-enable.patch` | switches irqbalance on when it is installed (the package installs disabled) |
 | `patches/Broadcom-5-wifi-rps-hotplug.patch` | a hotplug script that switches RPS on for the Wi-Fi AP interfaces, see [below](#rps-on-for-the-wi-fi-interfaces) |
+| `patches/Broadcom-6-flow-accelerator.patch` | hardware flow offloading through the Northstar flow accelerator on the EA6900 and the R6400 v2: 14 kernel patches, see [below](#flow-accelerator-ea6900-and-r6400-v2) |
 | `diffconfig` | EA6900, R6400 v1, R6400 v2 in one multi-profile build; kmod-b43-next, LuCI, irqbalance, iperf3, iw-full |
 | `irqpin.rc.local` | a fixed IRQ layout for test comparisons only; not built in, copy it by hand to `/etc/rc.local` |
 | `apply.sh` | applies the patches to an OpenWrt tree and puts the diffconfig in place |
@@ -45,7 +47,8 @@ At boot, `/etc/init.d/b43-next` hands the PCIe radios from the kernel's bcma to 
 in `/etc/config/wireless` along.
 
 When openwrt#26717 gets merged into OpenWrt, `Broadcom-2` is no longer needed (apart from the pin). The same
-goes for `Broadcom-1` once openwrt#26316 is merged.
+goes for `Broadcom-1` once openwrt#26316 is merged, and for `Broadcom-6` (apart from the R6400 v2 device tree
+patch 330) once openwrt/openwrt#26789 is merged.
 
 ## RPS on for the Wi-Fi interfaces
 
@@ -81,6 +84,26 @@ waits in the background until irqbalance has pinned the radio's interrupt to one
 R6400 v2) and logs what it set (`logread | grep wifi-rps`). If irqbalance moves a radio's interrupt later, the
 setting does not follow until the next `wifi`.
 
+## Flow accelerator (EA6900 and R6400 v2)
+
+The BCM4708 (EA6900) and the BCM47094 (R6400 v2) have a hardware flow accelerator between the CPU and switch port
+8. `Broadcom-6` adds a driver for it as the hardware path of OpenWrt's flow offloading: once a connection is set up,
+the accelerator forwards it itself (IPv4 routed and with NAT, routed IPv6, also over a VLAN-tagged WAN), and the
+CPU stays idle. The patches are [openwrt/openwrt#26789](https://github.com/openwrt/openwrt/pull/26789) (under
+review), plus patch 330 for the R6400 v2's device tree; background and measurements in
+[northstar-fa](../northstar-fa/).
+
+Switch it on in LuCI, Network > Firewall > General Settings, Routing/NAT Offloading: software **and** hardware
+flow offloading (`flow_offloading=1` and `flow_offloading_hw=1` in `/etc/config/firewall`), then save. Without
+hardware offloading the accelerator only passes the traffic on. The R6400 v1 has no accelerator; there the code
+stays unused. To leave it out of a build, delete `Broadcom-6` before running `apply.sh`.
+
+Measured 2026-11-20, wired LAN to WAN through NAT, iperf3 TCP: IPv4 941 / 941 Mbit/s, IPv6 928 / 928 Mbit/s, with
+the CPU 97-98 % idle on both routers (software flow offloading alone: 450-600 Mbit/s with the CPU busy).
+
+Limits: Wi-Fi traffic is not accelerated (the radios do not sit behind port 8); PPPoE and NAT66 stay in software;
+the accelerator counts packets, not bytes, so byte counters of offloaded connections stop growing.
+
 ## Tested (R6400 v2 and EA6900, 2026-11-17/18)
 
 BCM4331 at 2.4 GHz, 4 SSIDs, DL-WRX36 client, TCP to a wired LAN host: HT20 about 150 up / 105 down, HT40 about
@@ -114,7 +137,9 @@ EA6900 with an image built from this kit (2026-11-18), MT6000 client, iperf3 to 
 | `Broadcom-2` | Ville Takio (flatstik) | his openwrt/openwrt#26717, unchanged apart from two lines of ours: the b43-next pin (`PKG_SOURCE_*`, `PKG_MIRROR_HASH`) and the `tools/Makefile` condition |
 | b43-next itself | Alessio Ferri and contributors | downloaded at build time; its sources are documented in its own repository |
 | `Broadcom-3`, `Broadcom-4`, `Broadcom-5`, `diffconfig`, `apply.sh` | Erik Conijn | OpenWrt's own image Makefile and package configuration |
+| `Broadcom-6` | Erik Conijn | register map and table formats from Broadcom's `et` driver, published under the ISC license in router GPL source releases, and measurements on the routers; see [northstar-fa/PROVENANCE.md](../northstar-fa/PROVENANCE.md) |
 | `irqpin.rc.local` | Erik Conijn | throughput measurements on the EA6900 (2026-10-29) |
 
 The b43 firmware (from Broadcom's driver 6.30.163.46) is downloaded at build time, as for OpenWrt's kmod-b43;
-this repository contains no firmware or Broadcom code.
+the kit contains no firmware. The only Broadcom-derived code is the flow accelerator driver in `Broadcom-6`
+(`bgmac-fa.c`), which keeps Broadcom's copyright and ISC permission notice.

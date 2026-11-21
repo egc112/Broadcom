@@ -12,6 +12,7 @@ Northstar flow accelerator and some tuning, the same router now forwards a gigab
 | Wired, IPv6 routed | **928 Mbit/s** | both directions, CPU 1 % busy |
 | 5 GHz Wi-Fi (VHT80, 3×3) | **424 / 356 Mbit/s** | client → LAN / LAN → client |
 | 2.4 GHz Wi-Fi (HT40, 3×3) | **235 / 199 Mbit/s** | client → LAN / LAN → client |
+| WireGuard server on the router | **235 / 170 Mbit/s** | client → LAN / LAN → client, both cores busy |
 
 ## Where we started: the 2.4 GHz radio, step by step
 
@@ -105,6 +106,29 @@ retransmissions and no second below 208 Mbit/s. In the earlier runs of the same 
 stopped for whole seconds at a time and averaged 80–160 Mbit/s, with the radio link at MCS 23 throughout; the
 figures marked \* come from that period. That points to the neighbours sharing the wider channel. At 20 MHz the
 same client uploads a steady 135–138 Mbit/s without any of those pauses.
+
+## WireGuard: a server on the router
+
+*Measured 21 November 2026, same router, firmware and settings.*
+
+A desktop PC on the WAN side connects to a WireGuard server on the R6400 and runs iperf3 TCP through the tunnel to
+a host on the LAN, two parallel streams, about 20 s per direction.
+
+| Direction | Mbit/s | CPU busy |
+|---|---|---|
+| Client → LAN (the router decrypts) | 235 | both cores 100 % |
+| LAN → client (the router encrypts) | 170 | both cores 97–99 % |
+
+On DD-WRT the same router manages about 120 Mbit/s LAN → client, measured the same way.
+
+The crypto runs on the CPU: the Cortex-A9 cores of the BCM47094 have no NEON, so ChaCha20-Poly1305 runs as plain ARM
+code, and both cores are fully busy in both directions. The flow accelerator cannot help here. The encrypted packets
+end at the router itself, and the decrypted traffic leaves through the WireGuard interface, which is not a switch
+port. Software offloading does take the decrypted leg (the tunnel's connections show `[OFFLOAD]`), so those packets
+skip most of the firewall. The LAN → client direction is slower with the same full load, so encrypting costs more
+per packet than decrypting. The likely reasons, not measured one by one: an encrypted packet needs room for padding
+and the authentication tag, which can mean a copy, and it goes through the full output path, with no flowtable to
+shortcut it.
 
 ## These are best-case figures
 

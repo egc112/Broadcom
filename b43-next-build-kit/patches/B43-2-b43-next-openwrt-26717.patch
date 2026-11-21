@@ -1,5 +1,5 @@
 diff --git a/include/package-pack.mk b/include/package-pack.mk
-index 399b06be42..01518cc105 100644
+index 399b06be42b8fe..01518cc10568c4 100644
 --- a/include/package-pack.mk
 +++ b/include/package-pack.mk
 @@ -621,7 +621,7 @@ else
@@ -13,10 +13,10 @@ index 399b06be42..01518cc105 100644
  	  --output "$$(PACK_$(1))"
 diff --git a/package/kernel/b43-next/Makefile b/package/kernel/b43-next/Makefile
 new file mode 100644
-index 0000000000..0cc7178727
+index 00000000000000..390b4db059fcca
 --- /dev/null
 +++ b/package/kernel/b43-next/Makefile
-@@ -0,0 +1,106 @@
+@@ -0,0 +1,100 @@
 +include $(TOPDIR)/rules.mk
 +
 +PKG_NAME:=b43-next
@@ -24,17 +24,9 @@ index 0000000000..0cc7178727
 +
 +PKG_SOURCE_PROTO:=git
 +PKG_SOURCE_URL:=https://github.com/aleferri/b43-next.git
-+PKG_SOURCE_DATE:=2026-11-19
-+#PKG_SOURCE_VERSION:=fe3b1fd7d0672b35f14a83051b44eb5d1a66c5c6
-+#PKG_MIRROR_HASH:=f2625302d89b31e0e3e241f8dfc5f1e5ecbac6e499af05a0e92e473344e5874b
-+#PKG_SOURCE_VERSION:=fe3b1fd7d0672b35f14a83051b44eb5d1a66c5c6
-+#PKG_MIRROR_HASH:=f2625302d89b31e0e3e241f8dfc5f1e5ecbac6e499af05a0e92e473344e58234
-+#PKG_SOURCE_VERSION:=42a5567fd485e934ea8fab2f121db1ad30823882
-+#PKG_MIRROR_HASH:=e00d835a1ea50c08329510e482c0adb22533efc8899c9f59781f1094ad6c9227
-+#PKG_SOURCE_VERSION:=4854b6f47aa766dc0c289bc303207a7675a3f8c9
-+#PKG_MIRROR_HASH:=9c8c224e100eedb83b547fc6dfd8e6cd32b212f612772ec84c7fb0b1423d3dfa
-+PKG_SOURCE_VERSION:=89dd44f427450a6be94305418665e664d5098eea
-+PKG_MIRROR_HASH:=dd076135592029378d5ddbc6e8d363e9efe139de2d931f1f3242dd77d4f7a5b3
++PKG_SOURCE_DATE:=2026-11-20
++PKG_SOURCE_VERSION:=625d9063e97624d29c8519592eb7098cfc15812a
++PKG_MIRROR_HASH:=6d912c74edaa85aff2f4c296305bc01bbd949f63e2bdb34b0151640ad7919d6e
 +
 +PKG_LICENSE:=GPL-2.0-only
 +PKG_LICENSE_FILES:=LICENSE
@@ -111,8 +103,10 @@ index 0000000000..0cc7178727
 +		M="$(PKG_BUILD_DIR)" \
 +		NOSTDINC_FLAGS="$(NOSTDINC_FLAGS)" \
 +		modules
-+	modinfo -F alias $(PKG_BUILD_DIR)/b43-next.ko | grep '^pci:' | sort -u \
-+		> $(PKG_BUILD_DIR)/pci-aliases
++	$(TARGET_CROSS)objcopy -O binary -j .modinfo $(PKG_BUILD_DIR)/b43-next.ko \
++		$(PKG_BUILD_DIR)/modinfo.bin
++	tr '\0' '\n' < $(PKG_BUILD_DIR)/modinfo.bin | \
++		sed -n 's/^alias=\(pci:.*\)/\1/p' | sort -u > $(PKG_BUILD_DIR)/pci-aliases
 +endef
 +
 +define KernelPackage/b43-next/install
@@ -125,7 +119,7 @@ index 0000000000..0cc7178727
 +$(eval $(call KernelPackage,b43-next))
 diff --git a/package/kernel/b43-next/files/b43-next.init b/package/kernel/b43-next/files/b43-next.init
 new file mode 100644
-index 0000000000..6e9f4e8aab
+index 00000000000000..6e9f4e8aabc826
 --- /dev/null
 +++ b/package/kernel/b43-next/files/b43-next.init
 @@ -0,0 +1,226 @@
@@ -356,15 +350,15 @@ index 0000000000..6e9f4e8aab
 +	return 0
 +}
 diff --git a/package/kernel/mac80211/Makefile b/package/kernel/mac80211/Makefile
-index 19e7c577e4..a606214585 100644
+index eb01ab45df0a1b..0c9051e65af2c8 100644
 --- a/package/kernel/mac80211/Makefile
 +++ b/package/kernel/mac80211/Makefile
 @@ -12,7 +12,7 @@ PKG_NAME:=mac80211
  
  PKG_SOURCE_VERSION:=7.2
  PKG_VERSION:=$(subst -,_,$(PKG_SOURCE_VERSION))
--PKG_RELEASE:=15
-+PKG_RELEASE:=16
+-PKG_RELEASE:=16
++PKG_RELEASE:=17
  PKG_LICENSE:=GPL-2.0-only
  PKG_LICENSE_FILES:=COPYING
  
@@ -374,7 +368,7 @@ index 19e7c577e4..a606214585 100644
  $(eval $(call KernelPackage,mac80211))
 +$(eval $(call BuildPackage,b43-firmware))
 diff --git a/package/kernel/mac80211/broadcom.mk b/package/kernel/mac80211/broadcom.mk
-index b48256c20b..0b9971fdaa 100644
+index b48256c20b5429..0b9971fdaa566c 100644
 --- a/package/kernel/mac80211/broadcom.mk
 +++ b/package/kernel/mac80211/broadcom.mk
 @@ -51,6 +51,14 @@ ifneq ($(CONFIG_B43_FW_4_178),)
@@ -525,7 +519,7 @@ index b48256c20b..0b9971fdaa 100644
  ifeq ($(CONFIG_B43_OPENFIRMWARE),y)
  	tar xzf "$(DL_DIR)/$(PKG_B43_FWV4_SOURCE)" -C "$(PKG_BUILD_DIR)"
 diff --git a/tools/Makefile b/tools/Makefile
-index ff4d38ed02..863346d4c9 100644
+index ff4d38ed0288eb..863346d4c9a6bd 100644
 --- a/tools/Makefile
 +++ b/tools/Makefile
 @@ -17,7 +17,7 @@ ifeq ($(CONFIG_EXTERNAL_TOOLCHAIN),)

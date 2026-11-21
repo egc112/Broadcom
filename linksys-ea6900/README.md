@@ -286,7 +286,8 @@ from nvram with b43-ac-wip's own bcma/ssb patch, applied as a kernel patch.
 
 The kit that built that image is in git history ([build-kit/ at d07f0a7](https://github.com/egc112/Broadcom/tree/d07f0a7/linksys-ea6900/build-kit)).
 To build it yourself now: [../b43-next-build-kit/](../b43-next-build-kit/), one kit for the EA6900 and the R6400
-with [b43-next](https://github.com/aleferri/b43-next), where b43-ac-wip's work continues.
+with [b43-next](https://github.com/aleferri/b43-next), where b43-ac-wip's work continues; add the
+[../bcm53xx-performance-kit/](../bcm53xx-performance-kit/) for the flow accelerator.
 
 ## Flash layout (Asus-style CFE, as OpenWrt sees it)
 

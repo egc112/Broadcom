@@ -1,71 +1,70 @@
-diff --git a/target/linux/bcm53xx/patches-6.18/328-ARM-dts-BCM5301X-EA6900-use-the-flow-accelerator-tag.patch b/target/linux/bcm53xx/patches-6.18/328-ARM-dts-BCM5301X-EA6900-use-the-flow-accelerator-tag.patch
+diff --git a/target/linux/bcm53xx/patches-6.18/377-ARM-dts-BCM5301X-add-port-5-back-for-the-flow-accelerator.patch b/target/linux/bcm53xx/patches-6.18/377-ARM-dts-BCM5301X-add-port-5-back-for-the-flow-accelerator.patch
 new file mode 100644
-index 0000000000..b743f965be
+index 0000000000..9f23577429
 --- /dev/null
-+++ b/target/linux/bcm53xx/patches-6.18/328-ARM-dts-BCM5301X-EA6900-use-the-flow-accelerator-tag.patch
-@@ -0,0 +1,26 @@
-+From 46680993eb0fef1dee1f0eac941f44841c1576f6 Mon Sep 17 00:00:00 2001
++++ b/target/linux/bcm53xx/patches-6.18/377-ARM-dts-BCM5301X-add-port-5-back-for-the-flow-accelerator.patch
+@@ -0,0 +1,495 @@
 +From: Erik Conijn <egc112@msn.com>
-+Date: Sat, 14 Nov 2026 10:31:54 +0100
-+Subject: [PATCH] ARM: dts: BCM5301X: EA6900: use the flow accelerator's tag
++Subject: [PATCH] ARM: dts: BCM5301X: add port 5 back for the flow accelerator
 +
-+Use the prepended Broadcom tag on the CPU port (port 8, gmac2), so that
-+the flow accelerator between them is in the path. The EA6900's BCM4708
-+has switch revision 3, which has the accelerator.
++Patch 376 makes port 8 (gmac2) the only CPU port and disables port 5
++(gmac0). Behind the flow accelerator in front of port 8, b53 needs
++port 5 as a second CPU port: it redirects the frames that the
++accelerator must not handle there (TTL or hop limit 1, TCP FIN and
++RST). With both CPU ports, b53 chooses the accelerator's prepended
++tag on a switch that has the accelerator, and the regular tag on one
++that has not, so the change is safe on every Northstar board. User
++ports keep port 8 as their CPU port.
++
++Enable port 5 again, with a fixed link, on the boards where 376 or the
++board itself disabled it. Not on the boards where port 5 has another
++use (RT-AC87U, RT-AC88U) or where gmac0 is off (Meraki MR26, MR32), and
++not on the boards that keep port 5 as their only CPU port.
 +
 +Assisted-by: Claude:claude-opus-5-5
 +Signed-off-by: Erik Conijn <egc112@msn.com>
 +---
-+ arch/arm/boot/dts/broadcom/bcm4708-linksys-ea6900.dts | 2 ++
-+ 1 file changed, 2 insertions(+)
++  arch/arm/boot/dts/broadcom/bcm4708-asus-rt-ac56u.dts        | 5 ++++-
++  arch/arm/boot/dts/broadcom/bcm4708-asus-rt-ac68u.dts        | 5 ++++-
++  arch/arm/boot/dts/broadcom/bcm4708-buffalo-wzr-1750dhp.dts  | 5 ++++-
++  arch/arm/boot/dts/broadcom/bcm4708-linksys-ea6300-v1.dts    | 5 ++++-
++  arch/arm/boot/dts/broadcom/bcm4708-linksys-ea6500-v2.dts    | 5 ++++-
++  arch/arm/boot/dts/broadcom/bcm4708-linksys-ea6900.dts       | 5 ++++-
++  arch/arm/boot/dts/broadcom/bcm4708-netgear-r6250.dts        | 5 ++++-
++  arch/arm/boot/dts/broadcom/bcm4708-netgear-r6300-v2.dts     | 5 ++++-
++  arch/arm/boot/dts/broadcom/bcm4708-netgear-r6400-v1.dts     | 5 ++++-
++  arch/arm/boot/dts/broadcom/bcm4708-smartrg-sr400ac.dts      | 5 ++++-
++  arch/arm/boot/dts/broadcom/bcm47081-asus-rt-n18u.dts        | 5 ++++-
++  arch/arm/boot/dts/broadcom/bcm47081-buffalo-wzr-600dhp2.dts | 5 ++++-
++  arch/arm/boot/dts/broadcom/bcm47081-buffalo-wzr-900dhp.dts  | 5 ++++-
++  arch/arm/boot/dts/broadcom/bcm47081-tplink-archer-c5-v2.dts | 5 ++++-
++  arch/arm/boot/dts/broadcom/bcm4709-asus-rt-ac3200.dts       | 5 ++++-
++  arch/arm/boot/dts/broadcom/bcm4709-buffalo-wxr-1900dhp.dts  | 5 ++++-
++  arch/arm/boot/dts/broadcom/bcm4709-linksys-ea9200.dts       | 5 ++++-
++  arch/arm/boot/dts/broadcom/bcm4709-netgear-r7000.dts        | 5 ++++-
++  arch/arm/boot/dts/broadcom/bcm4709-netgear-r7900.dts        | 5 ++++-
++  arch/arm/boot/dts/broadcom/bcm4709-netgear-r8000.dts        | 2 --
++  arch/arm/boot/dts/broadcom/bcm4709-tplink-archer-c9-v1.dts  | 5 ++++-
++  arch/arm/boot/dts/broadcom/bcm47094-asus-rt-ac3100.dts      | 5 ++++-
++  arch/arm/boot/dts/broadcom/bcm47094-asus-rt-ac5300.dts      | 5 ++++-
++  arch/arm/boot/dts/broadcom/bcm47094-dlink-dir-885l.dts      | 5 ++++-
++  arch/arm/boot/dts/broadcom/bcm47094-dlink-dir-890l.dts      | 5 ++++-
++  arch/arm/boot/dts/broadcom/bcm47094-linksys-panamera.dts    | 1 -
++  arch/arm/boot/dts/broadcom/bcm47094-luxul-abr-4500.dts      | 5 ++++-
++  arch/arm/boot/dts/broadcom/bcm47094-luxul-xap-1610.dts      | 5 ++++-
++  arch/arm/boot/dts/broadcom/bcm47094-luxul-xbr-4500.dts      | 5 ++++-
++  arch/arm/boot/dts/broadcom/bcm47094-luxul-xwr-3150-v1.dts   | 5 ++++-
++  arch/arm/boot/dts/broadcom/bcm47094-netgear-r8500.dts       | 5 ++++-
++  arch/arm/boot/dts/broadcom/bcm47094-phicomm-k3.dts          | 5 ++++-
++  32 files changed, 120 insertions(+), 33 deletions(-)
 +
-+--- a/arch/arm/boot/dts/broadcom/bcm4708-linksys-ea6900.dts
-++++ b/arch/arm/boot/dts/broadcom/bcm4708-linksys-ea6900.dts
-+@@ -148,6 +148,8 @@
-+ 
-+ 		port@8 {
-+ 			label = "cpu";
-++			/* through the flow accelerator, see bgmac-fa.c */
-++			dsa-tag-protocol = "brcm-prepend";
-+ 		};
-+ 	};
-+ };
-diff --git a/target/linux/bcm53xx/patches-6.18/329-ARM-dts-BCM5301X-EA6900-add-port-5-for-the-flow-accelerator-traps.patch b/target/linux/bcm53xx/patches-6.18/329-ARM-dts-BCM5301X-EA6900-add-port-5-for-the-flow-accelerator-traps.patch
-new file mode 100644
-index 0000000000..12a7a67c1f
---- /dev/null
-+++ b/target/linux/bcm53xx/patches-6.18/329-ARM-dts-BCM5301X-EA6900-add-port-5-for-the-flow-accelerator-traps.patch
-@@ -0,0 +1,37 @@
-+From 1cf984275e087fe4357b9ad890641772a98f5bc1 Mon Sep 17 00:00:00 2001
-+From: Erik Conijn <egc112@msn.com>
-+Date: Sat, 14 Nov 2026 13:44:04 +0100
-+Subject: [PATCH] ARM: dts: BCM5301X: EA6900: add port 5 for the flow
-+ accelerator traps
-+
-+Describe switch port 5, connected to gmac0, as a second CPU port. b53
-+redirects the frames that the flow accelerator in front of port 8
-+cannot handle (TTL 1, TCP FIN and RST) to it. The tree has one tagger,
-+so the port names the same one as port 8; it carries the regular tag.
-+
-+Assisted-by: Claude:claude-opus-5-5
-+Signed-off-by: Erik Conijn <egc112@msn.com>
-+---
-+ arch/arm/boot/dts/broadcom/bcm4708-linksys-ea6900.dts | 11 ++++++++++-
-+ 1 file changed, 10 insertions(+), 1 deletion(-)
-+
-+--- a/arch/arm/boot/dts/broadcom/bcm4708-linksys-ea6900.dts
-++++ b/arch/arm/boot/dts/broadcom/bcm4708-linksys-ea6900.dts
-+@@ -139,7 +139,16 @@
++--- a/arch/arm/boot/dts/broadcom/bcm4708-asus-rt-ac56u.dts
+++++ b/arch/arm/boot/dts/broadcom/bcm4708-asus-rt-ac56u.dts
++@@ -149,7 +149,10 @@
 + 		};
 + 
 + 		port@5 {
 +-			status = "disabled";
-++			/* takes the flow accelerator's traps, see b53_common.c;
-++			 * one tagger per tree, and this port carries the
-++			 * regular tag
-++			 */
-++			dsa-tag-protocol = "brcm-prepend";
-++
 ++			fixed-link {
 ++				speed = <1000>;
 ++				full-duplex;
@@ -73,76 +72,433 @@ index 0000000000..12a7a67c1f
 + 		};
 + 
 + 		port@7 {
-diff --git a/target/linux/bcm53xx/patches-6.18/330-ARM-dts-BCM5301X-R6400-V2-use-the-flow-accelerator.patch b/target/linux/bcm53xx/patches-6.18/330-ARM-dts-BCM5301X-R6400-V2-use-the-flow-accelerator.patch
-new file mode 100644
-index 0000000000..147bc2aaae
---- /dev/null
-+++ b/target/linux/bcm53xx/patches-6.18/330-ARM-dts-BCM5301X-R6400-V2-use-the-flow-accelerator.patch
-@@ -0,0 +1,64 @@
-+From: Erik Conijn <egc112@msn.com>
-+Subject: [PATCH] ARM: dts: BCM5301X: R6400 V2: use the flow accelerator
-+
-+Private test patch, not for upstream as it is: move the CPU port of the
-+R6400 V2 from port 5 to port 8 as openwrt/openwrt#25131 does for the
-+R6400 V1 file (only in the V2 file here, so the V1 image is unchanged),
-+with the board MAC address for gmac2 from nvram, and set it up for the
-+flow accelerator as the EA6900 does (patches 328 and 329): the
-+prepended tag on port 8, port 5 back as the trap port.
-+
-+Assisted-by: Claude:claude-opus-5-5
-+Signed-off-by: Erik Conijn <egc112@msn.com>
-+---
-+--- a/arch/arm/boot/dts/broadcom/bcm47094-netgear-r6400-v2.dts
-++++ b/arch/arm/boot/dts/broadcom/bcm47094-netgear-r6400-v2.dts
-+@@ -14,6 +14,48 @@
-+ / {
-+ 	compatible = "netgear,r6400-v2", "brcm,bcm47094", "brcm,bcm4708";
-+ 	model = "Netgear R6400 V2";
-++
-++	nvram@1c080000 {
-++		compatible = "brcm,nvram";
-++		reg = <0x1c080000 0x180000>;
-++
-++		et0macaddr: et0macaddr {
-++			#nvmem-cell-cells = <1>;
-++		};
-++	};
-++};
-++
-++/* Port 8 is the CPU port, through the flow accelerator: gmac2 needs the
-++ * board MAC address, the bootloader sets it only for gmac0
-++ */
-++&gmac2 {
-++	nvmem-cells = <&et0macaddr 0>;
-++	nvmem-cell-names = "mac-address";
-++};
-++
-++&srab {
-++	ports {
-++		port@5 {
-++			/* takes the flow accelerator's traps, see b53_common.c;
-++			 * one tagger per tree, and this port carries the
-++			 * regular tag
-++			 */
-++			/delete-property/ label;
-++			dsa-tag-protocol = "brcm-prepend";
-++
++--- a/arch/arm/boot/dts/broadcom/bcm4708-asus-rt-ac68u.dts
+++++ b/arch/arm/boot/dts/broadcom/bcm4708-asus-rt-ac68u.dts
++@@ -140,7 +140,10 @@
++ 		};
++ 
++ 		port@5 {
++-			status = "disabled";
 ++			fixed-link {
 ++				speed = <1000>;
 ++				full-duplex;
 ++			};
-++		};
-++
-++		port@8 {
-++			label = "cpu";
-++			/* through the flow accelerator, see bgmac-fa.c */
-++			dsa-tag-protocol = "brcm-prepend";
-++			status = "okay";
-++		};
-++	};
-+ };
++ 		};
 + 
-+ /*
++ 		port@7 {
++--- a/arch/arm/boot/dts/broadcom/bcm4708-buffalo-wzr-1750dhp.dts
+++++ b/arch/arm/boot/dts/broadcom/bcm4708-buffalo-wzr-1750dhp.dts
++@@ -206,7 +206,10 @@
++ 		};
++ 
++ 		port@5 {
++-			status = "disabled";
+++			fixed-link {
+++				speed = <1000>;
+++				full-duplex;
+++			};
++ 		};
++ 
++ 		port@7 {
++--- a/arch/arm/boot/dts/broadcom/bcm4708-linksys-ea6300-v1.dts
+++++ b/arch/arm/boot/dts/broadcom/bcm4708-linksys-ea6300-v1.dts
++@@ -93,7 +93,10 @@
++ 		};
++ 
++ 		port@5 {
++-			status = "disabled";
+++			fixed-link {
+++				speed = <1000>;
+++				full-duplex;
+++			};
++ 		};
++ 
++ 		port@7 {
++--- a/arch/arm/boot/dts/broadcom/bcm4708-linksys-ea6500-v2.dts
+++++ b/arch/arm/boot/dts/broadcom/bcm4708-linksys-ea6500-v2.dts
++@@ -92,7 +92,10 @@
++ 		};
++ 
++ 		port@5 {
++-			status = "disabled";
+++			fixed-link {
+++				speed = <1000>;
+++				full-duplex;
+++			};
++ 		};
++ 
++ 		port@7 {
++--- a/arch/arm/boot/dts/broadcom/bcm4708-linksys-ea6900.dts
+++++ b/arch/arm/boot/dts/broadcom/bcm4708-linksys-ea6900.dts
++@@ -139,7 +139,10 @@
++ 		};
++ 
++ 		port@5 {
++-			status = "disabled";
+++			fixed-link {
+++				speed = <1000>;
+++				full-duplex;
+++			};
++ 		};
++ 
++ 		port@7 {
++--- a/arch/arm/boot/dts/broadcom/bcm4708-netgear-r6250.dts
+++++ b/arch/arm/boot/dts/broadcom/bcm4708-netgear-r6250.dts
++@@ -143,7 +143,10 @@
++ 		};
++ 
++ 		port@5 {
++-			status = "disabled";
+++			fixed-link {
+++				speed = <1000>;
+++				full-duplex;
+++			};
++ 		};
++ 
++ 		port@7 {
++--- a/arch/arm/boot/dts/broadcom/bcm4708-netgear-r6300-v2.dts
+++++ b/arch/arm/boot/dts/broadcom/bcm4708-netgear-r6300-v2.dts
++@@ -135,7 +135,10 @@
++ 		};
++ 
++ 		port@5 {
++-			status = "disabled";
+++			fixed-link {
+++				speed = <1000>;
+++				full-duplex;
+++			};
++ 		};
++ 
++ 		port@7 {
++--- a/arch/arm/boot/dts/broadcom/bcm4708-netgear-r6400-v1.dts
+++++ b/arch/arm/boot/dts/broadcom/bcm4708-netgear-r6400-v1.dts
++@@ -194,7 +194,10 @@
++ 		};
++ 
++ 		port@5 {
++-			status = "disabled";
+++			fixed-link {
+++				speed = <1000>;
+++				full-duplex;
+++			};
++ 		};
++ 
++ 		port@7 {
++--- a/arch/arm/boot/dts/broadcom/bcm4708-smartrg-sr400ac.dts
+++++ b/arch/arm/boot/dts/broadcom/bcm4708-smartrg-sr400ac.dts
++@@ -143,7 +143,10 @@
++ 		};
++ 
++ 		port@5 {
++-			status = "disabled";
+++			fixed-link {
+++				speed = <1000>;
+++				full-duplex;
+++			};
++ 		};
++ 
++ 		port@7 {
++--- a/arch/arm/boot/dts/broadcom/bcm47081-asus-rt-n18u.dts
+++++ b/arch/arm/boot/dts/broadcom/bcm47081-asus-rt-n18u.dts
++@@ -134,7 +134,10 @@
++ 		};
++ 
++ 		port@5 {
++-			status = "disabled";
+++			fixed-link {
+++				speed = <1000>;
+++				full-duplex;
+++			};
++ 		};
++ 
++ 		port@7 {
++--- a/arch/arm/boot/dts/broadcom/bcm47081-buffalo-wzr-600dhp2.dts
+++++ b/arch/arm/boot/dts/broadcom/bcm47081-buffalo-wzr-600dhp2.dts
++@@ -157,7 +157,10 @@
++ 		};
++ 
++ 		port@5 {
++-			status = "disabled";
+++			fixed-link {
+++				speed = <1000>;
+++				full-duplex;
+++			};
++ 		};
++ 
++ 		port@7 {
++--- a/arch/arm/boot/dts/broadcom/bcm47081-buffalo-wzr-900dhp.dts
+++++ b/arch/arm/boot/dts/broadcom/bcm47081-buffalo-wzr-900dhp.dts
++@@ -163,7 +163,10 @@
++ 		};
++ 
++ 		port@5 {
++-			status = "disabled";
+++			fixed-link {
+++				speed = <1000>;
+++				full-duplex;
+++			};
++ 		};
++ 
++ 		port@7 {
++--- a/arch/arm/boot/dts/broadcom/bcm47081-tplink-archer-c5-v2.dts
+++++ b/arch/arm/boot/dts/broadcom/bcm47081-tplink-archer-c5-v2.dts
++@@ -130,7 +130,10 @@
++ 		};
++ 
++ 		port@5 {
++-			status = "disabled";
+++			fixed-link {
+++				speed = <1000>;
+++				full-duplex;
+++			};
++ 		};
++ 
++ 		port@7 {
++--- a/arch/arm/boot/dts/broadcom/bcm4709-asus-rt-ac3200.dts
+++++ b/arch/arm/boot/dts/broadcom/bcm4709-asus-rt-ac3200.dts
++@@ -149,7 +149,10 @@
++ 		};
++ 
++ 		port@5 {
++-			status = "disabled";
+++			fixed-link {
+++				speed = <1000>;
+++				full-duplex;
+++			};
++ 		};
++ 
++ 		port@7 {
++--- a/arch/arm/boot/dts/broadcom/bcm4709-buffalo-wxr-1900dhp.dts
+++++ b/arch/arm/boot/dts/broadcom/bcm4709-buffalo-wxr-1900dhp.dts
++@@ -178,7 +178,10 @@
++ 		};
++ 
++ 		port@5 {
++-			status = "disabled";
+++			fixed-link {
+++				speed = <1000>;
+++				full-duplex;
+++			};
++ 		};
++ 
++ 		port@7 {
++--- a/arch/arm/boot/dts/broadcom/bcm4709-linksys-ea9200.dts
+++++ b/arch/arm/boot/dts/broadcom/bcm4709-linksys-ea9200.dts
++@@ -214,7 +214,10 @@
++ 		};
++ 
++ 		port@5 {
++-			status = "disabled";
+++			fixed-link {
+++				speed = <1000>;
+++				full-duplex;
+++			};
++ 		};
++ 
++ 		port@7 {
++--- a/arch/arm/boot/dts/broadcom/bcm4709-netgear-r7000.dts
+++++ b/arch/arm/boot/dts/broadcom/bcm4709-netgear-r7000.dts
++@@ -153,7 +153,10 @@
++ 		};
++ 
++ 		port@5 {
++-			status = "disabled";
+++			fixed-link {
+++				speed = <1000>;
+++				full-duplex;
+++			};
++ 		};
++ 
++ 		port@7 {
++--- a/arch/arm/boot/dts/broadcom/bcm4709-netgear-r7900.dts
+++++ b/arch/arm/boot/dts/broadcom/bcm4709-netgear-r7900.dts
++@@ -76,7 +76,10 @@
++ 		};
++ 
++ 		port@5 {
++-			status = "disabled";
+++			fixed-link {
+++				speed = <1000>;
+++				full-duplex;
+++			};
++ 		};
++ 
++ 		port@7 {
++--- a/arch/arm/boot/dts/broadcom/bcm4709-netgear-r8000.dts
+++++ b/arch/arm/boot/dts/broadcom/bcm4709-netgear-r8000.dts
++@@ -224,8 +224,6 @@
++ 		};
++ 
++ 		port@5 {
++-			status = "disabled";
++-
++ 			fixed-link {
++ 				speed = <1000>;
++ 				full-duplex;
++--- a/arch/arm/boot/dts/broadcom/bcm4709-tplink-archer-c9-v1.dts
+++++ b/arch/arm/boot/dts/broadcom/bcm4709-tplink-archer-c9-v1.dts
++@@ -148,7 +148,10 @@
++ 		};
++ 
++ 		port@5 {
++-			status = "disabled";
+++			fixed-link {
+++				speed = <1000>;
+++				full-duplex;
+++			};
++ 		};
++ 
++ 		port@7 {
++--- a/arch/arm/boot/dts/broadcom/bcm47094-asus-rt-ac3100.dts
+++++ b/arch/arm/boot/dts/broadcom/bcm47094-asus-rt-ac3100.dts
++@@ -36,7 +36,10 @@
++ &srab {
++ 	ports {
++ 		port@5 {
++-			status = "disabled";
+++			fixed-link {
+++				speed = <1000>;
+++				full-duplex;
+++			};
++ 		};
++ 	};
++ };
++--- a/arch/arm/boot/dts/broadcom/bcm47094-asus-rt-ac5300.dts
+++++ b/arch/arm/boot/dts/broadcom/bcm47094-asus-rt-ac5300.dts
++@@ -155,7 +155,10 @@
++ 		};
++ 
++ 		port@5 {
++-			status = "disabled";
+++			fixed-link {
+++				speed = <1000>;
+++				full-duplex;
+++			};
++ 		};
++ 
++ 		port@7 {
++--- a/arch/arm/boot/dts/broadcom/bcm47094-dlink-dir-885l.dts
+++++ b/arch/arm/boot/dts/broadcom/bcm47094-dlink-dir-885l.dts
++@@ -170,7 +170,10 @@
++ 		};
++ 
++ 		port@5 {
++-			status = "disabled";
+++			fixed-link {
+++				speed = <1000>;
+++				full-duplex;
+++			};
++ 		};
++ 
++ 		port@7 {
++--- a/arch/arm/boot/dts/broadcom/bcm47094-dlink-dir-890l.dts
+++++ b/arch/arm/boot/dts/broadcom/bcm47094-dlink-dir-890l.dts
++@@ -211,7 +211,10 @@
++ 		};
++ 
++ 		port@5 {
++-			status = "disabled";
+++			fixed-link {
+++				speed = <1000>;
+++				full-duplex;
+++			};
++ 		};
++ 
++ 		port@7 {
++--- a/arch/arm/boot/dts/broadcom/bcm47094-linksys-panamera.dts
+++++ b/arch/arm/boot/dts/broadcom/bcm47094-linksys-panamera.dts
++@@ -259,7 +259,6 @@
++ 
++ 		port@5 {
++ 			label = "cpu";
++-			status = "disabled";
++ 
++ 			fixed-link {
++ 				speed = <1000>;
++--- a/arch/arm/boot/dts/broadcom/bcm47094-luxul-abr-4500.dts
+++++ b/arch/arm/boot/dts/broadcom/bcm47094-luxul-abr-4500.dts
++@@ -119,7 +119,10 @@
++ 		};
++ 
++ 		port@5 {
++-			status = "disabled";
+++			fixed-link {
+++				speed = <1000>;
+++				full-duplex;
+++			};
++ 		};
++ 
++ 		port@7 {
++--- a/arch/arm/boot/dts/broadcom/bcm47094-luxul-xap-1610.dts
+++++ b/arch/arm/boot/dts/broadcom/bcm47094-luxul-xap-1610.dts
++@@ -103,7 +103,10 @@
++ 		};
++ 
++ 		port@5 {
++-			status = "disabled";
+++			fixed-link {
+++				speed = <1000>;
+++				full-duplex;
+++			};
++ 		};
++ 
++ 		port@7 {
++--- a/arch/arm/boot/dts/broadcom/bcm47094-luxul-xbr-4500.dts
+++++ b/arch/arm/boot/dts/broadcom/bcm47094-luxul-xbr-4500.dts
++@@ -119,7 +119,10 @@
++ 		};
++ 
++ 		port@5 {
++-			status = "disabled";
+++			fixed-link {
+++				speed = <1000>;
+++				full-duplex;
+++			};
++ 		};
++ 
++ 		port@7 {
++--- a/arch/arm/boot/dts/broadcom/bcm47094-luxul-xwr-3150-v1.dts
+++++ b/arch/arm/boot/dts/broadcom/bcm47094-luxul-xwr-3150-v1.dts
++@@ -150,7 +150,10 @@
++ 		};
++ 
++ 		port@5 {
++-			status = "disabled";
+++			fixed-link {
+++				speed = <1000>;
+++				full-duplex;
+++			};
++ 		};
++ 
++ 		port@7 {
++--- a/arch/arm/boot/dts/broadcom/bcm47094-netgear-r8500.dts
+++++ b/arch/arm/boot/dts/broadcom/bcm47094-netgear-r8500.dts
++@@ -120,7 +120,10 @@
++ 		};
++ 
++ 		port@5 {
++-			status = "disabled";
+++			fixed-link {
+++				speed = <1000>;
+++				full-duplex;
+++			};
++ 		};
++ 
++ 		port@7 {
++--- a/arch/arm/boot/dts/broadcom/bcm47094-phicomm-k3.dts
+++++ b/arch/arm/boot/dts/broadcom/bcm47094-phicomm-k3.dts
++@@ -76,7 +76,10 @@
++ 		};
++ 
++ 		port@5 {
++-			status = "disabled";
+++			fixed-link {
+++				speed = <1000>;
+++				full-duplex;
+++			};
++ 		};
++ 
++ 		port@7 {
 diff --git a/target/linux/bcm53xx/patches-6.18/721-net-dsa-tag_brcm-accept-the-flow-accelerator-lookup-opcode.patch b/target/linux/bcm53xx/patches-6.18/721-net-dsa-tag_brcm-accept-the-flow-accelerator-lookup-opcode.patch
 new file mode 100644
 index 0000000000..973d532ee7
@@ -3639,3 +3995,286 @@ index 0000000000..ea573bfcda
 + 	if (flow->next_hop < 0) {
 + 		err = flow->next_hop;
 + 		goto free;
+diff --git a/target/linux/bcm53xx/patches-6.18/732-net-bgmac-keep-flows-over-PPPoE-out-of-the-flow-accelerator.patch b/target/linux/bcm53xx/patches-6.18/732-net-bgmac-keep-flows-over-PPPoE-out-of-the-flow-accelerator.patch
+new file mode 100644
+index 0000000000..74c426e44f
+--- /dev/null
++++ b/target/linux/bcm53xx/patches-6.18/732-net-bgmac-keep-flows-over-PPPoE-out-of-the-flow-accelerator.patch
+@@ -0,0 +1,96 @@
++From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
++From: Erik Conijn <egc112@msn.com>
++Date: Sat, 21 Nov 2026 09:03:44 +0100
++Subject: [PATCH] net: bgmac: keep flows over PPPoE out of the flow accelerator
++
++The flow accelerator cannot add or remove a PPPoE header. A flow towards
++a PPPoE uplink comes with a PPPOE_PUSH action, which the driver refuses.
++The flow rule of the other direction, from the uplink, describes the
++frames as plain IP from the Ethernet port below the PPPoE device: the
++flowtable only puts VLAN tags into the match, not a PPPoE session. So
++the driver took that direction, and its entry never saw a hit, while
++conntrack showed the connection as [HW_OFFLOAD] although it ran in the
++software flowtable.
++
++Look at the flowtable's tuple, which nf_flow_table passes as the cookie
++of TC_SETUP_FT, and refuse a direction that comes through a PPPoE
++session, so both directions stay in software.
++
++R6400 v2, WAN over PPPoE to a PPPoE server on the WAN side, iperf3 TCP
++from a LAN host, upload / download in Mbit/s, with hardware offloading
++on:
++
++                          before          after
++  throughput              511 / 549       513 / 547
++  FA entries per flow     1, no hits      none
++  conntrack               [HW_OFFLOAD]    [OFFLOAD]
++
++Software offloading alone gives the same 507 / 548. A flow over the
++plain Ethernet WAN on the same router still goes to the accelerator,
++at 925 Mbit/s.
++
++Assisted-by: Claude:claude-opus-5-5
++Signed-off-by: Erik Conijn <egc112@msn.com>
++---
++ drivers/net/ethernet/broadcom/bgmac-fa.c | 27 ++++++++++++++++++++++++
++ 1 file changed, 27 insertions(+)
++
++diff --git a/drivers/net/ethernet/broadcom/bgmac-fa.c b/drivers/net/ethernet/broadcom/bgmac-fa.c
++index 049f8ce..712333d 100644
++--- a/drivers/net/ethernet/broadcom/bgmac-fa.c
+++++ b/drivers/net/ethernet/broadcom/bgmac-fa.c
++@@ -48,6 +48,9 @@
++  * them were measured on a BCM4708. The FA has no hop limit check, it
++  * forwards hop limit 1 as 0. So it only gets IPv6 flows while the switch
++  * traps those frames in front of it (see b53_fa_trap_active()).
+++ *
+++ * It cannot add or remove a PPPoE header, so flows over a PPPoE uplink
+++ * stay in software, in both directions (see bgmac_fa_from_pppoe()).
++  */
++ 
++ #include <linux/bcma/bcma.h>
++@@ -64,6 +67,7 @@
++ #include <linux/slab.h>
++ #include <net/dsa.h>
++ #include <net/flow_offload.h>
+++#include <net/netfilter/nf_flow_table.h>
++ #include <net/pkt_cls.h>
++ 
++ #include "bgmac.h"
++@@ -951,6 +955,27 @@ static bool bgmac_fa_reply_fits(struct bgmac_fa *fa,
++ 	return bgmac_fa_room(fa, rbase, rt.v6) >= (rbase == base ? 2 : 1);
++ }
++ 
+++/*
+++ * The flow rule describes a VLAN tag that the frames of a flow come with,
+++ * but not a PPPoE session: a flow from a PPPoE uplink reaches this driver
+++ * as plain IP from the Ethernet port below it, and its entry would never
+++ * see a hit, as the frames carry the PPPoE header in front of the IP
+++ * header. Only the flowtable's tuple, which nf_flow_table passes as the
+++ * cookie of TC_SETUP_FT, records that session. The other direction comes
+++ * with a PPPOE_PUSH action, which bgmac_fa_parse() refuses.
+++ */
+++static bool bgmac_fa_from_pppoe(const struct flow_cls_offload *f)
+++{
+++	const struct flow_offload_tuple *t = (const void *)f->cookie;
+++	int i;
+++
+++	for (i = 0; i < t->encap_num; i++)
+++		if (t->encap[i].proto == htons(ETH_P_PPP_SES))
+++			return true;
+++
+++	return false;
+++}
+++
++ static int bgmac_fa_flow_add(struct bgmac *bgmac, struct flow_cls_offload *f,
++ 			     struct bgmac_fa_block *block)
++ {
++@@ -965,6 +990,8 @@ static int bgmac_fa_flow_add(struct bgmac *bgmac, struct flow_cls_offload *f,
++ 		return -EOPNOTSUPP;
++ 	if (bgmac_fa_flow_find(fa, f->cookie))
++ 		return -EEXIST;
+++	if (bgmac_fa_from_pppoe(f))
+++		return -EOPNOTSUPP;
++ 
++ 	err = bgmac_fa_parse(bgmac, f, &r);
++ 	if (err)
+diff --git a/target/linux/bcm53xx/patches-6.18/733-net-dsa-b53-run-port-8-at-2-Gbit-s-behind-the-BCM47094-accelerator.patch b/target/linux/bcm53xx/patches-6.18/733-net-dsa-b53-run-port-8-at-2-Gbit-s-behind-the-BCM47094-accelerator.patch
+new file mode 100644
+index 0000000000..87315657d6
+--- /dev/null
++++ b/target/linux/bcm53xx/patches-6.18/733-net-dsa-b53-run-port-8-at-2-Gbit-s-behind-the-BCM47094-accelerator.patch
+@@ -0,0 +1,80 @@
++From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
++From: Erik Conijn <egc112@msn.com>
++Date: Sat, 21 Nov 2026 13:23:29 +0100
++Subject: [PATCH] net: dsa: b53: run port 8 at 2 Gbit/s behind the BCM47094
++ accelerator
++
++Every frame that the flow accelerator forwards crosses switch port 8
++twice: from the switch into the accelerator and back. At 1 Gbit/s on
++port 8, traffic at line rate in both directions does not fit, and the
++switch drops or pauses at the ingress of the busier port.
++
++Broadcom's driver sets GMII_SPEED_UP_2G in the IMP port override
++register for this switch family, and b53 already knows that bit as
++PORT_OVERRIDE_SPEED_2000M for speed 2000. Use it for port 8 when it is
++the CPU port behind the accelerator, on the BCM47094 only. On the
++BCM4708 the accelerator does not keep up at 2 Gbit/s: it pauses the
++switch about 16 times as often and the throughput does not improve, so
++that chip stays at 1 Gbit/s.
++
++The GMAC side needs nothing: bgmac already runs the BCM4707 family on
++the 250 MHz clock, and offloaded frames turn around in the accelerator
++without passing through the GMAC.
++
++Two independent iperf3 TCP pairs at once through NAT, one downloading,
++one uploading, each alone at 941 / 949 Mbit/s, in Mbit/s:
++
++                        port 8 at 1000     port 8 at 2000
++  R6400 v2 (BCM47094)   ~610 + ~640        928 + 945
++  EA6900 (BCM4708)      ~245 + 941         ~240 + 945
++
++On the R6400 v2 a 15-minute soak at 2 Gbit/s showed no errors on any
++port and no drops on port 8; the software path (offloading off) and
++traffic to the router itself are unchanged.
++
++Assisted-by: Claude:claude-opus-5-5
++Signed-off-by: Erik Conijn <egc112@msn.com>
++---
++ drivers/net/dsa/b53/b53_common.c | 19 +++++++++++++++++++
++ 1 file changed, 19 insertions(+)
++
++diff --git a/drivers/net/dsa/b53/b53_common.c b/drivers/net/dsa/b53/b53_common.c
++index 7f17c1085..256ffacc2 100644
++--- a/drivers/net/dsa/b53/b53_common.c
+++++ b/drivers/net/dsa/b53/b53_common.c
++@@ -1994,6 +1994,22 @@ static void b53_phylink_mac_link_down(struct phylink_config *config,
++ 		dev->ops->serdes_link_set(dev, port, mode, interface, false);
++ }
++ 
+++/* Every frame that the flow accelerator forwards crosses port 8 twice,
+++ * from the switch into the accelerator and back. At 1 Gbit/s on port 8,
+++ * traffic at line rate in both directions does not fit. On the BCM47094
+++ * run port 8 at 2 Gbit/s, as Broadcom's driver does (GMII_SPEED_UP_2G).
+++ * Not on the BCM4708: there the accelerator does not keep up at 2 Gbit/s
+++ * and pauses the switch, which then drops at the ingress of the WAN port.
+++ */
+++static bool b53_fa_port_2g(struct b53_device *dev, struct dsa_switch *ds,
+++			   int port)
+++{
+++	return port == 8 && dsa_is_cpu_port(ds, port) &&
+++	       dev->tag_protocol == DSA_TAG_PROTO_BRCM_PREPEND &&
+++	       b53_has_flow_accelerator(dev) &&
+++	       of_machine_is_compatible("brcm,bcm47094");
+++}
+++
++ static void b53_phylink_mac_link_up(struct phylink_config *config,
++ 				    struct phy_device *phydev,
++ 				    unsigned int mode,
++@@ -2025,6 +2041,9 @@ static void b53_phylink_mac_link_up(struct phylink_config *config,
++ 		if (is5301x(dev) && dsa_is_cpu_port(ds, port))
++ 			tx_pause = rx_pause = true;
++ 
+++		if (b53_fa_port_2g(dev, ds, port))
+++			speed = 2000;
+++
++ 		b53_force_port_config(dev, port, speed, duplex,
++ 				      tx_pause, rx_pause);
++ 		b53_force_link(dev, port, true);
++-- 
++2.43.0
++
+diff --git a/target/linux/bcm53xx/patches-6.18/734-net-dsa-b53-default-to-the-prepended-tag-behind-the-accelerator.patch b/target/linux/bcm53xx/patches-6.18/734-net-dsa-b53-default-to-the-prepended-tag-behind-the-accelerator.patch
+new file mode 100644
+index 0000000000..4168ee1aaf
+--- /dev/null
++++ b/target/linux/bcm53xx/patches-6.18/734-net-dsa-b53-default-to-the-prepended-tag-behind-the-accelerator.patch
+@@ -0,0 +1,89 @@
++From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
++From: Erik Conijn <egc112@msn.com>
++Date: Sat, 21 Nov 2026 13:30:42 +0100
++Subject: [PATCH] net: dsa: b53: default to the prepended tag behind the
++ accelerator
++
++So far a board used the flow accelerator only when its device tree
++selected the prepended tag. But a device tree that selects it on a
++switch without the accelerator (Broadcom's et driver counts it present
++from switch revision 3 on and on all BCM47094: FA_CAPABLE()) gets the
++whole switch tree rejected: b53 refuses that tag there, and DSA gives
++up on the tree. That makes a common device tree setting for all
++Northstar boards unsafe.
++
++Choose the tag in b53 instead. Report the prepended tag when the
++switch has the accelerator, port 8 is a CPU port, and port 5 is one
++too, to take the frames that the accelerator must not handle. In every
++other case keep the regular tag, as before. DSA asks for the tag while
++it parses the ports in order, so look the CPU ports up in the device
++tree. A board can still select the regular tag with dsa-tag-protocol.
++
++Assisted-by: Claude:claude-opus-5-5
++Signed-off-by: Erik Conijn <egc112@msn.com>
++---
++ drivers/net/dsa/b53/b53_common.c | 41 ++++++++++++++++++++++++++++++++
++ 1 file changed, 41 insertions(+)
++
++diff --git a/drivers/net/dsa/b53/b53_common.c b/drivers/net/dsa/b53/b53_common.c
++index 256ffacc2..82879dcf3 100644
++--- a/drivers/net/dsa/b53/b53_common.c
+++++ b/drivers/net/dsa/b53/b53_common.c
++@@ -2875,6 +2875,34 @@ static bool b53_can_enable_brcm_tags(struct dsa_switch *ds, int port,
++ 	return ret;
++ }
++ 
+++/* Is switch port @port a CPU port in the device tree? DSA asks for the
+++ * tag protocol while it parses the ports in order, so the port types of
+++ * the later ports are not known yet.
+++ */
+++static bool b53_of_cpu_port(struct dsa_switch *ds, int port)
+++{
+++	struct device_node *ports, *np;
+++	bool cpu = false;
+++	u32 reg;
+++
+++	ports = of_get_child_by_name(ds->dev->of_node, "ports");
+++	if (!ports)
+++		ports = of_get_child_by_name(ds->dev->of_node, "ethernet-ports");
+++	if (!ports)
+++		return false;
+++
+++	for_each_available_child_of_node(ports, np) {
+++		if (of_property_read_u32(np, "reg", &reg) || reg != port)
+++			continue;
+++		cpu = of_property_present(np, "ethernet");
+++		of_node_put(np);
+++		break;
+++	}
+++	of_node_put(ports);
+++
+++	return cpu;
+++}
+++
++ enum dsa_tag_protocol b53_get_tag_protocol(struct dsa_switch *ds, int port,
++ 					   enum dsa_tag_protocol mprot)
++ {
++@@ -2904,6 +2932,19 @@ enum dsa_tag_protocol b53_get_tag_protocol(struct dsa_switch *ds, int port,
++ 		goto out;
++ 	}
++ 
+++	/* A Northstar switch with a flow accelerator in front of port 8
+++	 * takes the same tag, when port 8 is a CPU port and port 5 is one
+++	 * too, for the frames that the accelerator must not handle (see
+++	 * b53_fa_trap_active()). The accelerator's driver puts it in the
+++	 * path for this tag. Without the accelerator, or without both CPU
+++	 * ports, keep the regular tag.
+++	 */
+++	if (b53_has_flow_accelerator(dev) && b53_of_cpu_port(ds, 8) &&
+++	    b53_of_cpu_port(ds, 5)) {
+++		dev->tag_protocol = DSA_TAG_PROTO_BRCM_PREPEND;
+++		goto out;
+++	}
+++
++ 	dev->tag_protocol = DSA_TAG_PROTO_BRCM;
++ out:
++ 	return dev->tag_protocol;
++-- 
++2.43.0
++

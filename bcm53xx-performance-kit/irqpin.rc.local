@@ -4,9 +4,9 @@
 # Fixed IRQ layout for TESTS ONLY (clean comparisons between runs); normally irqbalance does this job.
 # Not in the build kit: copy by hand to /etc/rc.local on the EA6900 / R6400 v1 / R6400 v2, add the three IRQs
 # it logs as 'list banirq' in /etc/config/irqbalance (or stop irqbalance), and reboot.
-# Layout (measured best on the EA6900, 2026-10-29): the switch CPU port (DSA conduit: eth2 on the EA6900,
-# eth0 on the R6400) and the radio on PCIe 0 (GIC 163, the 2.4 GHz BCM4331 on these boards) on CPU1,
-# the radio on PCIe 1 (GIC 169, the 5 GHz BCM4360) on CPU0.
+# Layout (measured best on the EA6900, 2026-10-29): the switch CPU port (the DSA conduit of the user ports,
+# eth2 with this kit; eth0 is the flow accelerator's trap port) and the radio on PCIe 0 (GIC 163, the 2.4 GHz
+# BCM4331 on these boards) on CPU1, the radio on PCIe 1 (GIC 169, the 5 GHz BCM4360) on CPU0.
 # A radio requests its IRQ only when wifi comes up, so retry for up to 2 minutes in the background.
 # After reloading b43-next by hand, run this file again.
 pin() {
@@ -15,7 +15,12 @@ pin() {
 	echo "$2" > /proc/irq/$i/smp_affinity && logger -t irqpin "$3: irq $i -> mask $2"
 }
 (
-	c=; for n in /sys/class/net/eth*; do [ -d "$n/dsa" ] && c=$(basename "$n") && break; done
+	# the conduit with the most interfaces linked to it: the user ports' one, not the trap port's
+	c=; u=0; for n in /sys/class/net/eth*; do
+		[ -d "$n/dsa" ] || continue; x=$(cat $n/ifindex); k=0
+		for l in /sys/class/net/*/iflink; do [ "${l%/iflink}" != "$n" ] && [ "$(cat $l)" = "$x" ] && k=$((k + 1)); done
+		[ $k -gt $u ] && c=$(basename "$n") u=$k
+	done
 	n=0; e=1; g=1; a=1; [ -n "$c" ] || { e=0; logger -t irqpin "no DSA conduit found"; }
 	while [ $n -lt 60 ] && [ $((e + g + a)) -gt 0 ]; do
 		[ $e = 1 ] && pin " $c$" 2 "$c (DSA conduit)" && e=0

@@ -1,12 +1,13 @@
 # Northstar FA: hardware NAT offloading on Broadcom BCM4708/BCM4709 routers — RESEARCH
 
-> **Status: research prototype, nothing to install yet.** Under OpenWrt the flow accelerator ("FA") in these
-> routers works. It routes and NATs at full gigabit speed with the router's CPU idle. But it runs as a test module
-> that needs two kernel changes and a switch-over script. This page explains what the FA is, how to check whether
-> your router has one, and what we measured. The features are done (IPv4, IPv6, VLAN WAN), and the OpenWrt
-> driver is submitted as [openwrt/openwrt#26789](https://github.com/openwrt/openwrt/pull/26789)
+> **Status: research; to try it, use the [bcm53xx performance kit](../bcm53xx-performance-kit/)** (test version,
+> 2026-11-21, for all bcm53xx boards; read its bricking warning first). Under OpenWrt the flow accelerator ("FA")
+> in these routers works. It routes and NATs at full gigabit speed with the router's CPU idle. This page explains
+> what the FA is, how to check whether your router has one, and what we measured. The features are done (IPv4,
+> IPv6, VLAN WAN), and the OpenWrt driver is submitted as [openwrt/openwrt#26789](https://github.com/openwrt/openwrt/pull/26789)
 > (2026-11-18, IPv6 and VLAN added 2026-11-20, under review; see *The pull request*).
-> Tested on the Linksys EA6900 v1 and the Netgear R6400 v2. Not in OpenWrt or the Linux kernel yet.
+> Tested on the Linksys EA6900 v1 and the Netgear R6400 v2; the R6400 v1 boots with it, the FA in the path
+> (2026-11-21, no throughput run yet). Not in OpenWrt or the Linux kernel yet.
 > Based on Broadcom's public, ISC-licensed driver source and our own measurements only: see
 > [PROVENANCE.md](PROVENANCE.md).
 
@@ -284,7 +285,7 @@ So any further Wi-Fi speed-up has to come from the CPU side, not from the FA:
   each frame and, without RPS, also forwards it on the same core, which is then the limit. RPS hands the forwarding
   to the other core. OpenWrt's packet steering does not do this on bcm53xx (the target's own script sets only
   `eth0` and `br-lan`, and it does not run again when `wifi` creates the AP interfaces), so the
-  [b43-next build kit](../b43-next-build-kit/#rps-on-for-the-wi-fi-interfaces) adds a hotplug script that sets
+  [bcm53xx performance kit](../bcm53xx-performance-kit/#rps-on-for-the-wi-fi-interfaces) adds a hotplug script that sets
   it per AP interface, to the core that does not take that radio's interrupt. With irqbalance putting the two
   radios on different cores, the R6400 v2 reaches **424 / 356 Mbit/s** (5 GHz, client to LAN / LAN to client) and
   **235 / 199 Mbit/s** (2.4 GHz, 40 MHz), and the "RX descriptor underrun" errors at full upload are gone.

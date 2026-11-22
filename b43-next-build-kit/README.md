@@ -19,7 +19,7 @@ R6400 patch series in [b43-80211n](../b43-80211n/).
 | File | What |
 |---|---|
 | `patches/B43-1-EA6900-board.patch` | EA6900 board support (dts, image, board.d, nvram), as submitted in [openwrt/openwrt#26316](https://github.com/openwrt/openwrt/pull/26316); the same file as in the performance kit |
-| `patches/B43-2-b43-next-openwrt-26717.patch` | [openwrt/openwrt#26717](https://github.com/openwrt/openwrt/pull/26717) at 30d313bb, unchanged: the `kmod-b43-next` package (with the firmware as a separate `b43-firmware` package) pinned to b43-next 625d906, aleferri's main of 2026-11-20; `tools/Makefile` builds b43-fwcutter for `b43-firmware` |
+| `patches/B43-2-b43-next-openwrt-26717.patch` | [openwrt/openwrt#26717](https://github.com/openwrt/openwrt/pull/26717) at 6d8e2fc70f, unchanged: the `kmod-b43-next` package pinned to b43-next 625d906, aleferri's main of 2026-11-20, with its firmware 784.2 as a package of its own, `b43-firmware-784` (kmod-b43's `b43-firmware` keeps its own version choice); `tools/Makefile` builds b43-fwcutter for the firmware packages |
 | `patches/B43-3-b43-next-devices.patch` | the R6400 v1, v2, v2-otp and the EA6900 get `kmod-b43-next` and `wpad-openssl` instead of kmod-b43 and wpad-basic-mbedtls |
 | `diffconfig` | EA6900, R6400 v1, R6400 v2 in one multi-profile build; kmod-b43-next, LuCI, iperf3, iw-full |
 | `apply.sh` | applies the patches to an OpenWrt tree and adds the diffconfig to its `.config` |

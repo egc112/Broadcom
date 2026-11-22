@@ -1,5 +1,5 @@
 diff --git a/include/package-pack.mk b/include/package-pack.mk
-index 399b06be42b8fe..01518cc10568c4 100644
+index 399b06be42..01518cc105 100644
 --- a/include/package-pack.mk
 +++ b/include/package-pack.mk
 @@ -621,7 +621,7 @@ else
@@ -13,7 +13,7 @@ index 399b06be42b8fe..01518cc10568c4 100644
  	  --output "$$(PACK_$(1))"
 diff --git a/package/kernel/b43-next/Makefile b/package/kernel/b43-next/Makefile
 new file mode 100644
-index 00000000000000..390b4db059fcca
+index 0000000000..06971b9b39
 --- /dev/null
 +++ b/package/kernel/b43-next/Makefile
 @@ -0,0 +1,100 @@
@@ -46,7 +46,7 @@ index 00000000000000..390b4db059fcca
 +  URL:=https://github.com/aleferri/b43-next
 +  KCONFIG:=CONFIG_HW_RANDOM=y
 +  DEPENDS:=@PCI_SUPPORT +kmod-mac80211 +kmod-lib-cordic +@DRIVER_11AC_SUPPORT \
-+	+@KERNEL_PAGE_POOL +b43-firmware @!TARGET_uml
++	+@KERNEL_PAGE_POOL +b43-firmware-784 @!TARGET_uml
 +  CONFLICTS:=kmod-b43
 +  FILES:=$(PKG_BUILD_DIR)/b43-next.ko
 +  AUTOLOAD:=$(call AutoProbe,b43-next)
@@ -119,7 +119,7 @@ index 00000000000000..390b4db059fcca
 +$(eval $(call KernelPackage,b43-next))
 diff --git a/package/kernel/b43-next/files/b43-next.init b/package/kernel/b43-next/files/b43-next.init
 new file mode 100644
-index 00000000000000..6e9f4e8aabc826
+index 0000000000..6e9f4e8aab
 --- /dev/null
 +++ b/package/kernel/b43-next/files/b43-next.init
 @@ -0,0 +1,226 @@
@@ -350,7 +350,7 @@ index 00000000000000..6e9f4e8aabc826
 +	return 0
 +}
 diff --git a/package/kernel/mac80211/Makefile b/package/kernel/mac80211/Makefile
-index eb01ab45df0a1b..0c9051e65af2c8 100644
+index eb01ab45df..76538e5dd4 100644
 --- a/package/kernel/mac80211/Makefile
 +++ b/package/kernel/mac80211/Makefile
 @@ -12,7 +12,7 @@ PKG_NAME:=mac80211
@@ -362,39 +362,38 @@ index eb01ab45df0a1b..0c9051e65af2c8 100644
  PKG_LICENSE:=GPL-2.0-only
  PKG_LICENSE_FILES:=COPYING
  
-@@ -397,3 +397,4 @@ endef
+@@ -397,3 +397,5 @@ endef
  $(eval $(foreach drv,$(PKG_DRIVERS),$(call KernelPackage,$(drv))))
  $(eval $(call KernelPackage,cfg80211))
  $(eval $(call KernelPackage,mac80211))
 +$(eval $(call BuildPackage,b43-firmware))
++$(eval $(call BuildPackage,b43-firmware-784))
 diff --git a/package/kernel/mac80211/broadcom.mk b/package/kernel/mac80211/broadcom.mk
-index b48256c20b5429..0b9971fdaa566c 100644
+index b48256c20b..b99992d338 100644
 --- a/package/kernel/mac80211/broadcom.mk
 +++ b/package/kernel/mac80211/broadcom.mk
-@@ -51,6 +51,14 @@ ifneq ($(CONFIG_B43_FW_4_178),)
-   PKG_B43_FWV4_SOURCE_URL:=@OPENWRT
-   PKG_B43_FWV4_HASH:=32f6ad98facbb9045646fdc8b54bb03086d204153253f9c65d0234a5d90ae53f
- else
-+ifneq ($(CONFIG_B43_FW_6_30),)
-+  PKG_B43_FWV4_NAME:=broadcom-wl
-+  PKG_B43_FWV4_VERSION:=6.30.163.46
-+  PKG_B43_FWV4_OBJECT:=$(PKG_B43_FWV4_NAME)-$(PKG_B43_FWV4_VERSION).wl_apsta.o
-+  PKG_B43_FWV4_SOURCE:=$(PKG_B43_FWV4_NAME)-$(PKG_B43_FWV4_VERSION).tar.bz2
-+  PKG_B43_FWV4_SOURCE_URL:=@SF/b43-firmware
-+  PKG_B43_FWV4_HASH:=a07c3b6b277833c7dbe61daa511f908cd66c5e2763eb7a0859abc36cd9335c2d
-+else
- ifneq ($(CONFIG_B43_FW_5_100_138),)
-   PKG_B43_FWV4_NAME:=broadcom-wl
-   PKG_B43_FWV4_VERSION:=5.100.138
-@@ -68,6 +76,7 @@ else
- endif
- endif
- endif
+@@ -85,6 +85,20 @@ define Download/b43
+ endef
+ $(eval $(call Download,b43))
+ 
++PKG_B43_FW784_NAME:=broadcom-wl
++PKG_B43_FW784_VERSION:=6.30.163.46
++PKG_B43_FW784_OBJECT:=$(PKG_B43_FW784_NAME)-$(PKG_B43_FW784_VERSION).wl_apsta.o
++PKG_B43_FW784_SOURCE:=$(PKG_B43_FW784_NAME)-$(PKG_B43_FW784_VERSION).tar.bz2
++
++ifneq ($(CONFIG_PACKAGE_b43-firmware-784),)
++define Download/b43-784
++  FILE:=$(PKG_B43_FW784_SOURCE)
++  URL:=@SF/b43-firmware
++  HASH:=a07c3b6b277833c7dbe61daa511f908cd66c5e2763eb7a0859abc36cd9335c2d
++endef
++$(eval $(call Download,b43-784))
 +endif
- ifneq ($(CONFIG_B43_OPENFIRMWARE),)
-   PKG_B43_FWV4_NAME:=broadcom-wl
-   PKG_B43_FWV4_VERSION:=5.2
-@@ -93,7 +102,7 @@ define KernelPackage/b43
++
+ define KernelPackage/b43
+   $(call KernelPackage/mac80211/Default)
+   TITLE:=Broadcom 43xx wireless support
+@@ -93,7 +107,7 @@ define KernelPackage/b43
    	CONFIG_HW_RANDOM=y
    # Depend on PCI_SUPPORT to make sure we can select kmod-bcma or kmod-ssb
    DEPENDS += \
@@ -403,24 +402,31 @@ index b48256c20b5429..0b9971fdaa566c 100644
  	$(if $(CONFIG_PACKAGE_B43_USE_SSB),+kmod-ssb) \
  	$(if $(CONFIG_PACKAGE_B43_USE_BCMA),+kmod-bcma)
    FILES:=$(PKG_BUILD_DIR)/drivers/net/wireless/broadcom/b43/b43.ko
-@@ -101,26 +110,25 @@ define KernelPackage/b43
+@@ -101,23 +115,35 @@ define KernelPackage/b43
    MENU:=1
  endef
  
 -define KernelPackage/b43/config
--
++define Package/b43-firmware
++  SECTION:=firmware
++  CATEGORY:=Firmware
++  TITLE:=Broadcom 43xx firmware (b43)
++  URL:=https://wireless.wiki.kernel.org/en/users/drivers/b43/firmware
++  MENU:=1
++endef
+ 
 -config PACKAGE_B43_USE_SSB
 -	select PACKAGE_kmod-ssb
 -	tristate
 -	depends on !TARGET_bcm47xx
 -	default PACKAGE_kmod-b43 if PACKAGE_B43_BUSES_BCMA_AND_SSB
 -	default PACKAGE_kmod-b43 if PACKAGE_B43_BUSES_SSB
-+define Package/b43-firmware
++define Package/b43-firmware-784
 +  SECTION:=firmware
 +  CATEGORY:=Firmware
-+  TITLE:=Broadcom 43xx firmware (b43, b43-next)
++  TITLE:=Broadcom 43xx firmware 784.2 (b43-next)
 +  URL:=https://wireless.wiki.kernel.org/en/users/drivers/b43/firmware
-+  MENU:=1
++  CONFLICTS:=b43-firmware
 +endef
  
 -config PACKAGE_B43_USE_BCMA
@@ -429,59 +435,24 @@ index b48256c20b5429..0b9971fdaa566c 100644
 -	depends on !TARGET_bcm47xx && !TARGET_bcm53xx
 -	default PACKAGE_kmod-b43 if PACKAGE_B43_BUSES_BCMA_AND_SSB
 -	default PACKAGE_kmod-b43 if PACKAGE_B43_BUSES_BCMA
-+define Package/b43-firmware/description
-+ The b43 firmware, cut from a Broadcom driver with b43-fwcutter, for
-+ kmod-b43 and kmod-b43-next.
++define Package/b43-firmware-784/description
++ Firmware 784.2 from Broadcom driver 6.30.163.46, cut with b43-fwcutter,
++ for kmod-b43-next. It is the only b43 firmware with the microcode of the
++ AC-PHY cores (core revision 42: BCM4352, BCM4360).
 +endef
  
 -  if PACKAGE_kmod-b43
++define Package/b43-firmware/description
++ The b43 firmware, cut from a Broadcom driver with b43-fwcutter, for
++ kmod-b43.
++endef
++
 +define Package/b43-firmware/config
 +  if PACKAGE_b43-firmware
  
  	choice
  		prompt "b43 firmware version"
-+		default B43_FW_6_30 if PACKAGE_kmod-b43-next
- 		default B43_FW_5_100_138
- 		help
- 		  This option allows you to select the version of the b43 firmware.
-@@ -155,6 +163,12 @@ config PACKAGE_B43_USE_BCMA
- 
- 		  If unsure, select the this firmware.
- 
-+	config B43_FW_6_30
-+		bool "Firmware 784.2 from driver 6.30.163.46"
-+		help
-+		  The firmware with the microcode of the AC-PHY cores (core
-+		  revision 42: BCM4352, BCM4360), which b43-next drives.
-+
- 	config B43_OPENFIRMWARE
- 		bool "Open FirmWare for WiFi networks"
- 		help
-@@ -173,6 +187,7 @@ config PACKAGE_B43_USE_BCMA
- 	config B43_FW_SQUASH
- 		bool "Remove unnecessary firmware files"
- 		depends on !B43_OPENFIRMWARE
-+		default n if PACKAGE_kmod-b43-next
- 		default y
- 		help
- 		  This options allows you to remove unnecessary b43 firmware files
-@@ -186,6 +201,7 @@ config PACKAGE_B43_USE_BCMA
- 		depends on B43_FW_SQUASH
- 		default "5,6,7,8,9,10,11,13,15" if TARGET_bcm47xx_legacy
- 		default "16,28,29,30" if TARGET_bcm47xx_mips74k
-+		default "16,28,29,30,42" if PACKAGE_kmod-b43-next
- 		default "5,6,7,8,9,10,11,13,15,16,28,29,30"
- 		help
- 		  This is a comma separated list of core revision numbers.
-@@ -201,6 +217,7 @@ config PACKAGE_B43_USE_BCMA
- 		depends on B43_FW_SQUASH
- 		default "G,N,LP" if TARGET_bcm47xx_legacy
- 		default "N,HT" if TARGET_bcm47xx_mips74k
-+		default "N,HT,AC" if PACKAGE_kmod-b43-next
- 		default "G,N,LP,HT"
- 		help
- 		  This is a comma separated list of PHY types:
-@@ -220,6 +237,27 @@ config PACKAGE_B43_USE_BCMA
+@@ -220,6 +246,27 @@ config PACKAGE_B43_USE_BCMA
  		  Example (keep files for G-PHY and N-PHY):
  		    G,N
  
@@ -509,7 +480,7 @@ index b48256c20b5429..0b9971fdaa566c 100644
  	choice
  		prompt "Supported buses"
  		default PACKAGE_B43_BUSES_BCMA_AND_SSB
-@@ -449,7 +487,7 @@ define KernelPackage/brcmfmac/config
+@@ -449,7 +496,7 @@ define KernelPackage/brcmfmac/config
  endef
  
  
@@ -518,8 +489,23 @@ index b48256c20b5429..0b9971fdaa566c 100644
  	rm -rf $(1)/lib/firmware/
  ifeq ($(CONFIG_B43_OPENFIRMWARE),y)
  	tar xzf "$(DL_DIR)/$(PKG_B43_FWV4_SOURCE)" -C "$(PKG_BUILD_DIR)"
+@@ -471,6 +518,14 @@ ifneq ($(CONFIG_B43_FW_SQUASH),)
+ endif
+ endef
+ 
++define Package/b43-firmware-784/install
++	rm -rf $(PKG_BUILD_DIR)/b43-firmware-784
++	mkdir -p $(PKG_BUILD_DIR)/b43-firmware-784
++	tar xjf "$(DL_DIR)/$(PKG_B43_FW784_SOURCE)" -C "$(PKG_BUILD_DIR)/b43-firmware-784"
++	$(INSTALL_DIR) $(1)/lib/firmware/
++	b43-fwcutter -w $(1)/lib/firmware/ $(PKG_BUILD_DIR)/b43-firmware-784/$(PKG_B43_FW784_OBJECT)
++endef
++
+ define KernelPackage/brcmsmac/install
+ 	$(INSTALL_DIR) $(1)/lib/firmware/brcm
+ ifeq ($(CONFIG_BRCMSMAC_USE_FW_FROM_WL),y)
 diff --git a/tools/Makefile b/tools/Makefile
-index ff4d38ed0288eb..863346d4c9a6bd 100644
+index ff4d38ed02..4b18f20ccf 100644
 --- a/tools/Makefile
 +++ b/tools/Makefile
 @@ -17,7 +17,7 @@ ifeq ($(CONFIG_EXTERNAL_TOOLCHAIN),)
@@ -527,7 +513,7 @@ index ff4d38ed0288eb..863346d4c9a6bd 100644
    endif
  endif
 -ifneq ($(CONFIG_SDK)$(CONFIG_PACKAGE_kmod-b43)$(CONFIG_BRCMSMAC_USE_FW_FROM_WL),)
-+ifneq ($(CONFIG_SDK)$(CONFIG_PACKAGE_kmod-b43)$(CONFIG_PACKAGE_b43-firmware)$(CONFIG_BRCMSMAC_USE_FW_FROM_WL),)
++ifneq ($(CONFIG_SDK)$(CONFIG_PACKAGE_kmod-b43)$(CONFIG_PACKAGE_b43-firmware)$(CONFIG_PACKAGE_b43-firmware-784)$(CONFIG_BRCMSMAC_USE_FW_FROM_WL),)
    BUILD_B43_TOOLS = y
  endif
  ifneq ($(CONFIG_SDK)$(CONFIG_TARGET_INITRAMFS_COMPRESSION_BZIP2),)

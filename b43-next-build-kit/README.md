@@ -34,6 +34,13 @@ Tested on OpenWrt main 6bd48701ef (2026-11-21). The R6400 itself is in OpenWrt m
     ./scripts/feeds update -a && ./scripts/feeds install -a
     make defconfig && make -j$(nproc)
 
+**Use `apply.sh`, not `patch` by hand.** It also works from a flat copy of both kits in one folder, where it is
+called `B43-kit-apply.sh` or `Perf-kit-apply.sh` next to the `B43-*`/`Perf-*` patches and the `*-kit-diffconfig`.
+Both kits contain the same EA6900 board patch; applied twice by hand, its image hunk goes in a second time with
+fuzz, and the second `Device/linksys_ea6900` (without b43-next) wins. Its rejected hunks also leave `.rej` files in
+`base-files/etc/board.d/`, which end up in the image. If that happened: `git checkout` the touched files (or start
+from a clean tree) and use `apply.sh`.
+
 **wpad and per-device packages.** The kit gives these devices `wpad-openssl` as a device package. Keep
 `CONFIG_TARGET_PER_DEVICE_ROOTFS` ("Use a per-device root filesystem that adds profile packages") on: in a
 multi-profile build without it, the device packages (the Wi-Fi driver, the wpad, the USB modules) do not end up

@@ -1,0 +1,13 @@
+diff --git a/target/linux/bcm53xx/image/Makefile b/target/linux/bcm53xx/image/Makefile
+index 8d0b531080..be755d98b8 100644
+--- a/target/linux/bcm53xx/image/Makefile
++++ b/target/linux/bcm53xx/image/Makefile
+@@ -347,7 +348,7 @@ define Device/linksys_ea6900
+   DEVICE_VENDOR := Linksys
+   DEVICE_MODEL := EA6900
+   DEVICE_VARIANT := v1
+-  DEVICE_PACKAGES := $(USB3_PACKAGES)
++  DEVICE_PACKAGES := $(B43_NEXT) $(USB3_PACKAGES)
+ endef
+ TARGET_DEVICES += linksys_ea6900
+ 

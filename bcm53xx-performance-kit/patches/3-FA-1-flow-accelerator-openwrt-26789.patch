@@ -1,3 +1,53 @@
+diff --git a/target/linux/bcm53xx/base-files/usr/libexec/platform/packet-steering.sh b/target/linux/bcm53xx/base-files/usr/libexec/platform/packet-steering.sh
+index ea0894d58b..73756d4d52 100755
+--- a/target/linux/bcm53xx/base-files/usr/libexec/platform/packet-steering.sh
++++ b/target/linux/bcm53xx/base-files/usr/libexec/platform/packet-steering.sh
+@@ -4,9 +4,27 @@ packet_steering="$(uci -q get network.@globals[0].packet_steering)"
+ flow_offloading="$(uci -q get firewall.@defaults[0].flow_offloading)"
+ flow_offloading_hw="$(uci -q get firewall.@defaults[0].flow_offloading_hw)"
+ 
++# DSA puts its sysfs group on each conduit. With the flow accelerator the
++# switch has two, the traps' and the traffic's: take the one that the user
++# ports hang off, the conduit with the most interfaces linked to it
++conduit=eth0
++users=0
++for d in /sys/class/net/*/dsa; do
++	[ -d "$d" ] || continue
++	dev="${d%/dsa}"
++	dev="${dev##*/}"
++	ifindex="$(cat /sys/class/net/$dev/ifindex)"
++	n=0
++	for l in /sys/class/net/*/iflink; do
++		[ "${l%/iflink}" = "/sys/class/net/$dev" ] && continue
++		[ "$(cat "$l")" = "$ifindex" ] && n=$((n + 1))
++	done
++	[ $n -gt $users ] && conduit="$dev" users=$n
++done
++
+ [ "$packet_steering" != 1 ] && {
+ 	echo 0 > /sys/class/net/br-lan/queues/rx-0/rps_cpus
+-	echo 0 > /sys/class/net/eth0/queues/rx-0/rps_cpus
++	echo 0 > /sys/class/net/$conduit/queues/rx-0/rps_cpus
+ 	exit 0
+ }
+ 
+@@ -29,13 +47,13 @@ esac
+ if [ ${flow_offloading_hw:-0} -gt 0 ]; then
+ 	# HW offloading
+ 	echo 0 > /sys/class/net/br-lan/queues/rx-0/rps_cpus
+-	echo 0 > /sys/class/net/eth0/queues/rx-0/rps_cpus
++	echo 0 > /sys/class/net/$conduit/queues/rx-0/rps_cpus
+ elif [ ${flow_offloading:-0} -gt 0 ]; then
+ 	# SW offloading
+ 	# br-lan setup doesn't seem to matter for offloading case
+-	echo 2 > /sys/class/net/eth0/queues/rx-0/rps_cpus
++	echo 2 > /sys/class/net/$conduit/queues/rx-0/rps_cpus
+ else
+ 	# Default
+ 	echo 2 > /sys/class/net/br-lan/queues/rx-0/rps_cpus
+-	echo 0 > /sys/class/net/eth0/queues/rx-0/rps_cpus
++	echo 0 > /sys/class/net/$conduit/queues/rx-0/rps_cpus
+ fi
 diff --git a/target/linux/bcm53xx/patches-6.18/080-v7.4-net-ethernet-bgmac-preserve-forced-2.5-Gbps-link-speed.patch b/target/linux/bcm53xx/patches-6.18/080-v7.4-net-ethernet-bgmac-preserve-forced-2.5-Gbps-link-speed.patch
 new file mode 100644
 index 0000000000..71125c04b5
@@ -117,350 +167,1220 @@ index 0000000000..bbb358cff6
 + 
 + 		b53_force_port_config(dev, port, speed, duplex,
 + 				      tx_pause, rx_pause);
-diff --git a/target/linux/bcm53xx/patches-6.18/377-ARM-dts-BCM5301X-add-port-5-back-for-the-flow-accelerator.patch b/target/linux/bcm53xx/patches-6.18/377-ARM-dts-BCM5301X-add-port-5-back-for-the-flow-accelerator.patch
+diff --git a/target/linux/bcm53xx/patches-6.18/376-ARM-dts-BCM5301X-use-IMP0-port-8-as-the-CPU-port.patch b/target/linux/bcm53xx/patches-6.18/376-ARM-dts-BCM5301X-use-IMP0-port-8-as-the-CPU-port.patch
 new file mode 100644
-index 0000000000..d4cf51d6eb
+index 0000000000..66090cecaa
 --- /dev/null
-+++ b/target/linux/bcm53xx/patches-6.18/377-ARM-dts-BCM5301X-add-port-5-back-for-the-flow-accelerator.patch
-@@ -0,0 +1,481 @@
-+From: Erik Conijn <egc112@msn.com>
-+Subject: [PATCH] ARM: dts: BCM5301X: add port 5 back for the flow accelerator
++++ b/target/linux/bcm53xx/patches-6.18/376-ARM-dts-BCM5301X-use-IMP0-port-8-as-the-CPU-port.patch
+@@ -0,0 +1,1305 @@
++From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
++From: Semih Baskan <strst.gs@gmail.com>
++Date: Tue, 13 Oct 2026 00:00:00 +0300
++Subject: [PATCH] ARM: dts: BCM5301X: use IMP0 port 8 as the CPU port
 +
-+Patch 376 makes port 8 (gmac2) the only CPU port and disables port 5
-+(gmac0). Behind the flow accelerator in front of port 8, b53 needs
-+port 5 as a second CPU port: it redirects the frames that the
-+accelerator must not handle there (TTL or hop limit 1, TCP FIN and
-+RST). With both CPU ports, b53 chooses the accelerator's prepended
-+tag on a switch that has the accelerator, and the regular tag on one
-+that has not, so the change is safe on every Northstar board. User
-+ports keep port 8 as their CPU port.
++The switch blocks of most BCM5301X boards in tree make port 5 (on some
++boards 7) the CPU port and leave port 8, the IMP0 management port,
++disabled. The switch sends frames it cannot place, such as a tagged
++frame whose VID is missing from the VLAN table, only toward the
++management port. With port 8 disabled those frames are dropped, so on a
++standalone port a VLAN tagged uplink, for example a tagged PPPoE WAN,
++never comes up.
 +
-+Enable port 5 again, with a fixed link, on the boards where 376 or the
-+board itself disabled it. Not on the boards where port 5 has another
-+use (RT-AC87U, RT-AC88U) or where gmac0 is off (Meraki MR26, MR32), and
-+not on the boards that keep port 5 as their only CPU port. The ASUS
-+RT-N18U gets it from 379.
++Make port 8 the only CPU port on the 30 boards below and disable the
++old CPU port, the layout bcm47094-netgear-r8500.dts already uses. Where
++the old conduit stays enabled, it sits behind its disabled port and
++carries no traffic.
 +
-+Assisted-by: Claude:claude-opus-5-5
-+Signed-off-by: Erik Conijn <egc112@msn.com>
++gmac2 needs its own MAC cell. Without one bgmac takes et2macaddr from
++nvram, which most of these CFEs do not set, and otherwise a random
++address on every boot. gmac2 gets a cell on 27 boards:
++
++- The MR26 and MR32 move their cell from gmac0 to gmac2.
++- The EA6300 V1, RT-AC87U, the four Luxul boards and the K3 point gmac2
++  at their existing et0macaddr or et1macaddr node, index 0. On the
++  RT-AC3100, RT-AC3200, RT-AC5300 and RT-AC88U gmac2 already had a cell
++  with index 2 (1 on the RT-AC88U); it drops to 0, which is also the
++  address the vendor firmware gives gmac2.
++- Twelve boards get a new brcm,nvram node with an et0macaddr cell,
++  the address the old conduit read from nvram.
++- The Archer C5 V2 and C9 V1 have no nvram partition. gmac2 reads the
++  label MAC from their default-mac partition: a 32-bit length of 6,
++  then the MAC at offset 8, the layout the vendor firmware reads.
++
++The SR400ac and the R7900 get no cell, and bgmac reads et2macaddr from
++nvram; on the Tenda AC9 port 8 is gmac0, which reads et0macaddr.
++
++If a new node does not start on the nvram header, brcm_nvram fails to
++probe and gmac2 waits for its cell forever, so the board has no
++conduit. Each offset comes from that model where a read exists:
++
++Board          Node                    Source
++RT-N18U        NAND 0x80000 0x180000   partition table on the unit
++RT-AC56U       NAND 0x80000 0x180000   OpenWrt boot log
++RT-AC68U       NAND 0x80000 0x180000   OpenWrt boot log
++R6250 V1       NAND 0x80000 0x180000   OpenWrt boot log
++R6300 V2       NAND 0x80000 0x180000   OpenWrt boot log
++R7000          NAND 0x80000 0x180000   OpenWrt boot log and /proc/mtd
++R6400 V1       NAND 0x80000 0x180000   R6250 V1, R6300 V2, R7000
++EA6500 V2      NAND 0x80000 0x100000   /proc/mtd of the EA6700
++WZR-600DHP2    NAND 0xa0000 0x160000   CFE "show devices" on a unit
++WZR-900DHP     NAND 0xa0000 0x160000   LEDE boot log
++WZR-1750DHP    NOR  0xf0000 0x10000    dump of a unit, FLSH at 0xf0000
++WXR-1900DHP    NOR  0x70000 0x10000    OpenWrt boot log
++
++The EA6500 V2 has no log of its own. The EA6700 is the same board apart
++from the LEDs, and its /proc/mtd matches the CFE layout in the Linksys
++GPL. The R6400 V1 has no log of its own. The three Netgear NAND boards
++above, on the same vendor firmware base, all keep nvram at that
++offset. The two NOR nodes sit in the serial flash window, as the Luxul
++nodes in tree do.
++
++Board                     CPU port          Conduit
++Asus RT-AC56U             5 -> 8            eth0 -> eth2
++Asus RT-AC68U             5 -> 8            eth0 -> eth2
++Asus RT-AC3100            5, 7, 8 -> 8      eth0 -> eth2
++Asus RT-AC3200            5, 7, 8 -> 8      eth0 -> eth2
++Asus RT-AC5300            5, 7, 8 -> 8      eth0 -> eth2
++Asus RT-AC87U             7 -> 8            eth1 -> eth2
++Asus RT-AC88U             7, 8 -> 8         eth0 -> eth1
++Asus RT-N18U              5 -> 8            eth0 -> eth2
++Buffalo WZR-600DHP2       5 -> 8            eth0 -> eth2
++Buffalo WZR-900DHP        5 -> 8            eth0 -> eth2
++Buffalo WZR-1750DHP       5 -> 8            eth0 -> eth2
++Buffalo WXR-1900DHP       5 -> 8            eth0 -> eth2
++Linksys EA6300 V1         5 -> 8            eth0 -> eth2
++Linksys EA6500 V2         5 -> 8            eth0 -> eth2
++Luxul ABR-4500 V1         5 -> 8            eth0 -> eth2
++Luxul XAP-1610 V1         5 -> 8            eth0 -> eth2
++Luxul XBR-4500 V1         5 -> 8            eth0 -> eth2
++Luxul XWR-3150 V1         5 -> 8            eth0 -> eth2
++Meraki MR26               5 -> 8            eth0 -> eth0
++Meraki MR32               5 -> 8            eth0 -> eth0
++Netgear R6250 V1          5 -> 8            eth0 -> eth2
++Netgear R6300 V2          5 -> 8            eth0 -> eth2
++Netgear R6400 V1          5 -> 8            eth0 -> eth2
++Netgear R7000             5 -> 8            eth0 -> eth2
++Netgear R7900             none -> 8         none -> eth2
++Phicomm K3                5 -> 8            eth0 -> eth2
++SmartRG SR400ac           5 -> 8            eth0 -> eth2
++Tenda AC9                 5, 8 -> 8         eth1 -> eth0
++TP-Link Archer C5 V2      5 -> 8            eth0 -> eth2
++TP-Link Archer C9 V1      5 -> 8            eth0 -> eth2
++
++Where more than one CPU port was enabled, DSA picked the first one. With
++gmac0 disabled on the RT-AC88U, its gmac2 is eth1. The MR26 and MR32
++enable only gmac2, which keeps the conduit at eth0. The R7900 had no DSA
++ports before, since its switch was never enabled. On the Tenda AC9
++(BCM53573) port 8 is wired to gmac0. The RT-AC87U also moves its QTN link
++to port 5, where the Quantenna chip is wired, and disables the unused
++port 4. The R6400 V2 device tree includes the R6400 V1 file and gets the
++same change.
++
++Tested only on an Asus RT-N18U (BCM53011 rev 5) on the 6.18 kernel,
++across two boots, with a second router as the tagged-link peer and PPPoE
++concentrator. The conduit comes up as eth2 with et0macaddr on both boots,
++eth0 stays present and idle, and lan1 to lan4 and wan keep their names and
++the brcm tagging. The switch selects IMP0 as its management port, so the
++frames it steers there, the tagged miss path included, now end at the CPU
++port. Tagged reception on the standalone wan works with nothing in the
++VLAN table: wan.60 exchanges pings with the peer. A PPPoE session over
++wan.35 establishes with the default route on pppoe-wan. Untagged traffic
++on wan and bridged LAN traffic work, a bridge VLAN under vlan_filtering 1
++programs the table as before, and management over br-lan survived the
++flash. The known trade-off was measured as well: after the wan.60 upper is
++deleted, VID-60 frames still reach the CPU, because the miss path now ends
++at the CPU port.
++
++Signed-off-by: Semih Baskan <strst.gs@gmail.com>
 +---
-+  arch/arm/boot/dts/broadcom/bcm4708-asus-rt-ac56u.dts        | 5 ++++-
-+  arch/arm/boot/dts/broadcom/bcm4708-asus-rt-ac68u.dts        | 5 ++++-
-+  arch/arm/boot/dts/broadcom/bcm4708-buffalo-wzr-1750dhp.dts  | 5 ++++-
-+  arch/arm/boot/dts/broadcom/bcm4708-linksys-ea6300-v1.dts    | 5 ++++-
-+  arch/arm/boot/dts/broadcom/bcm4708-linksys-ea6500-v2.dts    | 5 ++++-
-+  arch/arm/boot/dts/broadcom/bcm4708-linksys-ea6900.dts       | 5 ++++-
-+  arch/arm/boot/dts/broadcom/bcm4708-netgear-r6250.dts        | 5 ++++-
-+  arch/arm/boot/dts/broadcom/bcm4708-netgear-r6300-v2.dts     | 5 ++++-
-+  arch/arm/boot/dts/broadcom/bcm4708-netgear-r6400-v1.dts     | 5 ++++-
-+  arch/arm/boot/dts/broadcom/bcm4708-smartrg-sr400ac.dts      | 5 ++++-
-+  arch/arm/boot/dts/broadcom/bcm47081-buffalo-wzr-600dhp2.dts | 5 ++++-
-+  arch/arm/boot/dts/broadcom/bcm47081-buffalo-wzr-900dhp.dts  | 5 ++++-
-+  arch/arm/boot/dts/broadcom/bcm47081-tplink-archer-c5-v2.dts | 5 ++++-
-+  arch/arm/boot/dts/broadcom/bcm4709-asus-rt-ac3200.dts       | 5 ++++-
-+  arch/arm/boot/dts/broadcom/bcm4709-buffalo-wxr-1900dhp.dts  | 5 ++++-
-+  arch/arm/boot/dts/broadcom/bcm4709-linksys-ea9200.dts       | 5 ++++-
-+  arch/arm/boot/dts/broadcom/bcm4709-netgear-r7000.dts        | 5 ++++-
-+  arch/arm/boot/dts/broadcom/bcm4709-netgear-r7900.dts        | 5 ++++-
-+  arch/arm/boot/dts/broadcom/bcm4709-netgear-r8000.dts        | 2 --
-+  arch/arm/boot/dts/broadcom/bcm4709-tplink-archer-c9-v1.dts  | 5 ++++-
-+  arch/arm/boot/dts/broadcom/bcm47094-asus-rt-ac3100.dts      | 5 ++++-
-+  arch/arm/boot/dts/broadcom/bcm47094-asus-rt-ac5300.dts      | 5 ++++-
-+  arch/arm/boot/dts/broadcom/bcm47094-dlink-dir-885l.dts      | 5 ++++-
-+  arch/arm/boot/dts/broadcom/bcm47094-dlink-dir-890l.dts      | 5 ++++-
-+  arch/arm/boot/dts/broadcom/bcm47094-linksys-panamera.dts    | 1 -
-+  arch/arm/boot/dts/broadcom/bcm47094-luxul-abr-4500.dts      | 5 ++++-
-+  arch/arm/boot/dts/broadcom/bcm47094-luxul-xap-1610.dts      | 5 ++++-
-+  arch/arm/boot/dts/broadcom/bcm47094-luxul-xbr-4500.dts      | 5 ++++-
-+  arch/arm/boot/dts/broadcom/bcm47094-luxul-xwr-3150-v1.dts   | 5 ++++-
-+  arch/arm/boot/dts/broadcom/bcm47094-netgear-r8500.dts       | 5 ++++-
-+  arch/arm/boot/dts/broadcom/bcm47094-phicomm-k3.dts          | 5 ++++-
-+  31 files changed, 116 insertions(+), 32 deletions(-)
++ .../dts/broadcom/bcm4708-asus-rt-ac56u.dts    | 20 ++++++++---
++ .../dts/broadcom/bcm4708-asus-rt-ac68u.dts    | 20 ++++++++---
++ .../broadcom/bcm4708-buffalo-wzr-1750dhp.dts  | 20 ++++++++---
++ .../broadcom/bcm4708-linksys-ea6300-v1.dts    | 11 +++---
++ .../broadcom/bcm4708-linksys-ea6500-v2.dts    | 20 ++++++++---
++ .../dts/broadcom/bcm4708-netgear-r6250.dts    | 20 ++++++++---
++ .../dts/broadcom/bcm4708-netgear-r6300-v2.dts | 20 ++++++++---
++ .../dts/broadcom/bcm4708-netgear-r6400-v1.dts | 20 ++++++++---
++ .../dts/broadcom/bcm4708-smartrg-sr400ac.dts  |  6 +---
++ .../dts/broadcom/bcm47081-asus-rt-n18u.dts    | 20 ++++++++---
++ .../broadcom/bcm47081-buffalo-wzr-600dhp2.dts | 20 ++++++++---
++ .../broadcom/bcm47081-buffalo-wzr-900dhp.dts  | 20 ++++++++---
++ .../broadcom/bcm47081-tplink-archer-c5-v2.dts | 25 +++++++++++---
++ .../dts/broadcom/bcm4709-asus-rt-ac3200.dts   | 10 +++++-
++ .../dts/broadcom/bcm4709-asus-rt-ac87u.dts    | 21 +++++++++---
++ .../broadcom/bcm4709-buffalo-wxr-1900dhp.dts  | 20 ++++++++---
++ .../dts/broadcom/bcm4709-netgear-r7000.dts    | 20 ++++++++---
++ .../dts/broadcom/bcm4709-netgear-r7900.dts    | 34 +++++++++++++++++++
++ .../broadcom/bcm4709-tplink-archer-c9-v1.dts  | 25 +++++++++++---
++ .../dts/broadcom/bcm47094-asus-rt-ac3100.dts  | 10 +++++-
++ .../dts/broadcom/bcm47094-asus-rt-ac3100.dtsi |  6 +---
++ .../dts/broadcom/bcm47094-asus-rt-ac5300.dts  | 10 +++++-
++ .../dts/broadcom/bcm47094-asus-rt-ac88u.dts   |  2 +-
++ .../dts/broadcom/bcm47094-luxul-abr-4500.dts  | 11 +++---
++ .../dts/broadcom/bcm47094-luxul-xap-1610.dts  | 11 +++---
++ .../dts/broadcom/bcm47094-luxul-xbr-4500.dts  | 11 +++---
++ .../broadcom/bcm47094-luxul-xwr-3150-v1.dts   | 11 +++---
++ .../boot/dts/broadcom/bcm47094-phicomm-k3.dts | 11 +++---
++ .../boot/dts/broadcom/bcm47189-tenda-ac9.dts  | 13 +++++++
++ .../dts/broadcom/bcm53015-meraki-mr26.dts     | 21 ++++--------
++ .../dts/broadcom/bcm53016-meraki-mr32.dts     | 19 ++++-------
++ 31 files changed, 362 insertions(+), 146 deletions(-)
 +
 +--- a/arch/arm/boot/dts/broadcom/bcm4708-asus-rt-ac56u.dts
 ++++ b/arch/arm/boot/dts/broadcom/bcm4708-asus-rt-ac56u.dts
-+@@ -149,7 +149,10 @@
++@@ -25,6 +25,15 @@
++ 		      <0x88000000 0x08000000>;
++ 	};
++ 
+++	nvram@1c080000 {
+++		compatible = "brcm,nvram";
+++		reg = <0x1c080000 0x180000>;
+++
+++		et0macaddr: et0macaddr {
+++			#nvmem-cell-cells = <1>;
+++		};
+++	};
+++
++ 	leds {
++ 		compatible = "gpio-leds";
++ 
++@@ -110,6 +119,11 @@
++ 	status = "okay";
++ };
++ 
+++&gmac2 {
+++	nvmem-cells = <&et0macaddr 0>;
+++	nvmem-cell-names = "mac-address";
+++};
+++
++ &srab {
++ 	status = "okay";
++ 
++@@ -135,14 +149,10 @@
 + 		};
 + 
 + 		port@5 {
-+-			status = "disabled";
-++			fixed-link {
-++				speed = <1000>;
-++				full-duplex;
-++			};
++-			label = "cpu";
++-		};
++-
++-		port@7 {
++ 			status = "disabled";
 + 		};
 + 
-+ 		port@7 {
++-		port@8 {
+++		port@7 {
++ 			status = "disabled";
++ 		};
++ 	};
 +--- a/arch/arm/boot/dts/broadcom/bcm4708-asus-rt-ac68u.dts
 ++++ b/arch/arm/boot/dts/broadcom/bcm4708-asus-rt-ac68u.dts
-+@@ -140,7 +140,10 @@
++@@ -25,6 +25,15 @@
++ 		      <0x88000000 0x08000000>;
++ 	};
++ 
+++	nvram@1c080000 {
+++		compatible = "brcm,nvram";
+++		reg = <0x1c080000 0x180000>;
+++
+++		et0macaddr: et0macaddr {
+++			#nvmem-cell-cells = <1>;
+++		};
+++	};
+++
++ 	leds {
++ 		compatible = "gpio-leds";
++ 
++@@ -101,6 +110,11 @@
++ 	status = "okay";
++ };
++ 
+++&gmac2 {
+++	nvmem-cells = <&et0macaddr 0>;
+++	nvmem-cell-names = "mac-address";
+++};
+++
++ &srab {
++ 	status = "okay";
++ 
++@@ -126,14 +140,10 @@
 + 		};
 + 
 + 		port@5 {
-+-			status = "disabled";
-++			fixed-link {
-++				speed = <1000>;
-++				full-duplex;
-++			};
++-			label = "cpu";
++-		};
++-
++-		port@7 {
++ 			status = "disabled";
 + 		};
 + 
-+ 		port@7 {
++-		port@8 {
+++		port@7 {
++ 			status = "disabled";
++ 		};
++ 	};
 +--- a/arch/arm/boot/dts/broadcom/bcm4708-buffalo-wzr-1750dhp.dts
 ++++ b/arch/arm/boot/dts/broadcom/bcm4708-buffalo-wzr-1750dhp.dts
-+@@ -206,7 +206,10 @@
++@@ -25,6 +25,15 @@
++ 		      <0x88000000 0x18000000>;
++ 	};
++ 
+++	nvram@1e0f0000 {
+++		compatible = "brcm,nvram";
+++		reg = <0x1e0f0000 0x10000>;
+++
+++		et0macaddr: et0macaddr {
+++			#nvmem-cell-cells = <1>;
+++		};
+++	};
+++
++ 	spi {
++ 		compatible = "spi-gpio";
++ 		num-chipselects = <1>;
++@@ -167,6 +176,11 @@
++ 	status = "okay";
++ };
++ 
+++&gmac2 {
+++	nvmem-cells = <&et0macaddr 0>;
+++	nvmem-cell-names = "mac-address";
+++};
+++
++ &srab {
++ 	status = "okay";
++ 
++@@ -192,14 +206,10 @@
 + 		};
 + 
 + 		port@5 {
-+-			status = "disabled";
-++			fixed-link {
-++				speed = <1000>;
-++				full-duplex;
-++			};
++-			label = "cpu";
++-		};
++-
++-		port@7 {
++ 			status = "disabled";
 + 		};
 + 
-+ 		port@7 {
++-		port@8 {
+++		port@7 {
++ 			status = "disabled";
++ 		};
++ 	};
 +--- a/arch/arm/boot/dts/broadcom/bcm4708-linksys-ea6300-v1.dts
 ++++ b/arch/arm/boot/dts/broadcom/bcm4708-linksys-ea6300-v1.dts
-+@@ -93,7 +93,10 @@
++@@ -60,6 +60,11 @@
++ 	status = "okay";
++ };
++ 
+++&gmac2 {
+++	nvmem-cells = <&et0macaddr 0>;
+++	nvmem-cell-names = "mac-address";
+++};
+++
++ &srab {
++ 	status = "okay";
++ 
++@@ -88,14 +93,10 @@
 + 		};
 + 
 + 		port@5 {
-+-			status = "disabled";
-++			fixed-link {
-++				speed = <1000>;
-++				full-duplex;
-++			};
++-			label = "cpu";
++-		};
++-
++-		port@7 {
++ 			status = "disabled";
 + 		};
 + 
-+ 		port@7 {
++-		port@8 {
+++		port@7 {
++ 			status = "disabled";
++ 		};
++ 	};
 +--- a/arch/arm/boot/dts/broadcom/bcm4708-linksys-ea6500-v2.dts
 ++++ b/arch/arm/boot/dts/broadcom/bcm4708-linksys-ea6500-v2.dts
-+@@ -92,7 +92,10 @@
++@@ -23,6 +23,15 @@
++ 		      <0x88000000 0x08000000>;
++ 	};
++ 
+++	nvram@1c080000 {
+++		compatible = "brcm,nvram";
+++		reg = <0x1c080000 0x100000>;
+++
+++		et0macaddr: et0macaddr {
+++			#nvmem-cell-cells = <1>;
+++		};
+++	};
+++
++ 	gpio-keys {
++ 		compatible = "gpio-keys";
++ 
++@@ -53,6 +62,11 @@
++ 	status = "okay";
++ };
++ 
+++&gmac2 {
+++	nvmem-cells = <&et0macaddr 0>;
+++	nvmem-cell-names = "mac-address";
+++};
+++
++ &srab {
++ 	status = "okay";
++ 
++@@ -78,14 +92,10 @@
 + 		};
 + 
 + 		port@5 {
-+-			status = "disabled";
-++			fixed-link {
-++				speed = <1000>;
-++				full-duplex;
-++			};
++-			label = "cpu";
++-		};
++-
++-		port@7 {
++ 			status = "disabled";
 + 		};
 + 
-+ 		port@7 {
-+--- a/arch/arm/boot/dts/broadcom/bcm4708-linksys-ea6900.dts
-++++ b/arch/arm/boot/dts/broadcom/bcm4708-linksys-ea6900.dts
-+@@ -139,7 +139,10 @@
++-		port@8 {
+++		port@7 {
++ 			status = "disabled";
 + 		};
-+ 
-+ 		port@5 {
-+-			status = "disabled";
-++			fixed-link {
-++				speed = <1000>;
-++				full-duplex;
-++			};
-+ 		};
-+ 
-+ 		port@7 {
++ 	};
 +--- a/arch/arm/boot/dts/broadcom/bcm4708-netgear-r6250.dts
 ++++ b/arch/arm/boot/dts/broadcom/bcm4708-netgear-r6250.dts
-+@@ -143,7 +143,10 @@
++@@ -26,6 +26,15 @@
++ 		      <0x88000000 0x08000000>;
++ 	};
++ 
+++	nvram@1c080000 {
+++		compatible = "brcm,nvram";
+++		reg = <0x1c080000 0x180000>;
+++
+++		et0macaddr: et0macaddr {
+++			#nvmem-cell-cells = <1>;
+++		};
+++	};
+++
++ 	leds {
++ 		compatible = "gpio-leds";
++ 
++@@ -104,6 +113,11 @@
++ 	status = "okay";
++ };
++ 
+++&gmac2 {
+++	nvmem-cells = <&et0macaddr 0>;
+++	nvmem-cell-names = "mac-address";
+++};
+++
++ &srab {
++ 	status = "okay";
++ 
++@@ -129,14 +143,10 @@
 + 		};
 + 
 + 		port@5 {
-+-			status = "disabled";
-++			fixed-link {
-++				speed = <1000>;
-++				full-duplex;
-++			};
++-			label = "cpu";
++-		};
++-
++-		port@7 {
++ 			status = "disabled";
 + 		};
 + 
-+ 		port@7 {
++-		port@8 {
+++		port@7 {
++ 			status = "disabled";
++ 		};
++ 	};
 +--- a/arch/arm/boot/dts/broadcom/bcm4708-netgear-r6300-v2.dts
 ++++ b/arch/arm/boot/dts/broadcom/bcm4708-netgear-r6300-v2.dts
-+@@ -135,7 +135,10 @@
++@@ -25,6 +25,15 @@
++ 		      <0x88000000 0x08000000>;
++ 	};
++ 
+++	nvram@1c080000 {
+++		compatible = "brcm,nvram";
+++		reg = <0x1c080000 0x180000>;
+++
+++		et0macaddr: et0macaddr {
+++			#nvmem-cell-cells = <1>;
+++		};
+++	};
+++
++ 	leds {
++ 		compatible = "gpio-leds";
++ 
++@@ -96,6 +105,11 @@
++ 	status = "okay";
++ };
++ 
+++&gmac2 {
+++	nvmem-cells = <&et0macaddr 0>;
+++	nvmem-cell-names = "mac-address";
+++};
+++
++ &srab {
++ 	status = "okay";
++ 
++@@ -121,14 +135,10 @@
 + 		};
 + 
 + 		port@5 {
-+-			status = "disabled";
-++			fixed-link {
-++				speed = <1000>;
-++				full-duplex;
-++			};
++-			label = "cpu";
++-		};
++-
++-		port@7 {
++ 			status = "disabled";
 + 		};
 + 
-+ 		port@7 {
++-		port@8 {
+++		port@7 {
++ 			status = "disabled";
++ 		};
++ 	};
 +--- a/arch/arm/boot/dts/broadcom/bcm4708-netgear-r6400-v1.dts
 ++++ b/arch/arm/boot/dts/broadcom/bcm4708-netgear-r6400-v1.dts
-+@@ -194,7 +194,10 @@
++@@ -29,6 +29,15 @@
++ 		      <0x88000000 0x08000000>;
++ 	};
++ 
+++	nvram@1c080000 {
+++		compatible = "brcm,nvram";
+++		reg = <0x1c080000 0x180000>;
+++
+++		et0macaddr: et0macaddr {
+++			#nvmem-cell-cells = <1>;
+++		};
+++	};
+++
++ 	usb_power: regulator-usb {
++ 		compatible = "regulator-fixed";
++ 		regulator-name = "usb-vcc";
++@@ -145,6 +154,11 @@
++ 	status = "okay";
++ };
++ 
+++&gmac2 {
+++	nvmem-cells = <&et0macaddr 0>;
+++	nvmem-cell-names = "mac-address";
+++};
+++
++ &srab {
++ 	status = "okay";
++ 
++@@ -180,14 +194,10 @@
 + 		};
 + 
 + 		port@5 {
-+-			status = "disabled";
-++			fixed-link {
-++				speed = <1000>;
-++				full-duplex;
-++			};
++-			label = "cpu";
++-		};
++-
++-		port@7 {
++ 			status = "disabled";
 + 		};
 + 
-+ 		port@7 {
++-		port@8 {
+++		port@7 {
++ 			status = "disabled";
++ 		};
++ 	};
 +--- a/arch/arm/boot/dts/broadcom/bcm4708-smartrg-sr400ac.dts
 ++++ b/arch/arm/boot/dts/broadcom/bcm4708-smartrg-sr400ac.dts
-+@@ -143,7 +143,10 @@
++@@ -143,14 +143,10 @@
 + 		};
 + 
 + 		port@5 {
-+-			status = "disabled";
-++			fixed-link {
-++				speed = <1000>;
-++				full-duplex;
-++			};
++-			label = "cpu";
++-		};
++-
++-		port@7 {
++ 			status = "disabled";
 + 		};
 + 
-+ 		port@7 {
++-		port@8 {
+++		port@7 {
++ 			status = "disabled";
++ 		};
++ 	};
++--- a/arch/arm/boot/dts/broadcom/bcm47081-asus-rt-n18u.dts
+++++ b/arch/arm/boot/dts/broadcom/bcm47081-asus-rt-n18u.dts
++@@ -25,6 +25,15 @@
++ 		      <0x88000000 0x08000000>;
++ 	};
++ 
+++	nvram@1c080000 {
+++		compatible = "brcm,nvram";
+++		reg = <0x1c080000 0x180000>;
+++
+++		et0macaddr: et0macaddr {
+++			#nvmem-cell-cells = <1>;
+++		};
+++	};
+++
++ 	leds {
++ 		compatible = "gpio-leds";
++ 
++@@ -95,6 +104,11 @@
++ 	status = "okay";
++ };
++ 
+++&gmac2 {
+++	nvmem-cells = <&et0macaddr 0>;
+++	nvmem-cell-names = "mac-address";
+++};
+++
++ &srab {
++ 	status = "okay";
++ 
++@@ -120,14 +134,10 @@
++ 		};
++ 
++ 		port@5 {
++-			label = "cpu";
++-		};
++-
++-		port@7 {
++ 			status = "disabled";
++ 		};
++ 
++-		port@8 {
+++		port@7 {
++ 			status = "disabled";
++ 		};
++ 	};
 +--- a/arch/arm/boot/dts/broadcom/bcm47081-buffalo-wzr-600dhp2.dts
 ++++ b/arch/arm/boot/dts/broadcom/bcm47081-buffalo-wzr-600dhp2.dts
-+@@ -157,7 +157,10 @@
++@@ -25,6 +25,15 @@
++ 		      <0x88000000 0x08000000>;
++ 	};
++ 
+++	nvram@1c0a0000 {
+++		compatible = "brcm,nvram";
+++		reg = <0x1c0a0000 0x160000>;
+++
+++		et0macaddr: et0macaddr {
+++			#nvmem-cell-cells = <1>;
+++		};
+++	};
+++
++ 	spi {
++ 		compatible = "spi-gpio";
++ 		num-chipselects = <1>;
++@@ -118,6 +127,11 @@
++ 	};
++ };
++ 
+++&gmac2 {
+++	nvmem-cells = <&et0macaddr 0>;
+++	nvmem-cell-names = "mac-address";
+++};
+++
++ &srab {
++ 	status = "okay";
++ 
++@@ -143,14 +157,10 @@
 + 		};
 + 
 + 		port@5 {
-+-			status = "disabled";
-++			fixed-link {
-++				speed = <1000>;
-++				full-duplex;
-++			};
++-			label = "cpu";
++-		};
++-
++-		port@7 {
++ 			status = "disabled";
 + 		};
 + 
-+ 		port@7 {
++-		port@8 {
+++		port@7 {
++ 			status = "disabled";
++ 		};
++ 	};
 +--- a/arch/arm/boot/dts/broadcom/bcm47081-buffalo-wzr-900dhp.dts
 ++++ b/arch/arm/boot/dts/broadcom/bcm47081-buffalo-wzr-900dhp.dts
-+@@ -163,7 +163,10 @@
++@@ -25,6 +25,15 @@
++ 		      <0x88000000 0x08000000>;
++ 	};
++ 
+++	nvram@1c0a0000 {
+++		compatible = "brcm,nvram";
+++		reg = <0x1c0a0000 0x160000>;
+++
+++		et0macaddr: et0macaddr {
+++			#nvmem-cell-cells = <1>;
+++		};
+++	};
+++
++ 	spi {
++ 		compatible = "spi-gpio";
++ 		num-chipselects = <1>;
++@@ -124,6 +133,11 @@
++ 	status = "okay";
++ };
++ 
+++&gmac2 {
+++	nvmem-cells = <&et0macaddr 0>;
+++	nvmem-cell-names = "mac-address";
+++};
+++
++ &srab {
++ 	status = "okay";
++ 
++@@ -149,14 +163,10 @@
 + 		};
 + 
 + 		port@5 {
-+-			status = "disabled";
-++			fixed-link {
-++				speed = <1000>;
-++				full-duplex;
-++			};
++-			label = "cpu";
++-		};
++-
++-		port@7 {
++ 			status = "disabled";
 + 		};
 + 
-+ 		port@7 {
++-		port@8 {
+++		port@7 {
++ 			status = "disabled";
++ 		};
++ 	};
 +--- a/arch/arm/boot/dts/broadcom/bcm47081-tplink-archer-c5-v2.dts
 ++++ b/arch/arm/boot/dts/broadcom/bcm47081-tplink-archer-c5-v2.dts
-+@@ -130,7 +130,10 @@
++@@ -100,6 +100,11 @@
++ 	};
++ };
++ 
+++&gmac2 {
+++	nvmem-cells = <&macaddr_default_mac_8>;
+++	nvmem-cell-names = "mac-address";
+++};
+++
++ &srab {
++ 	status = "okay";
++ 
++@@ -125,14 +130,10 @@
 + 		};
 + 
 + 		port@5 {
-+-			status = "disabled";
-++			fixed-link {
-++				speed = <1000>;
-++				full-duplex;
-++			};
++-			label = "cpu";
++-		};
++-
++-		port@7 {
++ 			status = "disabled";
 + 		};
 + 
-+ 		port@7 {
++-		port@8 {
+++		port@7 {
++ 			status = "disabled";
++ 		};
++ 	};
++@@ -152,6 +153,20 @@
++ 		partition-file-system {
++ 			linux,rootfs;
++ 		};
+++
+++		partition-default-mac {
+++			read-only;
+++
+++			nvmem-layout {
+++				compatible = "fixed-layout";
+++				#address-cells = <1>;
+++				#size-cells = <1>;
+++
+++				macaddr_default_mac_8: macaddr@8 {
+++					reg = <0x8 0x6>;
+++				};
+++			};
+++		};
++ 	};
++ };
++ 
 +--- a/arch/arm/boot/dts/broadcom/bcm4709-asus-rt-ac3200.dts
 ++++ b/arch/arm/boot/dts/broadcom/bcm4709-asus-rt-ac3200.dts
-+@@ -149,7 +149,10 @@
++@@ -95,7 +95,7 @@
++ };
++ 
++ &gmac2 {
++-	nvmem-cells = <&et0macaddr 2>;
+++	nvmem-cells = <&et0macaddr 0>;
++ 	nvmem-cell-names = "mac-address";
++ };
++ 
++@@ -147,6 +147,14 @@
++ 		port@4 {
++ 			label = "lan1";
++ 		};
+++
+++		port@5 {
+++			status = "disabled";
+++		};
+++
+++		port@7 {
+++			status = "disabled";
+++		};
++ 	};
++ };
++ 
++--- a/arch/arm/boot/dts/broadcom/bcm4709-asus-rt-ac87u.dts
+++++ b/arch/arm/boot/dts/broadcom/bcm4709-asus-rt-ac87u.dts
++@@ -85,6 +85,11 @@
++ 	nvmem-cell-names = "mac-address";
++ };
++ 
+++&gmac2 {
+++	nvmem-cells = <&et1macaddr 0>;
+++	nvmem-cell-names = "mac-address";
+++};
+++
++ &usb2 {
++ 	vbus-supply = <&usb_power>;
++ };
++@@ -120,15 +125,23 @@
++ 			label = "lan3";
 + 		};
 + 
-+ 		port@5 {
-+-			status = "disabled";
++-		port@5 {
+++		port@4 {
++ 			status = "disabled";
++ 		};
++ 
++-		port@7 {
++-			label = "cpu";
+++		port@5 {
+++			/delete-property/ethernet;
+++
+++			label = "qtn";
+++			phy-mode = "rgmii";
+++
 ++			fixed-link {
 ++				speed = <1000>;
 ++				full-duplex;
 ++			};
 + 		};
 + 
-+ 		port@7 {
++-		port@8 {
+++		port@7 {
++ 			status = "disabled";
++ 		};
++ 	};
 +--- a/arch/arm/boot/dts/broadcom/bcm4709-buffalo-wxr-1900dhp.dts
 ++++ b/arch/arm/boot/dts/broadcom/bcm4709-buffalo-wxr-1900dhp.dts
-+@@ -178,7 +178,10 @@
++@@ -25,6 +25,15 @@
++ 		      <0x88000000 0x18000000>;
++ 	};
++ 
+++	nvram@1e070000 {
+++		compatible = "brcm,nvram";
+++		reg = <0x1e070000 0x10000>;
+++
+++		et0macaddr: et0macaddr {
+++			#nvmem-cell-cells = <1>;
+++		};
+++	};
+++
++ 	leds {
++ 		compatible = "gpio-leds";
++ 
++@@ -139,6 +148,11 @@
++ 	status = "okay";
++ };
++ 
+++&gmac2 {
+++	nvmem-cells = <&et0macaddr 0>;
+++	nvmem-cell-names = "mac-address";
+++};
+++
++ &srab {
++ 	status = "okay";
++ 
++@@ -164,14 +178,10 @@
 + 		};
 + 
 + 		port@5 {
-+-			status = "disabled";
-++			fixed-link {
-++				speed = <1000>;
-++				full-duplex;
-++			};
++-			label = "cpu";
++-		};
++-
++-		port@7 {
++ 			status = "disabled";
 + 		};
 + 
-+ 		port@7 {
-+--- a/arch/arm/boot/dts/broadcom/bcm4709-linksys-ea9200.dts
-++++ b/arch/arm/boot/dts/broadcom/bcm4709-linksys-ea9200.dts
-+@@ -214,7 +214,10 @@
++-		port@8 {
+++		port@7 {
++ 			status = "disabled";
 + 		};
-+ 
-+ 		port@5 {
-+-			status = "disabled";
-++			fixed-link {
-++				speed = <1000>;
-++				full-duplex;
-++			};
-+ 		};
-+ 
-+ 		port@7 {
++ 	};
 +--- a/arch/arm/boot/dts/broadcom/bcm4709-netgear-r7000.dts
 ++++ b/arch/arm/boot/dts/broadcom/bcm4709-netgear-r7000.dts
-+@@ -153,7 +153,10 @@
++@@ -25,6 +25,15 @@
++ 		      <0x88000000 0x08000000>;
++ 	};
++ 
+++	nvram@1c080000 {
+++		compatible = "brcm,nvram";
+++		reg = <0x1c080000 0x180000>;
+++
+++		et0macaddr: et0macaddr {
+++			#nvmem-cell-cells = <1>;
+++		};
+++	};
+++
++ 	leds {
++ 		compatible = "gpio-leds";
++ 
++@@ -114,6 +123,11 @@
++ 	status = "okay";
++ };
++ 
+++&gmac2 {
+++	nvmem-cells = <&et0macaddr 0>;
+++	nvmem-cell-names = "mac-address";
+++};
+++
++ &srab {
++ 	status = "okay";
++ 
++@@ -139,14 +153,10 @@
 + 		};
 + 
 + 		port@5 {
-+-			status = "disabled";
-++			fixed-link {
-++				speed = <1000>;
-++				full-duplex;
-++			};
++-			label = "cpu";
++-		};
++-
++-		port@7 {
++ 			status = "disabled";
 + 		};
 + 
-+ 		port@7 {
++-		port@8 {
+++		port@7 {
++ 			status = "disabled";
++ 		};
++ 	};
 +--- a/arch/arm/boot/dts/broadcom/bcm4709-netgear-r7900.dts
 ++++ b/arch/arm/boot/dts/broadcom/bcm4709-netgear-r7900.dts
-+@@ -76,7 +76,10 @@
-+ 		};
-+ 
-+ 		port@5 {
-+-			status = "disabled";
-++			fixed-link {
-++				speed = <1000>;
-++				full-duplex;
-++			};
-+ 		};
-+ 
-+ 		port@7 {
-+--- a/arch/arm/boot/dts/broadcom/bcm4709-netgear-r8000.dts
-++++ b/arch/arm/boot/dts/broadcom/bcm4709-netgear-r8000.dts
-+@@ -224,8 +224,6 @@
-+ 		};
-+ 
-+ 		port@5 {
-+-			status = "disabled";
-+-
-+ 			fixed-link {
-+ 				speed = <1000>;
-+ 				full-duplex;
++@@ -50,3 +50,37 @@
++ &uart0 {
++ 	status = "okay";
++ };
+++
+++&srab {
+++	status = "okay";
+++
+++	ports {
+++		port@0 {
+++			label = "lan1";
+++		};
+++
+++		port@1 {
+++			label = "lan2";
+++		};
+++
+++		port@2 {
+++			label = "lan3";
+++		};
+++
+++		port@3 {
+++			label = "lan4";
+++		};
+++
+++		port@4 {
+++			label = "wan";
+++		};
+++
+++		port@5 {
+++			status = "disabled";
+++		};
+++
+++		port@7 {
+++			status = "disabled";
+++		};
+++	};
+++};
 +--- a/arch/arm/boot/dts/broadcom/bcm4709-tplink-archer-c9-v1.dts
 ++++ b/arch/arm/boot/dts/broadcom/bcm4709-tplink-archer-c9-v1.dts
-+@@ -148,7 +148,10 @@
++@@ -118,6 +118,11 @@
++ 	vbus-supply = <&usb3_power>;
++ };
++ 
+++&gmac2 {
+++	nvmem-cells = <&macaddr_default_mac_8>;
+++	nvmem-cell-names = "mac-address";
+++};
+++
++ &srab {
++ 	status = "okay";
++ 
++@@ -143,14 +148,10 @@
 + 		};
 + 
 + 		port@5 {
-+-			status = "disabled";
-++			fixed-link {
-++				speed = <1000>;
-++				full-duplex;
-++			};
++-			label = "cpu";
++-		};
++-
++-		port@7 {
++ 			status = "disabled";
 + 		};
 + 
++-		port@8 {
+++		port@7 {
++ 			status = "disabled";
++ 		};
++ 	};
++@@ -170,6 +171,20 @@
++ 		partition-file-system {
++ 			linux,rootfs;
++ 		};
+++
+++		partition-default-mac {
+++			read-only;
+++
+++			nvmem-layout {
+++				compatible = "fixed-layout";
+++				#address-cells = <1>;
+++				#size-cells = <1>;
+++
+++				macaddr_default_mac_8: macaddr@8 {
+++					reg = <0x8 0x6>;
+++				};
+++			};
+++		};
++ 	};
++ };
++ 
++--- a/arch/arm/boot/dts/broadcom/bcm47094-asus-rt-ac3100.dtsi
+++++ b/arch/arm/boot/dts/broadcom/bcm47094-asus-rt-ac3100.dtsi
++@@ -154,12 +154,8 @@
++ 			label = "wan";
++ 		};
++ 
++-		port@5 {
++-			label = "cpu";
++-		};
++-
 + 		port@7 {
++-			label = "cpu";
+++			status = "disabled";
++ 		};
++ 
++ 		port@8 {
 +--- a/arch/arm/boot/dts/broadcom/bcm47094-asus-rt-ac3100.dts
 ++++ b/arch/arm/boot/dts/broadcom/bcm47094-asus-rt-ac3100.dts
-+@@ -36,7 +36,10 @@
-+ &srab {
-+ 	ports {
++@@ -29,6 +29,14 @@
++ };
++ 
++ &gmac2 {
++-	nvmem-cells = <&et0macaddr 2>;
+++	nvmem-cells = <&et0macaddr 0>;
++ 	nvmem-cell-names = "mac-address";
++ };
+++
+++&srab {
+++	ports {
+++		port@5 {
+++			status = "disabled";
+++		};
+++	};
+++};
++--- a/arch/arm/boot/dts/broadcom/bcm47094-asus-rt-ac88u.dts
+++++ b/arch/arm/boot/dts/broadcom/bcm47094-asus-rt-ac88u.dts
++@@ -103,7 +103,7 @@
++ };
++ 
++ &gmac2 {
++-	nvmem-cells = <&et1macaddr 1>;
+++	nvmem-cells = <&et1macaddr 0>;
++ 	nvmem-cell-names = "mac-address";
++ };
++ 
++--- a/arch/arm/boot/dts/broadcom/bcm47094-asus-rt-ac5300.dts
+++++ b/arch/arm/boot/dts/broadcom/bcm47094-asus-rt-ac5300.dts
++@@ -101,7 +101,7 @@
++ };
++ 
++ &gmac2 {
++-	nvmem-cells = <&et1macaddr 2>;
+++	nvmem-cells = <&et1macaddr 0>;
++ 	nvmem-cell-names = "mac-address";
++ };
++ 
++@@ -153,6 +153,14 @@
++ 		port@4 {
++ 			label = "lan4";
++ 		};
+++
+++		port@5 {
+++			status = "disabled";
+++		};
+++
+++		port@7 {
+++			status = "disabled";
+++		};
++ 	};
++ };
++ 
++--- a/arch/arm/boot/dts/broadcom/bcm47094-luxul-abr-4500.dts
+++++ b/arch/arm/boot/dts/broadcom/bcm47094-luxul-abr-4500.dts
++@@ -79,6 +79,11 @@
++ 	nvmem-cell-names = "mac-address";
++ };
++ 
+++&gmac2 {
+++	nvmem-cells = <&et0macaddr 0>;
+++	nvmem-cell-names = "mac-address";
+++};
+++
++ &spi_nor {
++ 	status = "okay";
++ };
++@@ -114,14 +119,10 @@
++ 		};
++ 
 + 		port@5 {
-+-			status = "disabled";
++-			label = "cpu";
++-		};
++-
++-		port@7 {
++ 			status = "disabled";
++ 		};
++ 
++-		port@8 {
+++		port@7 {
++ 			status = "disabled";
++ 		};
++ 	};
++--- a/arch/arm/boot/dts/broadcom/bcm47094-luxul-xap-1610.dts
+++++ b/arch/arm/boot/dts/broadcom/bcm47094-luxul-xap-1610.dts
++@@ -64,6 +64,11 @@
++ 	nvmem-cell-names = "mac-address";
++ };
++ 
+++&gmac2 {
+++	nvmem-cells = <&et0macaddr>;
+++	nvmem-cell-names = "mac-address";
+++};
+++
++ 
++ &pcie_bridge0 {
++ 	wifi@0,0 {
++@@ -98,14 +103,10 @@
++ 		};
++ 
++ 		port@5 {
++-			label = "cpu";
++-		};
++-
++-		port@7 {
++ 			status = "disabled";
++ 		};
++ 
++-		port@8 {
+++		port@7 {
++ 			status = "disabled";
++ 		};
++ 	};
++--- a/arch/arm/boot/dts/broadcom/bcm47094-luxul-xbr-4500.dts
+++++ b/arch/arm/boot/dts/broadcom/bcm47094-luxul-xbr-4500.dts
++@@ -79,6 +79,11 @@
++ 	nvmem-cell-names = "mac-address";
++ };
++ 
+++&gmac2 {
+++	nvmem-cells = <&et0macaddr 0>;
+++	nvmem-cell-names = "mac-address";
+++};
+++
++ &spi_nor {
++ 	status = "okay";
++ };
++@@ -114,14 +119,10 @@
++ 		};
++ 
++ 		port@5 {
++-			label = "cpu";
++-		};
++-
++-		port@7 {
++ 			status = "disabled";
++ 		};
++ 
++-		port@8 {
+++		port@7 {
++ 			status = "disabled";
++ 		};
++ 	};
++--- a/arch/arm/boot/dts/broadcom/bcm47094-luxul-xwr-3150-v1.dts
+++++ b/arch/arm/boot/dts/broadcom/bcm47094-luxul-xwr-3150-v1.dts
++@@ -90,6 +90,11 @@
++ 	nvmem-cell-names = "mac-address";
++ };
++ 
+++&gmac2 {
+++	nvmem-cells = <&et0macaddr 0>;
+++	nvmem-cell-names = "mac-address";
+++};
+++
++ &pcie_bridge0 {
++ 	wifi@0,0 {
++ 		compatible = "brcm,bcm4366-fmac", "brcm,bcm4329-fmac";
++@@ -145,14 +150,10 @@
++ 		};
++ 
++ 		port@5 {
++-			label = "cpu";
++-		};
++-
++-		port@7 {
++ 			status = "disabled";
++ 		};
++ 
++-		port@8 {
+++		port@7 {
++ 			status = "disabled";
++ 		};
++ 	};
++--- a/arch/arm/boot/dts/broadcom/bcm47094-phicomm-k3.dts
+++++ b/arch/arm/boot/dts/broadcom/bcm47094-phicomm-k3.dts
++@@ -47,6 +47,11 @@
++ 	status = "okay";
++ };
++ 
+++&gmac2 {
+++	nvmem-cells = <&et0macaddr 0>;
+++	nvmem-cell-names = "mac-address";
+++};
+++
++ &srab {
++ 	status = "okay";
++ 
++@@ -71,14 +76,10 @@
++ 		};
++ 
++ 		port@5 {
++-			label = "cpu";
++-		};
++-
++-		port@7 {
++ 			status = "disabled";
++ 		};
++ 
++-		port@8 {
+++		port@7 {
++ 			status = "disabled";
++ 		};
++ 	};
++--- a/arch/arm/boot/dts/broadcom/bcm47189-tenda-ac9.dts
+++++ b/arch/arm/boot/dts/broadcom/bcm47189-tenda-ac9.dts
++@@ -106,6 +106,10 @@
++ 	};
++ };
++ 
+++&gmac1 {
+++	status = "disabled";
+++};
+++
++ &switch {
++ 	status = "okay";
++ 
++@@ -130,8 +134,17 @@
++ 			label = "lan4";
++ 		};
++ 
+++		port@5 {
+++			status = "disabled";
+++		};
+++
++ 		port@8 {
++ 			label = "cpu";
+++
 ++			fixed-link {
 ++				speed = <1000>;
 ++				full-duplex;
@@ -468,142 +1388,96 @@ index 0000000000..d4cf51d6eb
 + 		};
 + 	};
 + };
-+--- a/arch/arm/boot/dts/broadcom/bcm47094-asus-rt-ac5300.dts
-++++ b/arch/arm/boot/dts/broadcom/bcm47094-asus-rt-ac5300.dts
-+@@ -155,7 +155,10 @@
++--- a/arch/arm/boot/dts/broadcom/bcm53015-meraki-mr26.dts
+++++ b/arch/arm/boot/dts/broadcom/bcm53015-meraki-mr26.dts
++@@ -58,17 +58,17 @@
++ };
++ 
++ &gmac0 {
++-	status = "okay";
++-
++-	nvmem-cells = <&macaddr_board_config_66 0>;
++-	nvmem-cell-names = "mac-address";
+++	status = "disabled";
++ };
++ 
++ &gmac1 {
++ 	status = "disabled";
++ };
++ &gmac2 {
++-	status = "disabled";
+++	status = "okay";
+++
+++	nvmem-cells = <&macaddr_board_config_66 0>;
+++	nvmem-cell-names = "mac-address";
++ };
++ &gmac3 {
++ 	status = "disabled";
++@@ -166,19 +166,10 @@
 + 		};
 + 
 + 		port@5 {
-+-			status = "disabled";
-++			fixed-link {
-++				speed = <1000>;
-++				full-duplex;
-++			};
++-			label = "cpu";
++-
++-			fixed-link {
++-				speed = <1000>;
++-				full-duplex;
++-			};
++-		};
++-
++-		port@7 {
++ 			status = "disabled";
 + 		};
 + 
-+ 		port@7 {
-+--- a/arch/arm/boot/dts/broadcom/bcm47094-dlink-dir-885l.dts
-++++ b/arch/arm/boot/dts/broadcom/bcm47094-dlink-dir-885l.dts
-+@@ -170,7 +170,10 @@
++-		port@8 {
+++		port@7 {
++ 			status = "disabled";
 + 		};
++ 	};
++--- a/arch/arm/boot/dts/broadcom/bcm53016-meraki-mr32.dts
+++++ b/arch/arm/boot/dts/broadcom/bcm53016-meraki-mr32.dts
++@@ -104,15 +104,17 @@
++ };
 + 
-+ 		port@5 {
-+-			status = "disabled";
-++			fixed-link {
-++				speed = <1000>;
-++				full-duplex;
-++			};
-+ 		};
++ &gmac0 {
++-	nvmem-cell-names = "mac-address";
++-	nvmem-cells = <&mac_address>;
+++	status = "disabled";
++ };
 + 
-+ 		port@7 {
-+--- a/arch/arm/boot/dts/broadcom/bcm47094-dlink-dir-890l.dts
-++++ b/arch/arm/boot/dts/broadcom/bcm47094-dlink-dir-890l.dts
-+@@ -211,7 +211,10 @@
-+ 		};
-+ 
-+ 		port@5 {
-+-			status = "disabled";
-++			fixed-link {
-++				speed = <1000>;
-++				full-duplex;
-++			};
-+ 		};
-+ 
-+ 		port@7 {
-+--- a/arch/arm/boot/dts/broadcom/bcm47094-linksys-panamera.dts
-++++ b/arch/arm/boot/dts/broadcom/bcm47094-linksys-panamera.dts
-+@@ -259,7 +259,6 @@
-+ 
-+ 		port@5 {
-+ 			label = "cpu";
-+-			status = "disabled";
-+ 
-+ 			fixed-link {
-+ 				speed = <1000>;
-+--- a/arch/arm/boot/dts/broadcom/bcm47094-luxul-abr-4500.dts
-++++ b/arch/arm/boot/dts/broadcom/bcm47094-luxul-abr-4500.dts
-+@@ -119,7 +119,10 @@
++ &gmac1 {
++ 	status = "disabled";
++ };
++ &gmac2 {
++-	status = "disabled";
+++	status = "okay";
+++
+++	nvmem-cell-names = "mac-address";
+++	nvmem-cells = <&mac_address>;
++ };
++ &gmac3 {
++ 	status = "disabled";
++@@ -178,19 +180,10 @@
 + 		};
 + 
 + 		port@5 {
-+-			status = "disabled";
-++			fixed-link {
-++				speed = <1000>;
-++				full-duplex;
-++			};
++-			label = "cpu";
++-
++-			fixed-link {
++-				speed = <1000>;
++-				full-duplex;
++-			};
++-		};
++-
++-		port@7 {
++ 			status = "disabled";
 + 		};
 + 
-+ 		port@7 {
-+--- a/arch/arm/boot/dts/broadcom/bcm47094-luxul-xap-1610.dts
-++++ b/arch/arm/boot/dts/broadcom/bcm47094-luxul-xap-1610.dts
-+@@ -103,7 +103,10 @@
++-		port@8 {
+++		port@7 {
++ 			status = "disabled";
 + 		};
-+ 
-+ 		port@5 {
-+-			status = "disabled";
-++			fixed-link {
-++				speed = <1000>;
-++				full-duplex;
-++			};
-+ 		};
-+ 
-+ 		port@7 {
-+--- a/arch/arm/boot/dts/broadcom/bcm47094-luxul-xbr-4500.dts
-++++ b/arch/arm/boot/dts/broadcom/bcm47094-luxul-xbr-4500.dts
-+@@ -119,7 +119,10 @@
-+ 		};
-+ 
-+ 		port@5 {
-+-			status = "disabled";
-++			fixed-link {
-++				speed = <1000>;
-++				full-duplex;
-++			};
-+ 		};
-+ 
-+ 		port@7 {
-+--- a/arch/arm/boot/dts/broadcom/bcm47094-luxul-xwr-3150-v1.dts
-++++ b/arch/arm/boot/dts/broadcom/bcm47094-luxul-xwr-3150-v1.dts
-+@@ -150,7 +150,10 @@
-+ 		};
-+ 
-+ 		port@5 {
-+-			status = "disabled";
-++			fixed-link {
-++				speed = <1000>;
-++				full-duplex;
-++			};
-+ 		};
-+ 
-+ 		port@7 {
-+--- a/arch/arm/boot/dts/broadcom/bcm47094-netgear-r8500.dts
-++++ b/arch/arm/boot/dts/broadcom/bcm47094-netgear-r8500.dts
-+@@ -120,7 +120,10 @@
-+ 		};
-+ 
-+ 		port@5 {
-+-			status = "disabled";
-++			fixed-link {
-++				speed = <1000>;
-++				full-duplex;
-++			};
-+ 		};
-+ 
-+ 		port@7 {
-+--- a/arch/arm/boot/dts/broadcom/bcm47094-phicomm-k3.dts
-++++ b/arch/arm/boot/dts/broadcom/bcm47094-phicomm-k3.dts
-+@@ -76,7 +76,10 @@
-+ 		};
-+ 
-+ 		port@5 {
-+-			status = "disabled";
-++			fixed-link {
-++				speed = <1000>;
-++				full-duplex;
-++			};
-+ 		};
-+ 
-+ 		port@7 {
++ 	};
 diff --git a/target/linux/bcm53xx/patches-6.18/379-ARM-dts-BCM5301X-RT-N18U-use-the-flow-accelerator.patch b/target/linux/bcm53xx/patches-6.18/379-ARM-dts-BCM5301X-RT-N18U-use-the-flow-accelerator.patch
 new file mode 100644
 index 0000000000..3ed890e956
@@ -657,28 +1531,316 @@ index 0000000000..3ed890e956
 ++		};
 + 	};
 + };
+diff --git a/target/linux/bcm53xx/patches-6.18/382-ARM-dts-BCM5301X-RT-N18U-set-WAN-MAC-from-nvram.patch b/target/linux/bcm53xx/patches-6.18/382-ARM-dts-BCM5301X-RT-N18U-set-WAN-MAC-from-nvram.patch
+new file mode 100644
+index 0000000000..0e1461058b
+--- /dev/null
++++ b/target/linux/bcm53xx/patches-6.18/382-ARM-dts-BCM5301X-RT-N18U-set-WAN-MAC-from-nvram.patch
+@@ -0,0 +1,41 @@
++From a3ef13ebe530c64fc743d5eb7cf75f1dce97435a Mon Sep 17 00:00:00 2001
++From: Semih Baskan <strst.gs@gmail.com>
++Date: Mon, 23 Nov 2026 05:04:11 +0000
++Subject: [PATCH] ARM: dts: BCM5301X: RT-N18U: set WAN MAC from nvram
++
++The WAN port's MAC address is et0macaddr + 1, which user space sets on
++the port today. Read it from nvram instead, as the RT-AC3100 does since
++commit 00f8f89f3981 ("ARM: dts: BCM5301X: AC3100: set WAN MAC from
++nvram"). The et0macaddr cell is the one that patch 376 ("ARM: dts:
++BCM5301X: use IMP0 port 8 as the CPU port") adds to the RT-N18U device
++tree for gmac2; the RT-AC3100 change brought a cell of its own.
++
++The port then has an address of its own from the start, so it keeps it
++when it moves to another CPU port; a port without one takes the
++address of its new conduit, which on this board is the LAN address.
++
++The value is the one OpenWrt sets from user space when nvram has no
++wan_hwaddr, so it does not change.
++
++Measured on an RT-N18U with this change: the WAN port's permanent
++address was et0macaddr + 1, the port kept that address while it moved
++to the other CPU port and back, and a download through it went on
++across both moves.
++
++Signed-off-by: Semih Baskan <strst.gs@gmail.com>
++---
++ arch/arm/boot/dts/broadcom/bcm47081-asus-rt-n18u.dts | 3 +++
++ 1 file changed, 3 insertions(+)
++
++--- a/arch/arm/boot/dts/broadcom/bcm47081-asus-rt-n18u.dts
+++++ b/arch/arm/boot/dts/broadcom/bcm47081-asus-rt-n18u.dts
++@@ -115,6 +115,9 @@
++ 	ports {
++ 		port@0 {
++ 			label = "wan";
+++
+++			nvmem-cells = <&et0macaddr 1>;
+++			nvmem-cell-names = "mac-address";
++ 		};
++ 
++ 		port@1 {
+diff --git a/target/linux/bcm53xx/patches-6.18/383-ARM-dts-BCM5301X-R6400-set-WAN-MAC-from-nvram.patch b/target/linux/bcm53xx/patches-6.18/383-ARM-dts-BCM5301X-R6400-set-WAN-MAC-from-nvram.patch
+new file mode 100644
+index 0000000000..d2f8ef238f
+--- /dev/null
++++ b/target/linux/bcm53xx/patches-6.18/383-ARM-dts-BCM5301X-R6400-set-WAN-MAC-from-nvram.patch
+@@ -0,0 +1,30 @@
++From: Erik Conijn <egc112@msn.com>
++Subject: [PATCH] ARM: dts: BCM5301X: R6400: set WAN MAC from nvram
++
++The WAN port's MAC address is et0macaddr + 1, which user space sets on
++the port today. Read it from nvram instead, so the port keeps it when
++it moves to the other CPU port; a port without one takes the LAN
++address of its new conduit, and 703 refuses that move.
++
++The R6400 v2 includes the R6400 v1 device tree and gets it too.
++
++Kit copy of the R6400 part of 383 in openwrt#26789.
++
++The value is the one OpenWrt sets from user space when nvram has no
++wan_hwaddr.
++
++Assisted-by: Claude:claude-opus-5-5
++Signed-off-by: Erik Conijn <egc112@msn.com>
++---
++--- a/arch/arm/boot/dts/broadcom/bcm4708-netgear-r6400-v1.dts
+++++ b/arch/arm/boot/dts/broadcom/bcm4708-netgear-r6400-v1.dts
++@@ -175,6 +175,9 @@
++ 	ports {
++ 		port@0 {
++ 			label = "wan";
+++
+++			nvmem-cells = <&et0macaddr 1>;
+++			nvmem-cell-names = "mac-address";
++ 		};
++ 
++ 		port@1 {
 diff --git a/target/linux/bcm53xx/patches-6.18/703-net-dsa-b53-support-moving-ports-to-another-CPU-port.patch b/target/linux/bcm53xx/patches-6.18/703-net-dsa-b53-support-moving-ports-to-another-CPU-port.patch
-index e53fc53dd7..426f30a411 100644
+index e53fc53dd7..030f008bf2 100644
 --- a/target/linux/bcm53xx/patches-6.18/703-net-dsa-b53-support-moving-ports-to-another-CPU-port.patch
 +++ b/target/linux/bcm53xx/patches-6.18/703-net-dsa-b53-support-moving-ports-to-another-CPU-port.patch
-@@ -84,7 +84,7 @@ Signed-off-by: Rosen Penev <rosenp@gmail.com>
+@@ -20,6 +20,20 @@ user port.
+ Report brcm-prepend for every CPU port of BCM58xx; the tagger uses the
+ regular tag on ports other than 8.
+ 
++An address can reach the host through one CPU port only: the ARL has
++one entry per address and VID, and a unicast entry names a single
++port, while DSA installs the address of a bridge, and those of its
++ports, on the CPU port of each bridged port. When a bridged port
++moves, the entry follows it and the bridged ports left behind lose the
++host; after the move back the entry is gone and unicast to the host
++floods to every bridged port. Refuse, with -EBUSY, a move to another
++CPU port, a bridge join, an address change and bringing up a
++standalone port when the port would need such an address on its CPU
++port while a bridge or a bridged port on another CPU port uses it, and
++refuse a conduit of another switch, as mt7530 does. A bridged port on
++a board whose conduits carry the LAN address cannot move alone then; a
++port with an address of its own from the device tree can.
++
+ Cisco Meraki MX65, wan1 on port 7 and LAN on port 8, each AMAC
+ interrupt on its own CPU, TCP forwarded in both directions at once:
+ 
+@@ -28,10 +42,12 @@ interrupt on its own CPU, TCP forwarded in both directions at once:
+ 
+ Assisted-by: Claude:claude-opus-5-5
+ Signed-off-by: Rosen Penev <rosenp@gmail.com>
++Co-developed-by: Semih Baskan <strst.gs@gmail.com>
++Signed-off-by: Semih Baskan <strst.gs@gmail.com>
+ ---
+ --- a/drivers/net/dsa/b53/b53_common.c
+ +++ b/drivers/net/dsa/b53/b53_common.c
+-@@ -569,11 +569,52 @@ void b53_imp_vlan_setup(struct dsa_switc
++@@ -569,11 +569,123 @@ void b53_imp_vlan_setup(struct dsa_switc
+  	b53_for_each_port(dev, i) {
+  		b53_read16(dev, B53_PVLAN_PAGE, B53_PVLAN_PORT_MASK(i), &pvlan);
+  		pvlan |= BIT(cpu_port);
+@@ -47,11 +63,56 @@ Signed-off-by: Rosen Penev <rosenp@gmail.com>
+  }
+  EXPORT_SYMBOL(b53_imp_vlan_setup);
+  
+++static bool b53_host_addr_elsewhere(struct dsa_switch *ds, int port,
+++				    const u8 *addr,
+++				    const struct dsa_port *cpu_dp)
+++{
+++	const struct net_device *br;
+++	struct dsa_port *dp;
+++
+++	dsa_switch_for_each_user_port(dp, ds) {
+++		br = dsa_port_bridge_dev_get(dp);
+++		if (dp->index == port || !br || dp->cpu_dp == cpu_dp)
+++			continue;
+++
+++		if (ether_addr_equal(addr, br->dev_addr) ||
+++		    ether_addr_equal(addr, dp->user->dev_addr))
+++			return true;
+++	}
+++
+++	return false;
+++}
+++
+++static int b53_port_set_mac_address(struct dsa_switch *ds, int port,
+++				    const unsigned char *addr)
+++{
+++	struct dsa_port *dp = dsa_to_port(ds, port);
+++
+++	/* a standalone port that is down is judged when it comes up */
+++	if (!dsa_port_bridge_dev_get(dp) && !netif_running(dp->user))
+++		return 0;
+++
+++	if (b53_host_addr_elsewhere(ds, port, addr, dp->cpu_dp)) {
+++		dev_err(ds->dev,
+++			"port %d: %pM: bridge address in use on another CPU port\n",
+++			port, addr);
+++		return -EBUSY;
+++	}
+++
+++	return 0;
+++}
+++
+ +static int b53_port_change_conduit(struct dsa_switch *ds, int port,
+ +				   struct net_device *conduit,
+ +				   struct netlink_ext_ack *extack)
+ +{
+++	const struct dsa_port *cpu_dp = conduit->dsa_ptr;
+++	struct dsa_port *dp = dsa_to_port(ds, port);
+++	struct net_device *user = dp->user;
+ +	struct b53_device *dev = ds->priv;
+++	const struct net_device *br;
+++	const u8 *addr;
+++	bool busy;
+ +	u16 pvlan;
+ +
+ +	if (netif_is_lag_master(conduit)) {
+@@ -59,6 +120,32 @@ Signed-off-by: Rosen Penev <rosenp@gmail.com>
+ +		return -EOPNOTSUPP;
+ +	}
+ +
+++	if (cpu_dp->ds != ds) {
+++		NL_SET_ERR_MSG_MOD(extack,
+++				   "Cannot assign a conduit on a different switch");
+++		return -EOPNOTSUPP;
+++	}
+++
+++	/* the address dsa_port_change_conduit() leaves on the port */
+++	addr = is_zero_ether_addr(dp->mac) ? conduit->dev_addr : user->dev_addr;
+++
+++	if (netif_is_bridge_port(user)) {
+++		br = netdev_master_upper_dev_get(user);
+++		busy = b53_host_addr_elsewhere(ds, port, br->dev_addr,
+++					       cpu_dp) ||
+++		       b53_host_addr_elsewhere(ds, port, user->dev_addr,
+++					       cpu_dp) ||
+++		       b53_host_addr_elsewhere(ds, port, addr, cpu_dp);
+++	} else {
+++		busy = netif_running(user) &&
+++		       b53_host_addr_elsewhere(ds, port, addr, cpu_dp);
+++	}
+++	if (busy) {
+++		NL_SET_ERR_MSG_MOD(extack,
+++				   "Bridge address in use on another CPU port");
+++		return -EBUSY;
+++	}
+++
+ +	b53_read16(dev, B53_PVLAN_PAGE, B53_PVLAN_PORT_MASK(port), &pvlan);
+ +	pvlan &= ~dsa_cpu_ports(ds);
+ +	pvlan |= BIT(conduit->dsa_ptr->index);
+@@ -84,7 +171,59 @@ Signed-off-by: Rosen Penev <rosenp@gmail.com>
   static void b53_port_set_ucast_flood(struct b53_device *dev, int port,
   				     bool unicast)
   {
 -@@ -2512,9 +2553,11 @@ enum dsa_tag_protocol b53_get_tag_protoc
-+@@ -2518,9 +2559,11 @@ enum dsa_tag_protocol b53_get_tag_protoc
++@@ -694,6 +806,7 @@ EXPORT_SYMBOL(b53_setup_port);
++ 
++ int b53_enable_port(struct dsa_switch *ds, int port, struct phy_device *phy)
++ {
+++	struct dsa_port *dp = dsa_to_port(ds, port);
++ 	struct b53_device *dev = ds->priv;
++ 	unsigned int cpu_port;
++ 	int ret = 0;
++@@ -702,7 +815,15 @@ int b53_enable_port(struct dsa_switch *d
++ 	if (!dsa_is_user_port(ds, port))
++ 		return 0;
++ 
++-	cpu_port = dsa_to_port(ds, port)->cpu_dp->index;
+++	if (!dsa_port_bridge_dev_get(dp) &&
+++	    b53_host_addr_elsewhere(ds, port, dp->user->dev_addr, dp->cpu_dp)) {
+++		dev_err(ds->dev,
+++			"port %d: %pM: bridge address in use on another CPU port\n",
+++			port, dp->user->dev_addr);
+++		return -EBUSY;
+++	}
+++
+++	cpu_port = dp->cpu_dp->index;
++ 
++ 	if (dev->ops->phy_enable)
++ 		dev->ops->phy_enable(dev, port);
++@@ -2264,9 +2385,10 @@ EXPORT_SYMBOL(b53_mdb_del);
++ int b53_br_join(struct dsa_switch *ds, int port, struct dsa_bridge bridge,
++ 		bool *tx_fwd_offload, struct netlink_ext_ack *extack)
++ {
+++	struct dsa_port *dp = dsa_to_port(ds, port);
++ 	struct b53_device *dev = ds->priv;
++ 	struct b53_vlan *vl;
++-	s8 cpu_port = dsa_to_port(ds, port)->cpu_dp->index;
+++	s8 cpu_port = dp->cpu_dp->index;
++ 	u16 pvlan, reg, pvid;
++ 	unsigned int i;
++ 
++@@ -2276,6 +2398,14 @@ int b53_br_join(struct dsa_switch *ds, i
++ 	if (dev->chip_id == BCM7278_DEVICE_ID && port == 7)
++ 		return -EINVAL;
++ 
+++	if (b53_host_addr_elsewhere(ds, port, bridge.dev->dev_addr,
+++				    dp->cpu_dp) ||
+++	    b53_host_addr_elsewhere(ds, port, dp->user->dev_addr, dp->cpu_dp)) {
+++		NL_SET_ERR_MSG_MOD(extack,
+++				   "Bridge address in use on another CPU port");
+++		return -EBUSY;
+++	}
+++
++ 	pvid = b53_default_pvid(dev);
++ 	vl = &dev->vlans[pvid];
++ 
++@@ -2518,9 +2648,11 @@ enum dsa_tag_protocol b53_get_tag_protoc
   	}
   
   	/* Broadcom BCM58xx chips have a flow accelerator on Port 8
-@@ -98,7 +98,7 @@ Signed-off-by: Rosen Penev <rosenp@gmail.com>
+@@ -98,12 +237,13 @@ Signed-off-by: Rosen Penev <rosenp@gmail.com>
   		dev->tag_protocol = DSA_TAG_PROTO_BRCM_PREPEND;
   		goto out;
   	}
 -@@ -2691,6 +2734,8 @@ static const struct phylink_mac_ops b53_
-+@@ -2697,6 +2740,8 @@ static const struct phylink_mac_ops b53_
++@@ -2697,6 +2829,9 @@ static const struct phylink_mac_ops b53_
   
   static const struct dsa_switch_ops b53_switch_ops = {
   	.get_tag_protocol	= b53_get_tag_protocol,
+ +	.preferred_default_local_cpu_port = b53_preferred_default_local_cpu_port,
+ +	.port_change_conduit	= b53_port_change_conduit,
+++	.port_set_mac_address	= b53_port_set_mac_address,
+  	.setup			= b53_setup,
+  	.teardown		= b53_teardown,
+  	.get_strings		= b53_get_strings,
+diff --git a/target/linux/bcm53xx/patches-6.18/720-net-dsa-b53-program-LED-registers-from-device-tree.patch b/target/linux/bcm53xx/patches-6.18/720-net-dsa-b53-program-LED-registers-from-device-tree.patch
+index 78ac495711..f01db26948 100644
+--- a/target/linux/bcm53xx/patches-6.18/720-net-dsa-b53-program-LED-registers-from-device-tree.patch
++++ b/target/linux/bcm53xx/patches-6.18/720-net-dsa-b53-program-LED-registers-from-device-tree.patch
+@@ -27,7 +27,7 @@ Signed-off-by: Erik Conijn <egc112@msn.com>
+  #include <linux/platform_data/b53.h>
+  #include <linux/phy.h>
+  #include <linux/phylink.h>
+-@@ -1308,6 +1309,35 @@ out:
++@@ -1388,6 +1389,35 @@ out:
+  }
+  EXPORT_SYMBOL(b53_setup_devlink_resources);
+  
+@@ -63,7 +63,7 @@ Signed-off-by: Erik Conijn <egc112@msn.com>
+  static int b53_setup(struct dsa_switch *ds)
+  {
+  	struct b53_device *dev = ds->priv;
+-@@ -1359,6 +1389,8 @@ static int b53_setup(struct dsa_switch *
++@@ -1439,6 +1469,8 @@ static int b53_setup(struct dsa_switch *
+  		return ret;
+  	}
+  
 diff --git a/target/linux/bcm53xx/patches-6.18/721-net-dsa-tag_brcm-accept-the-flow-accelerator-lookup-opcode.patch b/target/linux/bcm53xx/patches-6.18/721-net-dsa-tag_brcm-accept-the-flow-accelerator-lookup-opcode.patch
 new file mode 100644
 index 0000000000..973d532ee7
@@ -757,7 +1919,7 @@ index 0000000000..973d532ee7
 + 	source_port = brcm_tag[3] & BRCM_EG_PID_MASK;
 diff --git a/target/linux/bcm53xx/patches-6.18/722-net-dsa-b53-allow-the-prepended-tag-on-Northstar-port-8.patch b/target/linux/bcm53xx/patches-6.18/722-net-dsa-b53-allow-the-prepended-tag-on-Northstar-port-8.patch
 new file mode 100644
-index 0000000000..d86646063a
+index 0000000000..cdf2e3f015
 --- /dev/null
 +++ b/target/linux/bcm53xx/patches-6.18/722-net-dsa-b53-allow-the-prepended-tag-on-Northstar-port-8.patch
 @@ -0,0 +1,106 @@
@@ -798,9 +1960,9 @@ index 0000000000..d86646063a
 +       - ocelot
 +--- a/drivers/net/dsa/b53/b53_common.c
 ++++ b/drivers/net/dsa/b53/b53_common.c
-+@@ -582,6 +582,17 @@ void b53_imp_vlan_setup(struct dsa_switc
++@@ -621,6 +621,17 @@ static int b53_port_set_mac_address(stru
++ 	return 0;
 + }
-+ EXPORT_SYMBOL(b53_imp_vlan_setup);
 + 
 ++/* The BCM5301x (Northstar) switches with a flow accelerator in front of
 ++ * port 8: switch revision 3 or later, or any BCM47094. As on BCM58xx, the
@@ -816,7 +1978,7 @@ index 0000000000..d86646063a
 + static int b53_port_change_conduit(struct dsa_switch *ds, int port,
 + 				   struct net_device *conduit,
 + 				   struct netlink_ext_ack *extack)
-+@@ -2600,6 +2611,42 @@ out:
++@@ -2695,6 +2706,42 @@ out:
 + }
 + EXPORT_SYMBOL(b53_get_tag_protocol);
 + 
@@ -859,14 +2021,14 @@ index 0000000000..d86646063a
 + int b53_mirror_add(struct dsa_switch *ds, int port,
 + 		   struct dsa_mall_mirror_tc_entry *mirror, bool ingress,
 + 		   struct netlink_ext_ack *extack)
-+@@ -2766,6 +2813,7 @@ static const struct phylink_mac_ops b53_
++@@ -2861,6 +2908,7 @@ static const struct phylink_mac_ops b53_
 + 
 + static const struct dsa_switch_ops b53_switch_ops = {
 + 	.get_tag_protocol	= b53_get_tag_protocol,
 ++	.change_tag_protocol	= b53_change_tag_protocol,
 + 	.preferred_default_local_cpu_port = b53_preferred_default_local_cpu_port,
 + 	.port_change_conduit	= b53_port_change_conduit,
-+ 	.setup			= b53_setup,
++ 	.port_set_mac_address	= b53_port_set_mac_address,
 diff --git a/target/linux/bcm53xx/patches-6.18/723-net-bgmac-set-up-the-Northstar-flow-accelerator.patch b/target/linux/bcm53xx/patches-6.18/723-net-bgmac-set-up-the-Northstar-flow-accelerator.patch
 new file mode 100644
 index 0000000000..952732b332
@@ -1216,7 +2378,7 @@ index 0000000000..952732b332
 + {
 diff --git a/target/linux/bcm53xx/patches-6.18/724-net-bgmac-offload-flows-to-the-Northstar-flow-accelerator.patch b/target/linux/bcm53xx/patches-6.18/724-net-bgmac-offload-flows-to-the-Northstar-flow-accelerator.patch
 new file mode 100644
-index 0000000000..095568f08e
+index 0000000000..cd550c0d22
 --- /dev/null
 +++ b/target/linux/bcm53xx/patches-6.18/724-net-bgmac-offload-flows-to-the-Northstar-flow-accelerator.patch
 @@ -0,0 +1,1186 @@
@@ -2382,7 +3544,7 @@ index 0000000000..095568f08e
 + };
 + 
 + /**************************************************
-+@@ -1545,6 +1560,11 @@ int bgmac_enet_probe(struct bgmac *bgmac
++@@ -1549,6 +1564,11 @@ int bgmac_enet_probe(struct bgmac *bgmac
 + 	net_dev->features = NETIF_F_SG | NETIF_F_IP_CSUM | NETIF_F_IPV6_CSUM;
 + 	net_dev->hw_features = net_dev->features;
 + 	net_dev->vlan_features = net_dev->features;
@@ -2456,7 +3618,7 @@ index 0000000000..89fbfd5b51
 + 	return skb;
 diff --git a/target/linux/bcm53xx/patches-6.18/726-net-dsa-b53-trap-TTL-1-frames-from-the-Northstar-flow-accelerator.patch b/target/linux/bcm53xx/patches-6.18/726-net-dsa-b53-trap-TTL-1-frames-from-the-Northstar-flow-accelerator.patch
 new file mode 100644
-index 0000000000..bd3292277c
+index 0000000000..4e5af385f1
 --- /dev/null
 +++ b/target/linux/bcm53xx/patches-6.18/726-net-dsa-b53-trap-TTL-1-frames-from-the-Northstar-flow-accelerator.patch
 @@ -0,0 +1,388 @@
@@ -2512,7 +3674,7 @@ index 0000000000..bd3292277c
 + #include <net/dsa.h>
 + 
 + #include "b53_regs.h"
-+@@ -593,6 +594,212 @@ static bool b53_has_flow_accelerator(str
++@@ -632,6 +633,212 @@ static bool b53_has_flow_accelerator(str
 + 	       (dev->core_rev >= 3 || of_machine_is_compatible("brcm,bcm47094"));
 + }
 + 
@@ -2725,7 +3887,7 @@ index 0000000000..bd3292277c
 + static int b53_port_change_conduit(struct dsa_switch *ds, int port,
 + 				   struct net_device *conduit,
 + 				   struct netlink_ext_ack *extack)
-+@@ -610,17 +817,21 @@ static int b53_port_change_conduit(struc
++@@ -681,17 +888,21 @@ static int b53_port_change_conduit(struc
 + 	pvlan |= BIT(conduit->dsa_ptr->index);
 + 	b53_write16(dev, B53_PVLAN_PAGE, B53_PVLAN_PORT_MASK(port), pvlan);
 + 
@@ -2750,7 +3912,7 @@ index 0000000000..bd3292277c
 + 	    dsa_is_cpu_port(ds, B53_CPU_PORT))
 + 		return dsa_to_port(ds, B53_CPU_PORT);
 + 
-+@@ -784,6 +995,8 @@ int b53_enable_port(struct dsa_switch *d
++@@ -864,6 +1075,8 @@ int b53_enable_port(struct dsa_switch *d
 + 	if (dev->ports[port].eee.eee_enabled)
 + 		b53_eee_enable_set(ds, port, true);
 + 
@@ -2759,7 +3921,7 @@ index 0000000000..bd3292277c
 + 	return 0;
 + }
 + EXPORT_SYMBOL(b53_enable_port);
-+@@ -2644,6 +2857,8 @@ static int b53_change_tag_protocol(struc
++@@ -2739,6 +2952,8 @@ static int b53_change_tag_protocol(struc
 + 	dsa_switch_for_each_cpu_port(cpu_dp, ds)
 + 		b53_brcm_hdr_setup(ds, cpu_dp->index);
 + 
@@ -2768,14 +3930,14 @@ index 0000000000..bd3292277c
 + 	return 0;
 + }
 + 
-+@@ -2815,6 +3030,7 @@ static const struct dsa_switch_ops b53_s
++@@ -2910,6 +3125,7 @@ static const struct dsa_switch_ops b53_s
 + 	.get_tag_protocol	= b53_get_tag_protocol,
 + 	.change_tag_protocol	= b53_change_tag_protocol,
 + 	.preferred_default_local_cpu_port = b53_preferred_default_local_cpu_port,
 ++	.conduit_state_change	= b53_conduit_state_change,
 + 	.port_change_conduit	= b53_port_change_conduit,
++ 	.port_set_mac_address	= b53_port_set_mac_address,
 + 	.setup			= b53_setup,
-+ 	.teardown		= b53_teardown,
 +--- a/drivers/net/dsa/b53/b53_priv.h
 ++++ b/drivers/net/dsa/b53/b53_priv.h
 +@@ -177,6 +177,13 @@ struct b53_device {
@@ -2850,7 +4012,7 @@ index 0000000000..bd3292277c
 + #endif /* !__B53_REGS_H */
 diff --git a/target/linux/bcm53xx/patches-6.18/727-net-dsa-b53-trap-TCP-FIN-and-RST-from-the-Northstar-flow-accelerator.patch b/target/linux/bcm53xx/patches-6.18/727-net-dsa-b53-trap-TCP-FIN-and-RST-from-the-Northstar-flow-accelerator.patch
 new file mode 100644
-index 0000000000..083907e392
+index 0000000000..038bafece8
 --- /dev/null
 +++ b/target/linux/bcm53xx/patches-6.18/727-net-dsa-b53-trap-TCP-FIN-and-RST-from-the-Northstar-flow-accelerator.patch
 @@ -0,0 +1,90 @@
@@ -2890,7 +4052,7 @@ index 0000000000..083907e392
 +
 +--- a/drivers/net/dsa/b53/b53_common.c
 ++++ b/drivers/net/dsa/b53/b53_common.c
-+@@ -654,6 +654,8 @@ static int b53_cfp_redirect(struct b53_d
++@@ -693,6 +693,8 @@ static int b53_cfp_redirect(struct b53_d
 + /* The CFP rules for the flow accelerator, from the first one on */
 + enum {
 + 	B53_FA_TRAP_TTL,
@@ -2899,7 +4061,7 @@ index 0000000000..083907e392
 + 	B53_FA_TRAP_NUM,
 + };
 + 
-+@@ -680,8 +682,31 @@ static int b53_fa_trap_set(struct b53_de
++@@ -719,8 +721,31 @@ static int b53_fa_trap_set(struct b53_de
 + 	mask[6] |= CFP_DATA6_TTL_RANGE_HIGH;
 + 	err = b53_cfp_redirect(dev, B53_FA_TRAP_TTL, data, mask, map);
 + 	mask[6] &= ~CFP_DATA6_TTL_RANGE_HIGH;
@@ -2946,7 +4108,7 @@ index 0000000000..083907e392
 +  * CFP TCAM and Action/Policy RAM Access Page Registers
 diff --git a/target/linux/bcm53xx/patches-6.18/728-net-dsa-b53-trap-IPv6-for-the-Northstar-flow-accelerator.patch b/target/linux/bcm53xx/patches-6.18/728-net-dsa-b53-trap-IPv6-for-the-Northstar-flow-accelerator.patch
 new file mode 100644
-index 0000000000..043e45688e
+index 0000000000..5627a1e1f4
 --- /dev/null
 +++ b/target/linux/bcm53xx/patches-6.18/728-net-dsa-b53-trap-IPv6-for-the-Northstar-flow-accelerator.patch
 @@ -0,0 +1,201 @@
@@ -2990,7 +4152,7 @@ index 0000000000..043e45688e
 + #include <linux/export.h>
 + #include <linux/gpio.h>
 + #include <linux/kernel.h>
-+@@ -656,6 +657,8 @@ enum {
++@@ -695,6 +696,8 @@ enum {
 + 	B53_FA_TRAP_TTL,
 + 	B53_FA_TRAP_FIN,
 + 	B53_FA_TRAP_RST,
@@ -2999,7 +4161,7 @@ index 0000000000..043e45688e
 + 	B53_FA_TRAP_NUM,
 + };
 + 
-+@@ -665,23 +668,23 @@ static int b53_fa_trap_set(struct b53_de
++@@ -704,23 +707,23 @@ static int b53_fa_trap_set(struct b53_de
 + 	u32 mask[B53_CFP_NUM_KEY_REGS] = {
 + 		CFP_DATA0_SLICE_VALID | CFP_DATA0_SLICE_ID_MASK
 + 	};
@@ -3034,7 +4196,7 @@ index 0000000000..043e45688e
 + 	if (err)
 + 		return err;
 + 
-+@@ -691,22 +694,36 @@ static int b53_fa_trap_set(struct b53_de
++@@ -730,22 +733,36 @@ static int b53_fa_trap_set(struct b53_de
 + 	 */
 + 	b53_write8(dev, B53_CFP_PAGE, B53_CFP_UDF_0_A_0,
 + 		   CFP_UDF_EOL3 | B53_CFP_UDF_TCP_FLAGS);
@@ -3083,7 +4245,7 @@ index 0000000000..043e45688e
 + }
 + 
 + static void b53_fa_trap_clear(struct b53_device *dev)
-+@@ -3092,6 +3109,19 @@ static const struct dsa_switch_ops b53_s
++@@ -3188,6 +3205,19 @@ static const struct dsa_switch_ops b53_s
 + 	.port_change_mtu	= b53_change_mtu,
 + };
 + 
@@ -3622,7 +4784,7 @@ index 0000000000..6824eb8432
 + 
 diff --git a/target/linux/bcm53xx/patches-6.18/730-net-dsa-b53-keep-VLAN-members-for-the-Northstar-flow-accelerator.patch b/target/linux/bcm53xx/patches-6.18/730-net-dsa-b53-keep-VLAN-members-for-the-Northstar-flow-accelerator.patch
 new file mode 100644
-index 0000000000..575121bec4
+index 0000000000..000c60b338
 --- /dev/null
 +++ b/target/linux/bcm53xx/patches-6.18/730-net-dsa-b53-keep-VLAN-members-for-the-Northstar-flow-accelerator.patch
 @@ -0,0 +1,256 @@
@@ -3750,7 +4912,7 @@ index 0000000000..575121bec4
 + }
 + 
 + static void b53_set_eap_mode(struct b53_device *dev, int port, int mode)
-+@@ -1216,7 +1232,9 @@ int b53_configure_vlan(struct dsa_switch
++@@ -1296,7 +1312,9 @@ int b53_configure_vlan(struct dsa_switch
 + 		for (i = def_vid; i < dev->num_vlans; i++)
 + 			b53_set_vlan_entry(dev, i, &vl);
 + 	} else {
@@ -3760,7 +4922,7 @@ index 0000000000..575121bec4
 + 	}
 + 
 + 	b53_enable_vlan(dev, -1, dev->vlan_enabled, dev->vlan_filtering);
-+@@ -1247,7 +1265,7 @@ int b53_configure_vlan(struct dsa_switch
++@@ -1327,7 +1345,7 @@ int b53_configure_vlan(struct dsa_switch
 + 		for (vid = def_vid + 1; vid < dev->num_vlans; vid++) {
 + 			v = &dev->vlans[vid];
 + 
@@ -3769,7 +4931,7 @@ index 0000000000..575121bec4
 + 				continue;
 + 
 + 			b53_set_vlan_entry(dev, vid, v);
-+@@ -1260,6 +1278,13 @@ int b53_configure_vlan(struct dsa_switch
++@@ -1340,6 +1358,13 @@ int b53_configure_vlan(struct dsa_switch
 + 					    B53_VLAN_PORT_DEF_TAG(i),
 + 					    dev->ports[i].pvid);
 + 		}
@@ -3783,7 +4945,7 @@ index 0000000000..575121bec4
 + 	}
 + 
 + 	return 0;
-+@@ -3122,6 +3147,43 @@ bool b53_fa_trap_active(struct dsa_switc
++@@ -3218,6 +3243,43 @@ bool b53_fa_trap_active(struct dsa_switc
 + }
 + EXPORT_SYMBOL(b53_fa_trap_active);
 + 
@@ -3827,7 +4989,7 @@ index 0000000000..575121bec4
 + static const struct b53_arl_ops b53_arl_ops_25 = {
 + 	.arl_read_entry = b53_arl_read_entry_25,
 + 	.arl_write_entry = b53_arl_write_entry_25,
-+@@ -3608,6 +3670,7 @@ struct b53_device *b53_switch_alloc(stru
++@@ -3704,6 +3766,7 @@ struct b53_device *b53_switch_alloc(stru
 + 	mutex_init(&dev->reg_mutex);
 + 	mutex_init(&dev->stats_mutex);
 + 	mutex_init(&dev->arl_mutex);
@@ -4175,101 +5337,6 @@ index 0000000000..ea573bfcda
 + 	if (flow->next_hop < 0) {
 + 		err = flow->next_hop;
 + 		goto free;
-diff --git a/target/linux/bcm53xx/patches-6.18/734-net-dsa-b53-default-to-the-prepended-tag-behind-the-accelerator.patch b/target/linux/bcm53xx/patches-6.18/734-net-dsa-b53-default-to-the-prepended-tag-behind-the-accelerator.patch
-new file mode 100644
-index 0000000000..4168ee1aaf
---- /dev/null
-+++ b/target/linux/bcm53xx/patches-6.18/734-net-dsa-b53-default-to-the-prepended-tag-behind-the-accelerator.patch
-@@ -0,0 +1,89 @@
-+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
-+From: Erik Conijn <egc112@msn.com>
-+Date: Sat, 21 Nov 2026 13:30:42 +0100
-+Subject: [PATCH] net: dsa: b53: default to the prepended tag behind the
-+ accelerator
-+
-+So far a board used the flow accelerator only when its device tree
-+selected the prepended tag. But a device tree that selects it on a
-+switch without the accelerator (Broadcom's et driver counts it present
-+from switch revision 3 on and on all BCM47094: FA_CAPABLE()) gets the
-+whole switch tree rejected: b53 refuses that tag there, and DSA gives
-+up on the tree. That makes a common device tree setting for all
-+Northstar boards unsafe.
-+
-+Choose the tag in b53 instead. Report the prepended tag when the
-+switch has the accelerator, port 8 is a CPU port, and port 5 is one
-+too, to take the frames that the accelerator must not handle. In every
-+other case keep the regular tag, as before. DSA asks for the tag while
-+it parses the ports in order, so look the CPU ports up in the device
-+tree. A board can still select the regular tag with dsa-tag-protocol.
-+
-+Assisted-by: Claude:claude-opus-5-5
-+Signed-off-by: Erik Conijn <egc112@msn.com>
-+---
-+ drivers/net/dsa/b53/b53_common.c | 41 ++++++++++++++++++++++++++++++++
-+ 1 file changed, 41 insertions(+)
-+
-+diff --git a/drivers/net/dsa/b53/b53_common.c b/drivers/net/dsa/b53/b53_common.c
-+index 256ffacc2..82879dcf3 100644
-+--- a/drivers/net/dsa/b53/b53_common.c
-++++ b/drivers/net/dsa/b53/b53_common.c
-+@@ -2875,6 +2875,34 @@ static bool b53_can_enable_brcm_tags(struct dsa_switch *ds, int port,
-+ 	return ret;
-+ }
-+ 
-++/* Is switch port @port a CPU port in the device tree? DSA asks for the
-++ * tag protocol while it parses the ports in order, so the port types of
-++ * the later ports are not known yet.
-++ */
-++static bool b53_of_cpu_port(struct dsa_switch *ds, int port)
-++{
-++	struct device_node *ports, *np;
-++	bool cpu = false;
-++	u32 reg;
-++
-++	ports = of_get_child_by_name(ds->dev->of_node, "ports");
-++	if (!ports)
-++		ports = of_get_child_by_name(ds->dev->of_node, "ethernet-ports");
-++	if (!ports)
-++		return false;
-++
-++	for_each_available_child_of_node(ports, np) {
-++		if (of_property_read_u32(np, "reg", &reg) || reg != port)
-++			continue;
-++		cpu = of_property_present(np, "ethernet");
-++		of_node_put(np);
-++		break;
-++	}
-++	of_node_put(ports);
-++
-++	return cpu;
-++}
-++
-+ enum dsa_tag_protocol b53_get_tag_protocol(struct dsa_switch *ds, int port,
-+ 					   enum dsa_tag_protocol mprot)
-+ {
-+@@ -2904,6 +2932,19 @@ enum dsa_tag_protocol b53_get_tag_protocol(struct dsa_switch *ds, int port,
-+ 		goto out;
-+ 	}
-+ 
-++	/* A Northstar switch with a flow accelerator in front of port 8
-++	 * takes the same tag, when port 8 is a CPU port and port 5 is one
-++	 * too, for the frames that the accelerator must not handle (see
-++	 * b53_fa_trap_active()). The accelerator's driver puts it in the
-++	 * path for this tag. Without the accelerator, or without both CPU
-++	 * ports, keep the regular tag.
-++	 */
-++	if (b53_has_flow_accelerator(dev) && b53_of_cpu_port(ds, 8) &&
-++	    b53_of_cpu_port(ds, 5)) {
-++		dev->tag_protocol = DSA_TAG_PROTO_BRCM_PREPEND;
-++		goto out;
-++	}
-++
-+ 	dev->tag_protocol = DSA_TAG_PROTO_BRCM;
-+ out:
-+ 	return dev->tag_protocol;
-+-- 
-+2.43.0
-+
 diff --git a/target/linux/bcm53xx/patches-6.18/750-net-bgmac-offload-IPv4-TCP-only-while-the-FIN-RST-trap-is-active.patch b/target/linux/bcm53xx/patches-6.18/750-net-bgmac-offload-IPv4-TCP-only-while-the-FIN-RST-trap-is-active.patch
 new file mode 100644
 index 0000000000..d6996e8f6c
@@ -4386,7 +5453,7 @@ index 0000000000..d6996e8f6c
 + 	}
 diff --git a/target/linux/bcm53xx/patches-6.18/751-net-bgmac-tag-flow-accelerator-output-for-VLAN-filtering-bridge-ports.patch b/target/linux/bcm53xx/patches-6.18/751-net-bgmac-tag-flow-accelerator-output-for-VLAN-filtering-bridge-ports.patch
 new file mode 100644
-index 0000000000..c6d57aa48a
+index 0000000000..2f659290bc
 --- /dev/null
 +++ b/target/linux/bcm53xx/patches-6.18/751-net-bgmac-tag-flow-accelerator-output-for-VLAN-filtering-bridge-ports.patch
 @@ -0,0 +1,253 @@
@@ -4471,7 +5538,7 @@ index 0000000000..c6d57aa48a
 +
 +--- a/drivers/net/dsa/b53/b53_common.c
 ++++ b/drivers/net/dsa/b53/b53_common.c
-+@@ -3190,6 +3190,47 @@ int b53_fa_vlan(struct dsa_switch *ds, i
++@@ -3280,6 +3280,47 @@ int b53_fa_vlan(struct dsa_switch *ds, i
 + }
 + EXPORT_SYMBOL(b53_fa_vlan);
 + 
@@ -4645,7 +5712,7 @@ index 0000000000..c6d57aa48a
 + #endif /* _LINUX_DSA_B53_H */
 diff --git a/target/linux/bcm53xx/patches-6.18/752-net-bgmac-name-a-standalone-port-in-the-flow-accelerator-entry.patch b/target/linux/bcm53xx/patches-6.18/752-net-bgmac-name-a-standalone-port-in-the-flow-accelerator-entry.patch
 new file mode 100644
-index 0000000000..45ca99d37d
+index 0000000000..72245043c2
 --- /dev/null
 +++ b/target/linux/bcm53xx/patches-6.18/752-net-bgmac-name-a-standalone-port-in-the-flow-accelerator-entry.patch
 @@ -0,0 +1,331 @@
@@ -4720,7 +5787,7 @@ index 0000000000..45ca99d37d
 +
 +--- a/drivers/net/dsa/b53/b53_common.c
 ++++ b/drivers/net/dsa/b53/b53_common.c
-+@@ -3231,6 +3231,23 @@ bool b53_fa_vlan_ok(struct dsa_switch *d
++@@ -3321,6 +3321,23 @@ bool b53_fa_vlan_ok(struct dsa_switch *d
 + }
 + EXPORT_SYMBOL(b53_fa_vlan_ok);
 + 
@@ -5251,7 +6318,7 @@ index 0000000000..ed33c5dbfc
 + 
 diff --git a/target/linux/bcm53xx/patches-6.18/755-net-dsa-b53-drop-the-flow-accelerator-s-VLAN-members.patch b/target/linux/bcm53xx/patches-6.18/755-net-dsa-b53-drop-the-flow-accelerator-s-VLAN-members.patch
 new file mode 100644
-index 0000000000..c215f9fd09
+index 0000000000..a11bf9ce86
 --- /dev/null
 +++ b/target/linux/bcm53xx/patches-6.18/755-net-dsa-b53-drop-the-flow-accelerator-s-VLAN-members.patch
 @@ -0,0 +1,174 @@
@@ -5329,7 +6396,7 @@ index 0000000000..c215f9fd09
 + }
 + 
 + static void b53_set_vlan_entry(struct b53_device *dev, u16 vid,
-+@@ -1265,7 +1262,7 @@ int b53_configure_vlan(struct dsa_switch
++@@ -1345,7 +1342,7 @@ int b53_configure_vlan(struct dsa_switch
 + 		for (vid = def_vid + 1; vid < dev->num_vlans; vid++) {
 + 			v = &dev->vlans[vid];
 + 
@@ -5338,7 +6405,7 @@ index 0000000000..c215f9fd09
 + 				continue;
 + 
 + 			b53_set_vlan_entry(dev, vid, v);
-+@@ -1278,13 +1275,6 @@ int b53_configure_vlan(struct dsa_switch
++@@ -1358,13 +1355,6 @@ int b53_configure_vlan(struct dsa_switch
 + 					    B53_VLAN_PORT_DEF_TAG(i),
 + 					    dev->ports[i].pvid);
 + 		}
@@ -5352,7 +6419,7 @@ index 0000000000..c215f9fd09
 + 	}
 + 
 + 	return 0;
-+@@ -3153,43 +3143,6 @@ bool b53_fa_trap_active(struct dsa_switc
++@@ -3243,43 +3233,6 @@ bool b53_fa_trap_active(struct dsa_switc
 + }
 + EXPORT_SYMBOL(b53_fa_trap_active);
 + 
@@ -5534,7 +6601,7 @@ index 0000000000..84f51c7634
 + 			return -ENOMEM;
 diff --git a/target/linux/bcm53xx/patches-6.18/757-net-dsa-b53-clear-the-flow-accelerator-trap-ports-before-the-rules.patch b/target/linux/bcm53xx/patches-6.18/757-net-dsa-b53-clear-the-flow-accelerator-trap-ports-before-the-rules.patch
 new file mode 100644
-index 0000000000..1e5e493f9c
+index 0000000000..154cc10d32
 --- /dev/null
 +++ b/target/linux/bcm53xx/patches-6.18/757-net-dsa-b53-clear-the-flow-accelerator-trap-ports-before-the-rules.patch
 @@ -0,0 +1,52 @@
@@ -5569,7 +6636,7 @@ index 0000000000..1e5e493f9c
 +
 +--- a/drivers/net/dsa/b53/b53_common.c
 ++++ b/drivers/net/dsa/b53/b53_common.c
-+@@ -744,10 +744,10 @@ static void b53_fa_trap_clear(struct b53
++@@ -783,10 +783,10 @@ static void b53_fa_trap_clear(struct b53
 + 	static const u32 zero[B53_CFP_NUM_KEY_REGS];
 + 	int i;
 + 
@@ -5581,7 +6648,7 @@ index 0000000000..1e5e493f9c
 + }
 + 
 + /* The flow accelerator in front of port 8 forwards the frames of the
-+@@ -803,7 +803,7 @@ static void b53_fa_trap_update(struct b5
++@@ -842,7 +842,7 @@ static void b53_fa_trap_update(struct b5
 + 
 + 	b53_write8(dev, B53_CFP_PAGE, B53_CFP_CTRL, src);
 + 	dev->fa_trap_port = trap;
@@ -5592,10 +6659,10 @@ index 0000000000..1e5e493f9c
 + 
 diff --git a/target/linux/bcm53xx/patches-6.18/758-net-bgmac-stop-the-flow-accelerator-when-bgmac_open-fails.patch b/target/linux/bcm53xx/patches-6.18/758-net-bgmac-stop-the-flow-accelerator-when-bgmac_open-fails.patch
 new file mode 100644
-index 0000000000..86213340d2
+index 0000000000..077618a2ab
 --- /dev/null
 +++ b/target/linux/bcm53xx/patches-6.18/758-net-bgmac-stop-the-flow-accelerator-when-bgmac_open-fails.patch
-@@ -0,0 +1,59 @@
+@@ -0,0 +1,58 @@
 +From 7abe0578e07736b0021a338afc867465bcae95bd Mon Sep 17 00:00:00 2001
 +From: Semih Baskan <strst.gs@gmail.com>
 +Date: Sat, 21 Nov 2026 14:57:48 +0000
@@ -5625,16 +6692,15 @@ index 0000000000..86213340d2
 +
 +--- a/drivers/net/ethernet/broadcom/bgmac.c
 ++++ b/drivers/net/ethernet/broadcom/bgmac.c
-+@@ -1187,7 +1187,7 @@ static int bgmac_open(struct net_device
++@@ -1187,14 +1187,14 @@ static int bgmac_open(struct net_device
 + 
 + 	err = bgmac_dma_init(bgmac);
 + 	if (err)
 +-		return err;
 ++		goto err_fa_stop;
 + 
-+ 	/* Specs say about reclaiming rings here, but we do that in DMA init */
-+ 	bgmac_chip_init(bgmac);
-+@@ -1197,7 +1197,7 @@ static int bgmac_open(struct net_device
++ 	err = request_irq(bgmac->irq, bgmac_interrupt, IRQF_SHARED,
++ 			  net_dev->name, net_dev);
 + 	if (err < 0) {
 + 		dev_err(bgmac->dev, "IRQ request error: %d!\n", err);
 + 		bgmac_dma_cleanup(bgmac);
@@ -5657,7 +6723,7 @@ index 0000000000..86213340d2
 + static int bgmac_stop(struct net_device *net_dev)
 diff --git a/target/linux/bcm53xx/patches-6.18/759-net-dsa-b53-rewrite-the-flow-accelerator-traps-in-place.patch b/target/linux/bcm53xx/patches-6.18/759-net-dsa-b53-rewrite-the-flow-accelerator-traps-in-place.patch
 new file mode 100644
-index 0000000000..8702c17690
+index 0000000000..36ac62f195
 --- /dev/null
 +++ b/target/linux/bcm53xx/patches-6.18/759-net-dsa-b53-rewrite-the-flow-accelerator-traps-in-place.patch
 @@ -0,0 +1,57 @@
@@ -5703,7 +6769,7 @@ index 0000000000..8702c17690
 +
 +--- a/drivers/net/dsa/b53/b53_common.c
 ++++ b/drivers/net/dsa/b53/b53_common.c
-+@@ -788,12 +788,13 @@ static void b53_fa_trap_update(struct b5
++@@ -827,12 +827,13 @@ static void b53_fa_trap_update(struct b5
 + 	if (src == dev->fa_trap_ports && (!src || trap == dev->fa_trap_port))
 + 		return;
 + 
@@ -5718,104 +6784,3 @@ index 0000000000..8702c17690
 + 	err = b53_fa_trap_set(dev, src, b53_cfp_port_bit(trap));
 + 	if (err) {
 + 		dev_err(ds->dev, "flow accelerator traps: %pe\n", ERR_PTR(err));
-diff --git a/target/linux/bcm53xx/patches-6.18/760-net-bgmac-keep-flows-over-PPPoE-out-of-the-flow-accelerator.patch b/target/linux/bcm53xx/patches-6.18/760-net-bgmac-keep-flows-over-PPPoE-out-of-the-flow-accelerator.patch
-new file mode 100644
-index 0000000000..192de8952f
---- /dev/null
-+++ b/target/linux/bcm53xx/patches-6.18/760-net-bgmac-keep-flows-over-PPPoE-out-of-the-flow-accelerator.patch
-@@ -0,0 +1,95 @@
-+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
-+From: Erik Conijn <egc112@msn.com>
-+Date: Sat, 21 Nov 2026 09:03:44 +0100
-+Subject: [PATCH] net: bgmac: keep flows over PPPoE out of the flow accelerator
-+
-+The flow accelerator cannot add or remove a PPPoE header. A flow towards
-+a PPPoE uplink comes with a PPPOE_PUSH action, which the driver refuses.
-+The flow rule of the other direction, from the uplink, describes the
-+frames as plain IP from the Ethernet port below the PPPoE device: the
-+flowtable only puts VLAN tags into the match, not a PPPoE session. So
-+the driver took that direction, and its entry never saw a hit, while
-+conntrack showed the connection as [HW_OFFLOAD] although it ran in the
-+software flowtable.
-+
-+Look at the flowtable's tuple, which nf_flow_table passes as the cookie
-+of TC_SETUP_FT, and refuse a direction that comes through a PPPoE
-+session, so both directions stay in software.
-+
-+R6400 v2, WAN over PPPoE to a PPPoE server on the WAN side, iperf3 TCP
-+from a LAN host, upload / download in Mbit/s, with hardware offloading
-+on:
-+
-+                          before          after
-+  throughput              511 / 549       513 / 547
-+  FA entries per flow     1, no hits      none
-+  conntrack               [HW_OFFLOAD]    [OFFLOAD]
-+
-+Software offloading alone gives the same 507 / 548. A flow over the
-+plain Ethernet WAN on the same router still goes to the accelerator,
-+at 925 Mbit/s.
-+
-+Assisted-by: Claude:claude-opus-5-5
-+Signed-off-by: Erik Conijn <egc112@msn.com>
-+---
-+ drivers/net/ethernet/broadcom/bgmac-fa.c | 27 +++++++++++++++++++++++++++
-+ 1 file changed, 27 insertions(+)
-+
-+diff --git a/drivers/net/ethernet/broadcom/bgmac-fa.c b/drivers/net/ethernet/broadcom/bgmac-fa.c
-+--- a/drivers/net/ethernet/broadcom/bgmac-fa.c
-++++ b/drivers/net/ethernet/broadcom/bgmac-fa.c
-+@@ -48,6 +48,9 @@
-+  * them were measured on a BCM4708. The FA has no hop limit check, it
-+  * forwards hop limit 1 as 0. So it only gets IPv6 flows while the switch
-+  * traps those frames in front of it (see b53_fa_trap_active()).
-++ *
-++ * It cannot add or remove a PPPoE header, so flows over a PPPoE uplink
-++ * stay in software, in both directions (see bgmac_fa_from_pppoe()).
-+  */
-+ 
-+ #include <linux/bcma/bcma.h>
-+@@ -64,6 +67,7 @@
-+ #include <linux/slab.h>
-+ #include <net/dsa.h>
-+ #include <net/flow_offload.h>
-++#include <net/netfilter/nf_flow_table.h>
-+ #include <net/pkt_cls.h>
-+ 
-+ #include "bgmac.h"
-+@@ -994,6 +998,27 @@
-+ 	return true;
-+ }
-+ 
-++/*
-++ * The flow rule describes a VLAN tag that the frames of a flow come with,
-++ * but not a PPPoE session: a flow from a PPPoE uplink reaches this driver
-++ * as plain IP from the Ethernet port below it, and its entry would never
-++ * see a hit, as the frames carry the PPPoE header in front of the IP
-++ * header. Only the flowtable's tuple, which nf_flow_table passes as the
-++ * cookie of TC_SETUP_FT, records that session. The other direction comes
-++ * with a PPPOE_PUSH action, which bgmac_fa_parse() refuses.
-++ */
-++static bool bgmac_fa_from_pppoe(const struct flow_cls_offload *f)
-++{
-++	const struct flow_offload_tuple *t = (const void *)f->cookie;
-++	int i;
-++
-++	for (i = 0; i < t->encap_num; i++)
-++		if (t->encap[i].proto == htons(ETH_P_PPP_SES))
-++			return true;
-++
-++	return false;
-++}
-++
-+ static int bgmac_fa_flow_add(struct bgmac *bgmac, struct flow_cls_offload *f,
-+ 			     struct bgmac_fa_block *block)
-+ {
-+@@ -1016,6 +1041,8 @@
-+ 
-+ 	if (!tc_can_offload(bgmac->net_dev))
-+ 		return -EOPNOTSUPP;
-++	if (bgmac_fa_from_pppoe(f))
-++		return -EOPNOTSUPP;
-+ 
-+ 	err = bgmac_fa_parse(bgmac, f, &r);
-+ 	if (err)

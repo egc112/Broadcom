@@ -1,0 +1,530 @@
+diff --git a/target/linux/bcm53xx/patches-6.18/377-ARM-dts-BCM5301X-add-port-5-back-for-the-flow-accelerator.patch b/target/linux/bcm53xx/patches-6.18/377-ARM-dts-BCM5301X-add-port-5-back-for-the-flow-accelerator.patch
+new file mode 100644
+index 0000000000..171c5e60e0
+--- /dev/null
++++ b/target/linux/bcm53xx/patches-6.18/377-ARM-dts-BCM5301X-add-port-5-back-for-the-flow-accelerator.patch
+@@ -0,0 +1,434 @@
++From: Erik Conijn <egc112@msn.com>
++Subject: [PATCH] ARM: dts: BCM5301X: add port 5 back for the flow accelerator
++
++Patch 376 makes port 8 (gmac2) the only CPU port and disables port 5
++(gmac0). Behind the flow accelerator in front of port 8, b53 needs
++port 5 as a second CPU port: it redirects the frames that the
++accelerator must not handle there (TTL or hop limit 1, TCP FIN and
++RST). With both CPU ports, b53 chooses the accelerator's prepended
++tag on a switch that has the accelerator, and the regular tag on one
++that has not, so the change is safe on every Northstar board. User
++ports keep port 8 as their CPU port.
++
++Enable port 5 again, with a fixed link, on the boards where 376 or the
++board itself disabled it. Not on the boards where port 5 has another
++use (RT-AC87U, RT-AC88U) or where gmac0 is off (Meraki MR26, MR32), and
++not on the boards that keep port 5 as their only CPU port. The ASUS
++RT-N18U gets it from 379.
++
++Assisted-by: Claude:claude-opus-5-5
++Signed-off-by: Erik Conijn <egc112@msn.com>
++---
++--- a/arch/arm/boot/dts/broadcom/bcm4708-asus-rt-ac56u.dts
+++++ b/arch/arm/boot/dts/broadcom/bcm4708-asus-rt-ac56u.dts
++@@ -149,7 +149,10 @@
++ 		};
++ 
++ 		port@5 {
++-			status = "disabled";
+++			fixed-link {
+++				speed = <1000>;
+++				full-duplex;
+++			};
++ 		};
++ 
++ 		port@7 {
++--- a/arch/arm/boot/dts/broadcom/bcm4708-asus-rt-ac68u.dts
+++++ b/arch/arm/boot/dts/broadcom/bcm4708-asus-rt-ac68u.dts
++@@ -140,7 +140,10 @@
++ 		};
++ 
++ 		port@5 {
++-			status = "disabled";
+++			fixed-link {
+++				speed = <1000>;
+++				full-duplex;
+++			};
++ 		};
++ 
++ 		port@7 {
++--- a/arch/arm/boot/dts/broadcom/bcm4708-buffalo-wzr-1750dhp.dts
+++++ b/arch/arm/boot/dts/broadcom/bcm4708-buffalo-wzr-1750dhp.dts
++@@ -206,7 +206,10 @@
++ 		};
++ 
++ 		port@5 {
++-			status = "disabled";
+++			fixed-link {
+++				speed = <1000>;
+++				full-duplex;
+++			};
++ 		};
++ 
++ 		port@7 {
++--- a/arch/arm/boot/dts/broadcom/bcm4708-linksys-ea6300-v1.dts
+++++ b/arch/arm/boot/dts/broadcom/bcm4708-linksys-ea6300-v1.dts
++@@ -93,7 +93,10 @@
++ 		};
++ 
++ 		port@5 {
++-			status = "disabled";
+++			fixed-link {
+++				speed = <1000>;
+++				full-duplex;
+++			};
++ 		};
++ 
++ 		port@7 {
++--- a/arch/arm/boot/dts/broadcom/bcm4708-linksys-ea6500-v2.dts
+++++ b/arch/arm/boot/dts/broadcom/bcm4708-linksys-ea6500-v2.dts
++@@ -92,7 +92,10 @@
++ 		};
++ 
++ 		port@5 {
++-			status = "disabled";
+++			fixed-link {
+++				speed = <1000>;
+++				full-duplex;
+++			};
++ 		};
++ 
++ 		port@7 {
++--- a/arch/arm/boot/dts/broadcom/bcm4708-netgear-r6250.dts
+++++ b/arch/arm/boot/dts/broadcom/bcm4708-netgear-r6250.dts
++@@ -143,7 +143,10 @@
++ 		};
++ 
++ 		port@5 {
++-			status = "disabled";
+++			fixed-link {
+++				speed = <1000>;
+++				full-duplex;
+++			};
++ 		};
++ 
++ 		port@7 {
++--- a/arch/arm/boot/dts/broadcom/bcm4708-netgear-r6300-v2.dts
+++++ b/arch/arm/boot/dts/broadcom/bcm4708-netgear-r6300-v2.dts
++@@ -135,7 +135,10 @@
++ 		};
++ 
++ 		port@5 {
++-			status = "disabled";
+++			fixed-link {
+++				speed = <1000>;
+++				full-duplex;
+++			};
++ 		};
++ 
++ 		port@7 {
++--- a/arch/arm/boot/dts/broadcom/bcm4708-netgear-r6400-v1.dts
+++++ b/arch/arm/boot/dts/broadcom/bcm4708-netgear-r6400-v1.dts
++@@ -194,7 +194,10 @@
++ 		};
++ 
++ 		port@5 {
++-			status = "disabled";
+++			fixed-link {
+++				speed = <1000>;
+++				full-duplex;
+++			};
++ 		};
++ 
++ 		port@7 {
++--- a/arch/arm/boot/dts/broadcom/bcm4708-smartrg-sr400ac.dts
+++++ b/arch/arm/boot/dts/broadcom/bcm4708-smartrg-sr400ac.dts
++@@ -143,7 +143,10 @@
++ 		};
++ 
++ 		port@5 {
++-			status = "disabled";
+++			fixed-link {
+++				speed = <1000>;
+++				full-duplex;
+++			};
++ 		};
++ 
++ 		port@7 {
++--- a/arch/arm/boot/dts/broadcom/bcm47081-buffalo-wzr-600dhp2.dts
+++++ b/arch/arm/boot/dts/broadcom/bcm47081-buffalo-wzr-600dhp2.dts
++@@ -157,7 +157,10 @@
++ 		};
++ 
++ 		port@5 {
++-			status = "disabled";
+++			fixed-link {
+++				speed = <1000>;
+++				full-duplex;
+++			};
++ 		};
++ 
++ 		port@7 {
++--- a/arch/arm/boot/dts/broadcom/bcm47081-buffalo-wzr-900dhp.dts
+++++ b/arch/arm/boot/dts/broadcom/bcm47081-buffalo-wzr-900dhp.dts
++@@ -163,7 +163,10 @@
++ 		};
++ 
++ 		port@5 {
++-			status = "disabled";
+++			fixed-link {
+++				speed = <1000>;
+++				full-duplex;
+++			};
++ 		};
++ 
++ 		port@7 {
++--- a/arch/arm/boot/dts/broadcom/bcm47081-tplink-archer-c5-v2.dts
+++++ b/arch/arm/boot/dts/broadcom/bcm47081-tplink-archer-c5-v2.dts
++@@ -130,7 +130,10 @@
++ 		};
++ 
++ 		port@5 {
++-			status = "disabled";
+++			fixed-link {
+++				speed = <1000>;
+++				full-duplex;
+++			};
++ 		};
++ 
++ 		port@7 {
++--- a/arch/arm/boot/dts/broadcom/bcm4709-asus-rt-ac3200.dts
+++++ b/arch/arm/boot/dts/broadcom/bcm4709-asus-rt-ac3200.dts
++@@ -149,7 +149,10 @@
++ 		};
++ 
++ 		port@5 {
++-			status = "disabled";
+++			fixed-link {
+++				speed = <1000>;
+++				full-duplex;
+++			};
++ 		};
++ 
++ 		port@7 {
++--- a/arch/arm/boot/dts/broadcom/bcm4709-buffalo-wxr-1900dhp.dts
+++++ b/arch/arm/boot/dts/broadcom/bcm4709-buffalo-wxr-1900dhp.dts
++@@ -178,7 +178,10 @@
++ 		};
++ 
++ 		port@5 {
++-			status = "disabled";
+++			fixed-link {
+++				speed = <1000>;
+++				full-duplex;
+++			};
++ 		};
++ 
++ 		port@7 {
++--- a/arch/arm/boot/dts/broadcom/bcm4709-linksys-ea9200.dts
+++++ b/arch/arm/boot/dts/broadcom/bcm4709-linksys-ea9200.dts
++@@ -214,7 +214,10 @@
++ 		};
++ 
++ 		port@5 {
++-			status = "disabled";
+++			fixed-link {
+++				speed = <1000>;
+++				full-duplex;
+++			};
++ 		};
++ 
++ 		port@7 {
++--- a/arch/arm/boot/dts/broadcom/bcm4709-netgear-r7000.dts
+++++ b/arch/arm/boot/dts/broadcom/bcm4709-netgear-r7000.dts
++@@ -153,7 +153,10 @@
++ 		};
++ 
++ 		port@5 {
++-			status = "disabled";
+++			fixed-link {
+++				speed = <1000>;
+++				full-duplex;
+++			};
++ 		};
++ 
++ 		port@7 {
++--- a/arch/arm/boot/dts/broadcom/bcm4709-netgear-r7900.dts
+++++ b/arch/arm/boot/dts/broadcom/bcm4709-netgear-r7900.dts
++@@ -76,7 +76,10 @@
++ 		};
++ 
++ 		port@5 {
++-			status = "disabled";
+++			fixed-link {
+++				speed = <1000>;
+++				full-duplex;
+++			};
++ 		};
++ 
++ 		port@7 {
++--- a/arch/arm/boot/dts/broadcom/bcm4709-netgear-r8000.dts
+++++ b/arch/arm/boot/dts/broadcom/bcm4709-netgear-r8000.dts
++@@ -224,8 +224,6 @@
++ 		};
++ 
++ 		port@5 {
++-			status = "disabled";
++-
++ 			fixed-link {
++ 				speed = <1000>;
++ 				full-duplex;
++--- a/arch/arm/boot/dts/broadcom/bcm4709-tplink-archer-c9-v1.dts
+++++ b/arch/arm/boot/dts/broadcom/bcm4709-tplink-archer-c9-v1.dts
++@@ -148,7 +148,10 @@
++ 		};
++ 
++ 		port@5 {
++-			status = "disabled";
+++			fixed-link {
+++				speed = <1000>;
+++				full-duplex;
+++			};
++ 		};
++ 
++ 		port@7 {
++--- a/arch/arm/boot/dts/broadcom/bcm47094-asus-rt-ac3100.dts
+++++ b/arch/arm/boot/dts/broadcom/bcm47094-asus-rt-ac3100.dts
++@@ -36,7 +36,10 @@
++ &srab {
++ 	ports {
++ 		port@5 {
++-			status = "disabled";
+++			fixed-link {
+++				speed = <1000>;
+++				full-duplex;
+++			};
++ 		};
++ 	};
++ };
++--- a/arch/arm/boot/dts/broadcom/bcm47094-asus-rt-ac5300.dts
+++++ b/arch/arm/boot/dts/broadcom/bcm47094-asus-rt-ac5300.dts
++@@ -155,7 +155,10 @@
++ 		};
++ 
++ 		port@5 {
++-			status = "disabled";
+++			fixed-link {
+++				speed = <1000>;
+++				full-duplex;
+++			};
++ 		};
++ 
++ 		port@7 {
++--- a/arch/arm/boot/dts/broadcom/bcm47094-dlink-dir-885l.dts
+++++ b/arch/arm/boot/dts/broadcom/bcm47094-dlink-dir-885l.dts
++@@ -170,7 +170,10 @@
++ 		};
++ 
++ 		port@5 {
++-			status = "disabled";
+++			fixed-link {
+++				speed = <1000>;
+++				full-duplex;
+++			};
++ 		};
++ 
++ 		port@7 {
++--- a/arch/arm/boot/dts/broadcom/bcm47094-dlink-dir-890l.dts
+++++ b/arch/arm/boot/dts/broadcom/bcm47094-dlink-dir-890l.dts
++@@ -211,7 +211,10 @@
++ 		};
++ 
++ 		port@5 {
++-			status = "disabled";
+++			fixed-link {
+++				speed = <1000>;
+++				full-duplex;
+++			};
++ 		};
++ 
++ 		port@7 {
++--- a/arch/arm/boot/dts/broadcom/bcm47094-linksys-panamera.dts
+++++ b/arch/arm/boot/dts/broadcom/bcm47094-linksys-panamera.dts
++@@ -259,7 +259,6 @@
++ 
++ 		port@5 {
++ 			label = "cpu";
++-			status = "disabled";
++ 
++ 			fixed-link {
++ 				speed = <1000>;
++--- a/arch/arm/boot/dts/broadcom/bcm47094-luxul-abr-4500.dts
+++++ b/arch/arm/boot/dts/broadcom/bcm47094-luxul-abr-4500.dts
++@@ -119,7 +119,10 @@
++ 		};
++ 
++ 		port@5 {
++-			status = "disabled";
+++			fixed-link {
+++				speed = <1000>;
+++				full-duplex;
+++			};
++ 		};
++ 
++ 		port@7 {
++--- a/arch/arm/boot/dts/broadcom/bcm47094-luxul-xap-1610.dts
+++++ b/arch/arm/boot/dts/broadcom/bcm47094-luxul-xap-1610.dts
++@@ -103,7 +103,10 @@
++ 		};
++ 
++ 		port@5 {
++-			status = "disabled";
+++			fixed-link {
+++				speed = <1000>;
+++				full-duplex;
+++			};
++ 		};
++ 
++ 		port@7 {
++--- a/arch/arm/boot/dts/broadcom/bcm47094-luxul-xbr-4500.dts
+++++ b/arch/arm/boot/dts/broadcom/bcm47094-luxul-xbr-4500.dts
++@@ -119,7 +119,10 @@
++ 		};
++ 
++ 		port@5 {
++-			status = "disabled";
+++			fixed-link {
+++				speed = <1000>;
+++				full-duplex;
+++			};
++ 		};
++ 
++ 		port@7 {
++--- a/arch/arm/boot/dts/broadcom/bcm47094-luxul-xwr-3150-v1.dts
+++++ b/arch/arm/boot/dts/broadcom/bcm47094-luxul-xwr-3150-v1.dts
++@@ -150,7 +150,10 @@
++ 		};
++ 
++ 		port@5 {
++-			status = "disabled";
+++			fixed-link {
+++				speed = <1000>;
+++				full-duplex;
+++			};
++ 		};
++ 
++ 		port@7 {
++--- a/arch/arm/boot/dts/broadcom/bcm47094-netgear-r8500.dts
+++++ b/arch/arm/boot/dts/broadcom/bcm47094-netgear-r8500.dts
++@@ -120,7 +120,10 @@
++ 		};
++ 
++ 		port@5 {
++-			status = "disabled";
+++			fixed-link {
+++				speed = <1000>;
+++				full-duplex;
+++			};
++ 		};
++ 
++ 		port@7 {
++--- a/arch/arm/boot/dts/broadcom/bcm47094-phicomm-k3.dts
+++++ b/arch/arm/boot/dts/broadcom/bcm47094-phicomm-k3.dts
++@@ -76,7 +76,10 @@
++ 		};
++ 
++ 		port@5 {
++-			status = "disabled";
+++			fixed-link {
+++				speed = <1000>;
+++				full-duplex;
+++			};
++ 		};
++ 
++ 		port@7 {
+diff --git a/target/linux/bcm53xx/patches-6.18/734-net-dsa-b53-default-to-the-prepended-tag-behind-the-accelerator.patch b/target/linux/bcm53xx/patches-6.18/734-net-dsa-b53-default-to-the-prepended-tag-behind-the-accelerator.patch
+new file mode 100644
+index 0000000000..c1d92e16ff
+--- /dev/null
++++ b/target/linux/bcm53xx/patches-6.18/734-net-dsa-b53-default-to-the-prepended-tag-behind-the-accelerator.patch
+@@ -0,0 +1,84 @@
++From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
++From: Erik Conijn <egc112@msn.com>
++Date: Sat, 21 Nov 2026 13:30:42 +0100
++Subject: [PATCH] net: dsa: b53: default to the prepended tag behind the
++ accelerator
++
++So far a board used the flow accelerator only when its device tree
++selected the prepended tag. But a device tree that selects it on a
++switch without the accelerator (Broadcom's et driver counts it present
++from switch revision 3 on and on all BCM47094: FA_CAPABLE()) gets the
++whole switch tree rejected: b53 refuses that tag there, and DSA gives
++up on the tree. That makes a common device tree setting for all
++Northstar boards unsafe.
++
++Choose the tag in b53 instead. Report the prepended tag when the
++switch has the accelerator, port 8 is a CPU port, and port 5 is one
++too, to take the frames that the accelerator must not handle. In every
++other case keep the regular tag, as before. DSA asks for the tag while
++it parses the ports in order, so look the CPU ports up in the device
++tree. A board can still select the regular tag with dsa-tag-protocol.
++
++Assisted-by: Claude:claude-opus-5-5
++Signed-off-by: Erik Conijn <egc112@msn.com>
++---
++ drivers/net/dsa/b53/b53_common.c | 41 ++++++++++++++++++++++++++++++++
++ 1 file changed, 41 insertions(+)
++
++--- a/drivers/net/dsa/b53/b53_common.c
+++++ b/drivers/net/dsa/b53/b53_common.c
++@@ -2951,6 +2951,34 @@ static bool b53_can_enable_brcm_tags(str
++ 	return ret;
++ }
++ 
+++/* Is switch port @port a CPU port in the device tree? DSA asks for the
+++ * tag protocol while it parses the ports in order, so the port types of
+++ * the later ports are not known yet.
+++ */
+++static bool b53_of_cpu_port(struct dsa_switch *ds, int port)
+++{
+++	struct device_node *ports, *np;
+++	bool cpu = false;
+++	u32 reg;
+++
+++	ports = of_get_child_by_name(ds->dev->of_node, "ports");
+++	if (!ports)
+++		ports = of_get_child_by_name(ds->dev->of_node, "ethernet-ports");
+++	if (!ports)
+++		return false;
+++
+++	for_each_available_child_of_node(ports, np) {
+++		if (of_property_read_u32(np, "reg", &reg) || reg != port)
+++			continue;
+++		cpu = of_property_present(np, "ethernet");
+++		of_node_put(np);
+++		break;
+++	}
+++	of_node_put(ports);
+++
+++	return cpu;
+++}
+++
++ enum dsa_tag_protocol b53_get_tag_protocol(struct dsa_switch *ds, int port,
++ 					   enum dsa_tag_protocol mprot)
++ {
++@@ -2979,6 +3007,19 @@ enum dsa_tag_protocol b53_get_tag_protoc
++ 		dev->tag_protocol = DSA_TAG_PROTO_BRCM_PREPEND;
++ 		goto out;
++ 	}
+++
+++	/* A Northstar switch with a flow accelerator in front of port 8
+++	 * takes the same tag, when port 8 is a CPU port and port 5 is one
+++	 * too, for the frames that the accelerator must not handle (see
+++	 * b53_fa_trap_active()). The accelerator's driver puts it in the
+++	 * path for this tag. Without the accelerator, or without both CPU
+++	 * ports, keep the regular tag.
+++	 */
+++	if (b53_has_flow_accelerator(dev) && b53_of_cpu_port(ds, 8) &&
+++	    b53_of_cpu_port(ds, 5)) {
+++		dev->tag_protocol = DSA_TAG_PROTO_BRCM_PREPEND;
+++		goto out;
+++	}
++ 
++ 	dev->tag_protocol = DSA_TAG_PROTO_BRCM;
++ out:

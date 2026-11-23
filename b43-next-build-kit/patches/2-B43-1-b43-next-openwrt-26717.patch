@@ -350,18 +350,9 @@ index 0000000000..6e9f4e8aab
 +	return 0
 +}
 diff --git a/package/kernel/mac80211/Makefile b/package/kernel/mac80211/Makefile
-index eb01ab45df..76538e5dd4 100644
+index 27d1dd7d26..f3aa6d7454 100644
 --- a/package/kernel/mac80211/Makefile
 +++ b/package/kernel/mac80211/Makefile
-@@ -12,7 +12,7 @@ PKG_NAME:=mac80211
- 
- PKG_SOURCE_VERSION:=7.2
- PKG_VERSION:=$(subst -,_,$(PKG_SOURCE_VERSION))
--PKG_RELEASE:=16
-+PKG_RELEASE:=17
- PKG_LICENSE:=GPL-2.0-only
- PKG_LICENSE_FILES:=COPYING
- 
 @@ -397,3 +397,5 @@ endef
  $(eval $(foreach drv,$(PKG_DRIVERS),$(call KernelPackage,$(drv))))
  $(eval $(call KernelPackage,cfg80211))
@@ -369,10 +360,10 @@ index eb01ab45df..76538e5dd4 100644
 +$(eval $(call BuildPackage,b43-firmware))
 +$(eval $(call BuildPackage,b43-firmware-784))
 diff --git a/package/kernel/mac80211/broadcom.mk b/package/kernel/mac80211/broadcom.mk
-index b48256c20b..b99992d338 100644
+index da9616cbfb..7642836f49 100644
 --- a/package/kernel/mac80211/broadcom.mk
 +++ b/package/kernel/mac80211/broadcom.mk
-@@ -85,6 +85,20 @@ define Download/b43
+@@ -84,6 +84,20 @@ define Download/b43
  endef
  $(eval $(call Download,b43))
  
@@ -393,7 +384,7 @@ index b48256c20b..b99992d338 100644
  define KernelPackage/b43
    $(call KernelPackage/mac80211/Default)
    TITLE:=Broadcom 43xx wireless support
-@@ -93,7 +107,7 @@ define KernelPackage/b43
+@@ -92,7 +106,7 @@ define KernelPackage/b43
    	CONFIG_HW_RANDOM=y
    # Depend on PCI_SUPPORT to make sure we can select kmod-bcma or kmod-ssb
    DEPENDS += \
@@ -402,7 +393,7 @@ index b48256c20b..b99992d338 100644
  	$(if $(CONFIG_PACKAGE_B43_USE_SSB),+kmod-ssb) \
  	$(if $(CONFIG_PACKAGE_B43_USE_BCMA),+kmod-bcma)
    FILES:=$(PKG_BUILD_DIR)/drivers/net/wireless/broadcom/b43/b43.ko
-@@ -101,23 +115,35 @@ define KernelPackage/b43
+@@ -100,23 +114,35 @@ define KernelPackage/b43
    MENU:=1
  endef
  
@@ -452,7 +443,7 @@ index b48256c20b..b99992d338 100644
  
  	choice
  		prompt "b43 firmware version"
-@@ -220,6 +246,27 @@ config PACKAGE_B43_USE_BCMA
+@@ -219,6 +245,27 @@ config PACKAGE_B43_USE_BCMA
  		  Example (keep files for G-PHY and N-PHY):
  		    G,N
  
@@ -480,7 +471,7 @@ index b48256c20b..b99992d338 100644
  	choice
  		prompt "Supported buses"
  		default PACKAGE_B43_BUSES_BCMA_AND_SSB
-@@ -449,7 +496,7 @@ define KernelPackage/brcmfmac/config
+@@ -402,7 +449,7 @@ define KernelPackage/brcmfmac/config
  endef
  
  
@@ -489,10 +480,11 @@ index b48256c20b..b99992d338 100644
  	rm -rf $(1)/lib/firmware/
  ifeq ($(CONFIG_B43_OPENFIRMWARE),y)
  	tar xzf "$(DL_DIR)/$(PKG_B43_FWV4_SOURCE)" -C "$(PKG_BUILD_DIR)"
-@@ -471,6 +518,14 @@ ifneq ($(CONFIG_B43_FW_SQUASH),)
+@@ -423,3 +470,11 @@ ifneq ($(CONFIG_B43_FW_SQUASH),)
+ 	b43-fwsquash.py "$(CONFIG_B43_FW_SQUASH_PHYTYPES)" "$(CONFIG_B43_FW_SQUASH_COREREVS)" "$(1)/lib/firmware/b43"
  endif
  endef
- 
++
 +define Package/b43-firmware-784/install
 +	rm -rf $(PKG_BUILD_DIR)/b43-firmware-784
 +	mkdir -p $(PKG_BUILD_DIR)/b43-firmware-784
@@ -500,20 +492,16 @@ index b48256c20b..b99992d338 100644
 +	$(INSTALL_DIR) $(1)/lib/firmware/
 +	b43-fwcutter -w $(1)/lib/firmware/ $(PKG_BUILD_DIR)/b43-firmware-784/$(PKG_B43_FW784_OBJECT)
 +endef
-+
- define KernelPackage/brcmsmac/install
- 	$(INSTALL_DIR) $(1)/lib/firmware/brcm
- ifeq ($(CONFIG_BRCMSMAC_USE_FW_FROM_WL),y)
 diff --git a/tools/Makefile b/tools/Makefile
-index ff4d38ed02..4b18f20ccf 100644
+index e2b7194676..0500060419 100644
 --- a/tools/Makefile
 +++ b/tools/Makefile
 @@ -17,7 +17,7 @@ ifeq ($(CONFIG_EXTERNAL_TOOLCHAIN),)
      BUILD_ISL = y
    endif
  endif
--ifneq ($(CONFIG_SDK)$(CONFIG_PACKAGE_kmod-b43)$(CONFIG_BRCMSMAC_USE_FW_FROM_WL),)
-+ifneq ($(CONFIG_SDK)$(CONFIG_PACKAGE_kmod-b43)$(CONFIG_PACKAGE_b43-firmware)$(CONFIG_PACKAGE_b43-firmware-784)$(CONFIG_BRCMSMAC_USE_FW_FROM_WL),)
+-ifneq ($(CONFIG_SDK)$(CONFIG_PACKAGE_kmod-b43),)
++ifneq ($(CONFIG_SDK)$(CONFIG_PACKAGE_kmod-b43)$(CONFIG_PACKAGE_b43-firmware)$(CONFIG_PACKAGE_b43-firmware-784),)
    BUILD_B43_TOOLS = y
  endif
  ifneq ($(CONFIG_SDK)$(CONFIG_TARGET_INITRAMFS_COMPRESSION_BZIP2),)

@@ -1,16 +1,15 @@
-# b43-next build kit: OpenWrt with b43-next for the Broadcom (bcm53xx) routers
+# b43-next kit: OpenWrt with b43-next for the Broadcom (bcm53xx) routers
 
-One kit for the **Linksys EA6900 v1** and the **Netgear R6400 v1 and v2**. It builds OpenWrt main with
-[b43-next](https://github.com/aleferri/b43-next) as the Wi-Fi driver. b43-next is b43 with its own copies of
-bcma and ssb, in one module that loads next to the kernel's. It drives the BCM4331 (HT-PHY, the 2.4 GHz radio
-of the R6400) and the BCM4360 (AC-PHY, both radios of the EA6900 and the 5 GHz radio of the R6400).
+For the **Netgear R6400 v1 and v2** and, with the [EA6900 board kit](../ea6900-board-kit/), the **Linksys EA6900
+v1**. It builds OpenWrt main with [b43-next](https://github.com/aleferri/b43-next) as the Wi-Fi driver. b43-next
+is b43 with its own copies of bcma and ssb, in one module that loads next to the kernel's. It drives the BCM4331
+(HT-PHY, the 2.4 GHz radio of the R6400) and the BCM4360 (AC-PHY, both radios of the EA6900 and the 5 GHz radio of
+the R6400).
 
-Test version, 2026-11-21. Since this version the kit holds only what b43-next needs:
-[openwrt/openwrt#26717](https://github.com/openwrt/openwrt/pull/26717) as it is, the EA6900 board and the device
-selection. The flow accelerator, the CPU port change, irqbalance and RPS for Wi-Fi (`Broadcom-4` to `Broadcom-6`
-until 2026-11-20) moved to the [bcm53xx performance kit](../bcm53xx-performance-kit/), for all bcm53xx boards. The
-two kits work alone and together, see [Both kits](#both-kits-in-one-tree). Earlier versions: the
-[kit of 2026-11-20](https://github.com/egc112/Broadcom/tree/a621936/b43-next-build-kit), the EA6900 kit
+Test version, 2026-11-23. Changes since 2026-11-22: the EA6900 board patch moved to a kit of its own, the EA6900's
+device selection is a separate patch (`2-B43-3-EA6900`, skipped without the board), and `2-B43-1` is fitted to
+OpenWrt main after brcmsmac was dropped from it (dd441bca35, 2026-11-23). Earlier versions: the
+[kit of 2026-11-22](https://github.com/egc112/Broadcom/tree/499c3ea/b43-next-build-kit), the EA6900 kit
 (b43-ac-wip, [last version](https://github.com/egc112/Broadcom/tree/d07f0a7/linksys-ea6900/build-kit)) and the
 R6400 patch series in [b43-80211n](../b43-80211n/).
 
@@ -18,28 +17,26 @@ R6400 patch series in [b43-80211n](../b43-80211n/).
 
 | File | What |
 |---|---|
-| `patches/B43-1-EA6900-board.patch` | EA6900 board support (dts, image, board.d, nvram), as submitted in [openwrt/openwrt#26316](https://github.com/openwrt/openwrt/pull/26316); the same file as in the performance kit |
-| `patches/B43-2-b43-next-openwrt-26717.patch` | [openwrt/openwrt#26717](https://github.com/openwrt/openwrt/pull/26717) at 6d8e2fc70f, unchanged: the `kmod-b43-next` package pinned to b43-next 625d906, aleferri's main of 2026-11-20, with its firmware 784.2 as a package of its own, `b43-firmware-784` (kmod-b43's `b43-firmware` keeps its own version choice); `tools/Makefile` builds b43-fwcutter for the firmware packages |
-| `patches/B43-3-b43-next-devices.patch` | the R6400 v1, v2, v2-otp and the EA6900 get `kmod-b43-next` and `wpad-openssl` instead of kmod-b43 and wpad-basic-mbedtls |
-| `diffconfig` | EA6900, R6400 v1, R6400 v2 in one multi-profile build; kmod-b43-next, LuCI, iperf3, iw-full |
+| `patches/2-B43-1-b43-next-openwrt-26717.patch` | [openwrt/openwrt#26717](https://github.com/openwrt/openwrt/pull/26717) at 6d8e2fc70f: the `kmod-b43-next` package pinned to b43-next 625d906, aleferri's main of 2026-11-20, with its firmware 784.2 as a package of its own, `b43-firmware-784` (kmod-b43's `b43-firmware` keeps its own version choice); `tools/Makefile` builds b43-fwcutter for the firmware packages. Fitted to current main, see [below](#how-this-kit-is-made-and-why) |
+| `patches/2-B43-2-b43-next-devices.patch` | the R6400 v1, v2 and v2-otp get `kmod-b43-next` and `wpad-openssl` instead of kmod-b43 and wpad-basic-mbedtls |
+| `patches/2-B43-3-EA6900.patch` | the same for the EA6900; needs the EA6900 board kit, `apply.sh` skips it without the board |
+| `diffconfig` | R6400 v1 and v2 in one multi-profile build; kmod-b43-next, LuCI, iperf3, iw-full (the EA6900 comes from the board kit's diffconfig) |
 | `apply.sh` | applies the patches to an OpenWrt tree and adds the diffconfig to its `.config` |
 
 ## Build
 
-Tested on OpenWrt main 6bd48701ef (2026-11-21). The R6400 itself is in OpenWrt main already.
+Tested on OpenWrt main f8145e6545 (2026-11-23). The R6400 itself is in OpenWrt main already.
 
     git clone https://git.openwrt.org/openwrt/openwrt.git && cd openwrt
-    git checkout 6bd48701ef            # optional: the tested commit; newer main should work too
+    /path/to/ea6900-board-kit/apply.sh .         # only for the EA6900, and always first
     /path/to/b43-next-build-kit/apply.sh .
+    /path/to/bcm53xx-performance-kit/apply.sh .  # optional: the flow accelerator
     ./scripts/feeds update -a && ./scripts/feeds install -a
     make defconfig && make -j$(nproc)
 
-**Use `apply.sh`, not `patch` by hand.** It also works from a flat copy of both kits in one folder, where it is
-called `B43-kit-apply.sh` or `Perf-kit-apply.sh` next to the `B43-*`/`Perf-*` patches and the `*-kit-diffconfig`.
-Both kits contain the same EA6900 board patch; applied twice by hand, its image hunk goes in a second time with
-fuzz, and the second `Device/linksys_ea6900` (without b43-next) wins. Its rejected hunks also leave `.rej` files in
-`base-files/etc/board.d/`, which end up in the image. If that happened: `git checkout` the touched files (or start
-from a clean tree) and use `apply.sh`.
+**By hand instead of `apply.sh`:** `patch -p1 < file` for each patch in name order, after the EA6900 board kit;
+without that kit, leave out `2-B43-3-EA6900.patch`. Then add the diffconfig lines to `.config`. With all kits
+copied into one folder, every `*.patch` in name order gives the same tree as the three `apply.sh` runs.
 
 **wpad and per-device packages.** The kit gives these devices `wpad-openssl` as a device package. Keep
 `CONFIG_TARGET_PER_DEVICE_ROOTFS` ("Use a per-device root filesystem that adds profile packages") on: in a
@@ -48,49 +45,43 @@ in the images. A device package is installed on top of your own selection, so tw
 stop the build with `unable to select packages ... conflicts`. To use another wpad, remove the kit's per device
 in menuconfig (Target Devices, the device's packages field): `-wpad-openssl wpad-basic-mbedtls`.
 
-Images: `bin/targets/bcm53xx/generic/`: `*linksys_ea6900-squashfs.trx`, `*netgear_r6400-v1-squashfs.chk`,
-`*netgear_r6400-v2-squashfs.chk`. Install the EA6900 as described in [linksys-ea6900](../linksys-ea6900/).
-At boot, `/etc/init.d/b43-next` hands the PCIe radios from the kernel's bcma to b43-next and moves their paths
-in `/etc/config/wireless` along.
+Images: `bin/targets/bcm53xx/generic/`: `*netgear_r6400-v1-squashfs.chk`, `*netgear_r6400-v2-squashfs.chk`,
+`*linksys_ea6900-squashfs.trx`. At boot, `/etc/init.d/b43-next` hands the PCIe radios from the kernel's bcma to
+b43-next and moves their paths in `/etc/config/wireless` along.
 
-When openwrt#26717 gets merged into OpenWrt, `B43-2` is no longer needed; the same goes for `B43-1` once
-openwrt#26316 is merged.
-
-## Both kits in one tree
-
-Apply both kits to the same tree, in either order, then build as above:
-
-    /path/to/b43-next-build-kit/apply.sh .
-    /path/to/bcm53xx-performance-kit/apply.sh .
-
-`apply.sh` writes the checksums of the patches it applied to `.kit-applied` in the tree and skips a patch that is
-there already: the EA6900 board patch is in both kits. The diffconfigs add up: all bcm53xx devices, and the
-EA6900 and the R6400 v1 and v2 with b43-next. Both orders give the same tree.
+When openwrt#26717 is merged into OpenWrt, `2-B43-1` is no longer needed.
 
 ## How this kit is made, and why
 
-- **Only b43-next.** b43-next is on its way into OpenWrt via #26717; the flow accelerator and the CPU and IRQ
-  settings apply to every Northstar router, whatever its Wi-Fi driver. They are in the
-  [performance kit](../bcm53xx-performance-kit/#how-this-kit-is-made-and-why) now, which explains its own choices.
-- **#26717 as it is.** Its own pin, 625d906, is aleferri's latest main, so the kit no longer needs lines of its
-  own in it; once #26717 is merged, `B43-2` goes. `B43-1` (#26316) is unchanged as well.
-- **kmod-b43-next as a module in the diffconfig (`=m`).** The three devices get it as a device package
-  (`B43-3`). With `=y` it would go into every image of the build, also into those of other boards when this kit is
-  combined with the performance kit, which builds all devices.
-- **The board patch in both kits.** See the performance kit: `apply.sh` skips it, by checksum, when the other kit
-  applied it already.
+- **Only b43-next.** The flow accelerator and the CPU and IRQ settings apply to every Northstar router, whatever
+  its Wi-Fi driver; they are in the [FA kit](../bcm53xx-performance-kit/#how-this-kit-is-made-and-why).
+- **The EA6900 apart.** Only EA6900 owners need its board support, so it is a kit of its own, applied first
+  (`1-`). The EA6900 line of the device selection is `2-B43-3-EA6900`: it changes a line that the board patch
+  adds, so it cannot be in `2-B43-2`, which has to apply without the board. This also ends the shared board patch
+  of the earlier kits, and with it the checksum list (`.kit-applied`) of the old `apply.sh`.
+- **#26717, fitted to current main.** OpenWrt main dropped brcmsmac on 2026-11-23 (dd441bca35), and two lines of
+  #26717 no longer applied: the install rule of `b43-firmware-784` (placed after `b43-firmware`'s, where the
+  brcmsmac rule was) and the b43-fwcutter condition in `tools/Makefile` (without `BRCMSMAC_USE_FW_FROM_WL`, which
+  is gone). #26717's `PKG_RELEASE` bump of mac80211 is left out: main changed the release itself, and a kit build
+  does not need it. Nothing else changed.
+- **kmod-b43-next as a module in the diffconfig (`=m`).** The devices get it as a device package. With `=y` it
+  would go into every image of the build, also into those of other boards when this kit is combined with the FA
+  kit, which builds all devices.
 
 ## Tested
 
-2026-11-21, OpenWrt main 6bd48701ef, b43-next 625d906.
+2026-11-23, OpenWrt main f8145e6545: the three kits apply in every combination (each alone, any two, all three
+in order) and from one flat folder in name order; the kernel patches apply with and without the EA6900 board kit.
+All three kits built together from their diffconfigs alone: all 40 bcm53xx devices, the R6400 v1, v2 and v2-otp
+and the EA6900 with `kmod-b43-next` and `wpad-openssl`, every other device with OpenWrt's own Wi-Fi packages.
+Not flashed yet with these exact files.
 
-- **Builds:** this kit alone and together with the performance kit (both orders give the same tree).
-- **R6400 v2**, image with both kits: BCM4331 and BCM4360 up, 4 SSIDs at 2.4 GHz and VHT80 at 5 GHz, no
-  warnings.
-- **EA6900**, both kits: both BCM4360 radios up (2.4 GHz HT20, 5 GHz VHT80), no warnings.
-- **R6400 v1**, this kit alone: both radios up.
-- No throughput run on this pin yet. Its seven commits since the previous pin 89dd44f are AC-PHY clean-ups
-  (names, tables, code moved into place).
+Radios, 2026-11-21 (main 6bd48701ef, b43-next 625d906, the same b43-next and device selection):
+
+- **R6400 v2**: BCM4331 and BCM4360 up, 4 SSIDs at 2.4 GHz and VHT80 at 5 GHz, no warnings.
+- **EA6900**: both BCM4360 radios up (2.4 GHz HT20, 5 GHz VHT80), no warnings. On 2026-11-23 also with
+  #26789 v3 under it.
+- **R6400 v1**: both radios up.
 
 Earlier versions (pin 51b501e and 89dd44f, 2026-11-17/19): BCM4331 at 2.4 GHz, 4 SSIDs, DL-WRX36 client, TCP to a
 wired LAN host: HT20 about 150 up / 105 down, HT40 about 325 up / 210 down Mbit/s, MCS 23 (three streams); a
@@ -108,16 +99,15 @@ wired LAN host: HT20 about 150 up / 105 down, HT40 about 325 up / 210 down Mbit/
   so report it if it does show up.
 - The R6400's 5 GHz radio (BCM4360) at full upload speed: "RX descriptor underrun" warnings (34 in 2 hours); the
   RX ring was full and the driver empties it again, throughput unaffected. The EA6900 shows the same. RPS for the
-  Wi-Fi interfaces (in the performance kit) avoids them in our runs.
+  Wi-Fi interfaces (in the FA kit) avoids them in our runs.
 
 ## Sources
 
 | Part | Author | Based on |
 |---|---|---|
-| `B43-1` | Erik Conijn | board support as submitted to OpenWrt and reviewed there, openwrt/openwrt#26316; no b43 code |
-| `B43-2` | Ville Takio (flatstik) | his openwrt/openwrt#26717, unchanged |
+| `2-B43-1` | Ville Takio (flatstik) | his openwrt/openwrt#26717; two lines placed again for current main by Erik Conijn |
 | b43-next itself | Alessio Ferri and contributors | downloaded at build time; its sources are documented in its own repository |
-| `B43-3`, `diffconfig`, `apply.sh` | Erik Conijn | OpenWrt's own image Makefile and package configuration |
+| `2-B43-2`, `2-B43-3`, `diffconfig`, `apply.sh` | Erik Conijn | OpenWrt's own image Makefile and package configuration |
 
 The b43 firmware (from Broadcom's driver 6.30.163.46) is downloaded at build time, as for OpenWrt's kmod-b43;
 the kit contains no firmware or Broadcom-derived code.

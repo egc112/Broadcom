@@ -1,0 +1,100 @@
+diff --git a/target/linux/bcm53xx/patches-6.18/760-net-bgmac-keep-flows-over-PPPoE-out-of-the-flow-accelerator.patch b/target/linux/bcm53xx/patches-6.18/760-net-bgmac-keep-flows-over-PPPoE-out-of-the-flow-accelerator.patch
+new file mode 100644
+index 0000000000..ba29d48cb0
+--- /dev/null
++++ b/target/linux/bcm53xx/patches-6.18/760-net-bgmac-keep-flows-over-PPPoE-out-of-the-flow-accelerator.patch
+@@ -0,0 +1,94 @@
++From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
++From: Erik Conijn <egc112@msn.com>
++Date: Sat, 21 Nov 2026 09:03:44 +0100
++Subject: [PATCH] net: bgmac: keep flows over PPPoE out of the flow accelerator
++
++The flow accelerator cannot add or remove a PPPoE header. A flow towards
++a PPPoE uplink comes with a PPPOE_PUSH action, which the driver refuses.
++The flow rule of the other direction, from the uplink, describes the
++frames as plain IP from the Ethernet port below the PPPoE device: the
++flowtable only puts VLAN tags into the match, not a PPPoE session. So
++the driver took that direction, and its entry never saw a hit, while
++conntrack showed the connection as [HW_OFFLOAD] although it ran in the
++software flowtable.
++
++Look at the flowtable's tuple, which nf_flow_table passes as the cookie
++of TC_SETUP_FT, and refuse a direction that comes through a PPPoE
++session, so both directions stay in software.
++
++R6400 v2, WAN over PPPoE to a PPPoE server on the WAN side, iperf3 TCP
++from a LAN host, upload / download in Mbit/s, with hardware offloading
++on:
++
++                          before          after
++  throughput              511 / 549       513 / 547
++  FA entries per flow     1, no hits      none
++  conntrack               [HW_OFFLOAD]    [OFFLOAD]
++
++Software offloading alone gives the same 507 / 548. A flow over the
++plain Ethernet WAN on the same router still goes to the accelerator,
++at 925 Mbit/s.
++
++Assisted-by: Claude:claude-opus-5-5
++Signed-off-by: Erik Conijn <egc112@msn.com>
++---
++ drivers/net/ethernet/broadcom/bgmac-fa.c | 27 +++++++++++++++++++++++++++
++ 1 file changed, 27 insertions(+)
++
++--- a/drivers/net/ethernet/broadcom/bgmac-fa.c
+++++ b/drivers/net/ethernet/broadcom/bgmac-fa.c
++@@ -48,6 +48,9 @@
++  * them were measured on a BCM4708. The FA has no hop limit check, it
++  * forwards hop limit 1 as 0. So it only gets IPv6 flows while the switch
++  * traps those frames in front of it (see b53_fa_trap_active()).
+++ *
+++ * It cannot add or remove a PPPoE header, so flows over a PPPoE uplink
+++ * stay in software, in both directions (see bgmac_fa_from_pppoe()).
++  */
++ 
++ #include <linux/bcma/bcma.h>
++@@ -64,6 +67,7 @@
++ #include <linux/slab.h>
++ #include <net/dsa.h>
++ #include <net/flow_offload.h>
+++#include <net/netfilter/nf_flow_table.h>
++ #include <net/pkt_cls.h>
++ 
++ #include "bgmac.h"
++@@ -994,6 +998,27 @@ static bool bgmac_fa_flow_allowed(struct
++ 	return true;
++ }
++ 
+++/*
+++ * The flow rule describes a VLAN tag that the frames of a flow come with,
+++ * but not a PPPoE session: a flow from a PPPoE uplink reaches this driver
+++ * as plain IP from the Ethernet port below it, and its entry would never
+++ * see a hit, as the frames carry the PPPoE header in front of the IP
+++ * header. Only the flowtable's tuple, which nf_flow_table passes as the
+++ * cookie of TC_SETUP_FT, records that session. The other direction comes
+++ * with a PPPOE_PUSH action, which bgmac_fa_parse() refuses.
+++ */
+++static bool bgmac_fa_from_pppoe(const struct flow_cls_offload *f)
+++{
+++	const struct flow_offload_tuple *t = (const void *)f->cookie;
+++	int i;
+++
+++	for (i = 0; i < t->encap_num; i++)
+++		if (t->encap[i].proto == htons(ETH_P_PPP_SES))
+++			return true;
+++
+++	return false;
+++}
+++
++ static int bgmac_fa_flow_add(struct bgmac *bgmac, struct flow_cls_offload *f,
++ 			     struct bgmac_fa_block *block)
++ {
++@@ -1016,6 +1041,8 @@ static int bgmac_fa_flow_add(struct bgma
++ 
++ 	if (!tc_can_offload(bgmac->net_dev))
++ 		return -EOPNOTSUPP;
+++	if (bgmac_fa_from_pppoe(f))
+++		return -EOPNOTSUPP;
++ 
++ 	err = bgmac_fa_parse(bgmac, f, &r);
++ 	if (err)

@@ -6784,3 +6784,163 @@ index 0000000000..36ac62f195
 + 	err = b53_fa_trap_set(dev, src, b53_cfp_port_bit(trap));
 + 	if (err) {
 + 		dev_err(ds->dev, "flow accelerator traps: %pe\n", ERR_PTR(err));
+diff --git a/target/linux/bcm53xx/base-files/lib/preinit/99_20_flow_accel b/target/linux/bcm53xx/base-files/lib/preinit/99_20_flow_accel
+new file mode 100644
+index 0000000000..006c93e5b3
+--- /dev/null
++++ b/target/linux/bcm53xx/base-files/lib/preinit/99_20_flow_accel
+@@ -0,0 +1,102 @@
++# The flow accelerator in front of switch port 8 works only with the
++# prepended Broadcom tag, and the tag can change only while no port of
++# the switch is up. The switch boots with the regular tag; switch it
++# here, before the network starts, when hardware flow offloading is on.
++
++flow_accel_log() {
++	echo "flow accelerator tag: $*" > /dev/kmsg
++}
++
++# The values firewall4 takes as true
++flow_accel_option() {
++	case "$(uci -q get "firewall.@defaults[0].$1")" in
++	1|on|true|yes) return 0 ;;
++	esac
++	return 1
++}
++
++# Take the conduits down and the switch to tagger $1; $err says why not
++flow_accel_retag() {
++	for c in $conduits; do
++		ip link set dev "$c" down
++	done
++	for c in $conduits; do
++		t=/sys/class/net/$c/dsa/tagging
++		[ "$(cat "$t")" = "$1" ] && continue
++		err=$({ echo "$1" > "$t"; } 2>&1) || return 1
++	done
++}
++
++flow_accel_restore() {
++	for c in $conduits; do
++		case " $up " in
++		*" $c "*) ip link set dev "$c" up ;;
++		*) ip link set dev "$c" down ;;
++		esac
++	done
++}
++
++flow_accel_tag() (
++	flow_accel_option flow_offloading || exit 0
++	flow_accel_option flow_offloading_hw || exit 0
++
++	conduits=
++	up=
++	n=0
++	for t in /sys/class/net/*/dsa/tagging; do
++		[ -e "$t" ] || continue
++		c=${t%/dsa/tagging}
++		c=${c##*/}
++		case "$(cat "$t")" in
++		brcm-prepend)
++			flow_accel_log "$c uses brcm-prepend already"
++			exit 0
++			;;
++		brcm)
++			conduits="$conduits $c"
++			n=$((n + 1))
++			[ $(($(cat "/sys/class/net/$c/flags") & 1)) = 1 ] &&
++				up="$up $c"
++			;;
++		esac
++	done
++
++	case $n in
++	0)
++		flow_accel_log "no switch with the brcm tag"
++		exit 0
++		;;
++	1)
++		flow_accel_log "${conduits# } is the only CPU port," \
++			"the traps need a second one; keeping brcm"
++		exit 0
++		;;
++	esac
++
++	if ! flow_accel_retag brcm-prepend; then
++		flow_accel_log "the switch refused brcm-prepend" \
++			"(${err##*: }); keeping brcm"
++		flow_accel_retag brcm
++		flow_accel_restore
++		exit 0
++	fi
++
++	# Opening the conduit on port 8 starts the accelerator, and fails
++	# if it does not start
++	for c in $conduits; do
++		err=$(ip link set dev "$c" up 2>&1) && continue
++		flow_accel_log "$c did not open with brcm-prepend" \
++			"(${err##*: }); back to brcm"
++		flow_accel_retag brcm ||
++			flow_accel_log "brcm refused too (${err##*: }); turn" \
++				"hardware flow offloading off in failsafe mode"
++		flow_accel_restore
++		exit 0
++	done
++
++	flow_accel_restore
++	flow_accel_log "switched$conduits to brcm-prepend" \
++		"for hardware flow offloading"
++)
++
++boot_hook_add preinit_main flow_accel_tag
+diff --git a/target/linux/bcm53xx/patches-6.18/384-ARM-dts-BCM5301X-RT-N18U-drop-the-flow-accelerator-tag.patch b/target/linux/bcm53xx/patches-6.18/384-ARM-dts-BCM5301X-RT-N18U-drop-the-flow-accelerator-tag.patch
+new file mode 100644
+index 0000000000..169f9aab49
+--- /dev/null
++++ b/target/linux/bcm53xx/patches-6.18/384-ARM-dts-BCM5301X-RT-N18U-drop-the-flow-accelerator-tag.patch
+@@ -0,0 +1,46 @@
++From 24126ff929100213e77049a91f7d96bc0640db82 Mon Sep 17 00:00:00 2001
++From: Semih Baskan <strst.gs@gmail.com>
++Date: Mon, 23 Nov 2026 12:41:46 +0000
++Subject: [PATCH] ARM: dts: BCM5301X: RT-N18U: drop the flow accelerator tag
++
++Patch 379 names the prepended Broadcom tag on ports 5 and 8, so the
++flow accelerator is in the path on every boot, whether hardware flow
++offloading is on or not. Drop those lines and the port 8 node that
++only carried one of them. The switch then boots with the regular tag,
++and the bcm53xx preinit hook moves it to the prepended tag when the
++firewall's flow offloading and hardware flow offloading are both on.
++
++Port 5 stays a CPU port with its fixed link, for the switch's trap
++rules. User ports keep port 8 as their CPU port.
++
++Measured on an RT-N18U: with hardware flow offloading off the switch
++kept the regular tag and the accelerator stayed out of the path; with
++both options on the hook moved it to the prepended tag at boot and a
++TCP stream ran through the accelerator at 949 Mbit/s.
++
++Signed-off-by: Semih Baskan <strst.gs@gmail.com>
++---
++ arch/arm/boot/dts/broadcom/bcm47081-asus-rt-n18u.dts | 6 ------
++ 1 file changed, 6 deletions(-)
++
++--- a/arch/arm/boot/dts/broadcom/bcm47081-asus-rt-n18u.dts
+++++ b/arch/arm/boot/dts/broadcom/bcm47081-asus-rt-n18u.dts
++@@ -137,8 +137,6 @@
++ 		};
++ 
++ 		port@5 {
++-			dsa-tag-protocol = "brcm-prepend";
++-
++ 			fixed-link {
++ 				speed = <1000>;
++ 				full-duplex;
++@@ -148,9 +146,5 @@
++ 		port@7 {
++ 			status = "disabled";
++ 		};
++-
++-		port@8 {
++-			dsa-tag-protocol = "brcm-prepend";
++-		};
++ 	};
++ };

@@ -3,7 +3,7 @@ new file mode 100644
 index 0000000000..171c5e60e0
 --- /dev/null
 +++ b/target/linux/bcm53xx/patches-6.18/377-ARM-dts-BCM5301X-add-port-5-back-for-the-flow-accelerator.patch
-@@ -0,0 +1,434 @@
+@@ -0,0 +1,436 @@
 +From: Erik Conijn <egc112@msn.com>
 +Subject: [PATCH] ARM: dts: BCM5301X: add port 5 back for the flow accelerator
 +
@@ -11,9 +11,11 @@ index 0000000000..171c5e60e0
 +(gmac0). Behind the flow accelerator in front of port 8, b53 needs
 +port 5 as a second CPU port: it redirects the frames that the
 +accelerator must not handle there (TTL or hop limit 1, TCP FIN and
-+RST). With both CPU ports, b53 chooses the accelerator's prepended
-+tag on a switch that has the accelerator, and the regular tag on one
-+that has not, so the change is safe on every Northstar board. User
++RST). The switch boots with the regular tag; with both CPU ports, the
++bcm53xx preinit hook moves it to the accelerator's prepended tag when
++flow offloading and hardware flow offloading are both on. A switch
++without the accelerator refuses that tag, and the hook keeps the
++regular one, so the change is safe on every Northstar board. User
 +ports keep port 8 as their CPU port.
 +
 +Enable port 5 again, with a fixed link, on the boards where 376 or the
@@ -438,93 +440,3 @@ index 0000000000..171c5e60e0
 + 		};
 + 
 + 		port@7 {
-diff --git a/target/linux/bcm53xx/patches-6.18/734-net-dsa-b53-default-to-the-prepended-tag-behind-the-accelerator.patch b/target/linux/bcm53xx/patches-6.18/734-net-dsa-b53-default-to-the-prepended-tag-behind-the-accelerator.patch
-new file mode 100644
-index 0000000000..c1d92e16ff
---- /dev/null
-+++ b/target/linux/bcm53xx/patches-6.18/734-net-dsa-b53-default-to-the-prepended-tag-behind-the-accelerator.patch
-@@ -0,0 +1,84 @@
-+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
-+From: Erik Conijn <egc112@msn.com>
-+Date: Sat, 21 Nov 2026 13:30:42 +0100
-+Subject: [PATCH] net: dsa: b53: default to the prepended tag behind the
-+ accelerator
-+
-+So far a board used the flow accelerator only when its device tree
-+selected the prepended tag. But a device tree that selects it on a
-+switch without the accelerator (Broadcom's et driver counts it present
-+from switch revision 3 on and on all BCM47094: FA_CAPABLE()) gets the
-+whole switch tree rejected: b53 refuses that tag there, and DSA gives
-+up on the tree. That makes a common device tree setting for all
-+Northstar boards unsafe.
-+
-+Choose the tag in b53 instead. Report the prepended tag when the
-+switch has the accelerator, port 8 is a CPU port, and port 5 is one
-+too, to take the frames that the accelerator must not handle. In every
-+other case keep the regular tag, as before. DSA asks for the tag while
-+it parses the ports in order, so look the CPU ports up in the device
-+tree. A board can still select the regular tag with dsa-tag-protocol.
-+
-+Assisted-by: Claude:claude-opus-5-5
-+Signed-off-by: Erik Conijn <egc112@msn.com>
-+---
-+ drivers/net/dsa/b53/b53_common.c | 41 ++++++++++++++++++++++++++++++++
-+ 1 file changed, 41 insertions(+)
-+
-+--- a/drivers/net/dsa/b53/b53_common.c
-++++ b/drivers/net/dsa/b53/b53_common.c
-+@@ -2951,6 +2951,34 @@ static bool b53_can_enable_brcm_tags(str
-+ 	return ret;
-+ }
-+ 
-++/* Is switch port @port a CPU port in the device tree? DSA asks for the
-++ * tag protocol while it parses the ports in order, so the port types of
-++ * the later ports are not known yet.
-++ */
-++static bool b53_of_cpu_port(struct dsa_switch *ds, int port)
-++{
-++	struct device_node *ports, *np;
-++	bool cpu = false;
-++	u32 reg;
-++
-++	ports = of_get_child_by_name(ds->dev->of_node, "ports");
-++	if (!ports)
-++		ports = of_get_child_by_name(ds->dev->of_node, "ethernet-ports");
-++	if (!ports)
-++		return false;
-++
-++	for_each_available_child_of_node(ports, np) {
-++		if (of_property_read_u32(np, "reg", &reg) || reg != port)
-++			continue;
-++		cpu = of_property_present(np, "ethernet");
-++		of_node_put(np);
-++		break;
-++	}
-++	of_node_put(ports);
-++
-++	return cpu;
-++}
-++
-+ enum dsa_tag_protocol b53_get_tag_protocol(struct dsa_switch *ds, int port,
-+ 					   enum dsa_tag_protocol mprot)
-+ {
-+@@ -2979,6 +3007,19 @@ enum dsa_tag_protocol b53_get_tag_protoc
-+ 		dev->tag_protocol = DSA_TAG_PROTO_BRCM_PREPEND;
-+ 		goto out;
-+ 	}
-++
-++	/* A Northstar switch with a flow accelerator in front of port 8
-++	 * takes the same tag, when port 8 is a CPU port and port 5 is one
-++	 * too, for the frames that the accelerator must not handle (see
-++	 * b53_fa_trap_active()). The accelerator's driver puts it in the
-++	 * path for this tag. Without the accelerator, or without both CPU
-++	 * ports, keep the regular tag.
-++	 */
-++	if (b53_has_flow_accelerator(dev) && b53_of_cpu_port(ds, 8) &&
-++	    b53_of_cpu_port(ds, 5)) {
-++		dev->tag_protocol = DSA_TAG_PROTO_BRCM_PREPEND;
-++		goto out;
-++	}
-+ 
-+ 	dev->tag_protocol = DSA_TAG_PROTO_BRCM;
-+ out:

@@ -151,7 +151,8 @@ to it. Measured on the EA6900: the same message with and without the FA patches.
 
 Working in the prototype, measured on the EA6900:
 
-- nftables flowtable hardware offload (`flow_offloading_hw` in OpenWrt's firewall works as-is).
+- nftables flowtable hardware offload (`flow_offloading_hw` in OpenWrt's firewall). Since 2026-11-23 the FA is
+  put in the path at boot, so after turning it on: **reboot** (see *The pull request*).
 - Both directions of a connection always together, so no half-offloaded connections.
 - A full table (1024 entries) is handled cleanly: new connections stay in software, then move to the FA by
   themselves once space frees up; nothing is left behind afterwards.
@@ -236,6 +237,13 @@ Upstream: Florian Fainelli (Broadcom) posted a Linux driver for the FA to netdev
 standalone ports on the BCM4708/53011/53012. That is where the FA belongs in the long run: once it is in the
 kernel and in OpenWrt, OpenWrt can switch to it and #26789 can go. Until then #26789 covers the usual OpenWrt
 setup (a LAN bridge, IPv6, a VLAN WAN, the BCM47094).
+
+**Switching it on (since 2026-11-23).** The FA needs the switch's prepended tag. strrs's preinit hook in #26789
+sets it at boot, before the network starts, and only when both flow offloading options are on: so turn them on,
+save, and **reboot**. Without the reboot the flows run in software. The reason for the boot-time switch: a router
+then boots exactly as stock OpenWrt until the user asks for the FA, a switch that refuses the tag (no FA) keeps
+the regular one and its network, and failsafe never switches; with the tag in the device tree, every boot used
+it, and a refusal took all wired ports down, failsafe included.
 
 One change against the prototype: TCP FIN/RST and TTL 0/1 frames addressed through the router are **redirected**
 to port 5 by the switch, not copied. They take the normal software path, so nothing has to drop a duplicate,

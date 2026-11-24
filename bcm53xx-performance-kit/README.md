@@ -7,6 +7,12 @@ irqbalance and RPS for the Wi-Fi interfaces. It holds no Wi-Fi driver: for b43-n
 use the [b43-next kit](../b43-next-build-kit/) as well. For the EA6900, apply the
 [EA6900 board kit](../ea6900-board-kit/) first.
 
+> **To switch the FA on:** turn on software **and** hardware flow offloading (LuCI, Network > Firewall, Routing/NAT
+> Offloading), save, and **reboot**. Turning it off also takes a reboot to take the FA out of the path; until then
+> the flows just run in software. Without the reboot the FA is not used, even with both options on: conntrack then
+> shows `[OFFLOAD]`, not `[HW_OFFLOAD]`. After a sysupgrade that keeps the settings, the FA is on from the first
+> boot. Why a reboot: see [The tag is switched at boot](#how-this-kit-is-made-and-why).
+
 Test version, 2026-11-23. Until 2026-11-22 this kit was called the bcm53xx performance kit
 ([last version](https://github.com/egc112/Broadcom/tree/499c3ea/bcm53xx-performance-kit)); the directory keeps that
 name, so links to it keep working. Changes: #26789 v3
@@ -51,7 +57,7 @@ If you try the kit on another board, please report what you see, working or not,
 
 | File | What |
 |---|---|
-| `patches/3-FA-1-flow-accelerator-openwrt-26789.patch` | [openwrt/openwrt#26789](https://github.com/openwrt/openwrt/pull/26789) at 5f8d8e5a4b, without its EA6900 parts: port 8 as the CPU port (376, strrs, formerly #25131), bcm53xx packet steering on the user ports' conduit, Florian Fainelli's 2 Gbit/s fixes 080/081 (Linux v7.4), moving ports between CPU ports (703, Rosen Penev, with strrs's bridge-address checks), the FA driver (our 721-731, strrs's 750-759), strrs's preinit hook that switches the FA's tag on (`/lib/preinit/99_20_flow_accel`), the RT-N18U (379, 382, 384, strrs) and the R6400 WAN MAC (383) |
+| `patches/3-FA-1-flow-accelerator-openwrt-26789.patch` | [openwrt/openwrt#26789](https://github.com/openwrt/openwrt/pull/26789) at e124ccf5d7, without its EA6900 parts: port 8 as the CPU port (376, strrs, formerly #25131), bcm53xx packet steering on the user ports' conduit, Florian Fainelli's 2 Gbit/s fixes 080/081 (Linux v7.4), moving ports between CPU ports (703, Rosen Penev, with strrs's bridge-address checks), the FA driver (our 721-731, strrs's 750-759), strrs's preinit hook that switches the FA's tag on (`/lib/preinit/99_20_flow_accel`), b53 finding the FA by the chip id (762), the RT-N18U (379, 382, 384, strrs) and the R6400 WAN MAC (383) |
 | `patches/3-FA-2-flow-accelerator-on-all-boards.patch` | kit only: 377, port 5 back as a second CPU port on 32 boards; without it only the RT-N18U and the EA6900 get the FA |
 | `patches/3-FA-3-keep-pppoe-off-the-flow-accelerator.patch` | kit only: 760, connections over PPPoE stay in software |
 | `patches/3-FA-4-irqbalance-enable.patch` | switches irqbalance on when it is installed (the package installs disabled) |
@@ -87,7 +93,9 @@ accelerator forwards it itself (IPv4 routed and with NAT, routed IPv6, also over
 stays idle. Switch it on in LuCI, Network > Firewall > General Settings, Routing/NAT Offloading: software **and**
 hardware flow offloading (`flow_offloading=1` and `flow_offloading_hw=1` in `/etc/config/firewall`), save, and
 **reboot**: the tag can only change while the switch's ports are down, so the boot does it, not the firewall.
-The same goes for switching it off. Without hardware offloading the accelerator stays out of the path.
+Switching it off works at once for the flows (they go back to software), and the next boot takes the
+accelerator out of the path. Check after the reboot: `dmesg | grep "flow accelerator tag"` shows "switched ... to
+brcm-prepend", and `grep -c HW_OFFLOAD /proc/net/nf_conntrack` counts offloaded connections during traffic.
 
 **Which boards.** 376 makes port 8 the CPU port of 30 boards; 377 adds port 5 back as a second CPU port on 32
 boards, all those where port 5 is free (the list is in the patch). The switch boots with the regular tag. With
@@ -163,6 +171,13 @@ switches the conduits' tag at runtime, and when b53 refuses or the port 8 condui
 the regular tag. A board without the accelerator just runs on port 8 with the regular tag, the FA is off unless
 the user asks for it, and failsafe never switches.
 
+Why this is worth a reboot: with the tag in the device tree, every boot of every user went through the FA,
+also with hardware offloading off, and a switch that refused the tag took all wired ports down, failsafe
+included. Now a router boots exactly as stock OpenWrt does until the user turns hardware offloading on; if the
+switch then refuses the tag, the router keeps its network on the regular tag, and
+failsafe always gets you in to turn it off. The price: the tag can only change while the switch's ports are
+down, which is during the boot, so switching the FA on takes one reboot.
+
 **2 Gbit/s on port 8 (080/081, Florian Fainelli).** Every frame the accelerator forwards crosses port 8 twice,
 so 1 Gbit/s on port 8 is too little for line rate in both directions. Florian's two fixes (Linux v7.4: bgmac keeps
 the forced 2.5 Gbit/s speed in adjust_link, b53 forces 2000 with flow control on the CPU port) run port 8 at 2
@@ -215,6 +230,11 @@ previous kit with the settings kept:
 - **TCP through the accelerator**, download / upload / both at once, Mbit/s, all `[HW_OFFLOAD]` at 0-10 % CPU:
   R6400 v1 IPv4 940 / 941 / 939 + 938, IPv6 926 / 928 / 926 + 925; EA6900 IPv4 941 / 941 / 939 + 937.
 - **Moving ports** (R6400 v1 and EA6900): the same as with v3 below.
+- **762, 2026-11-24** (b53 finds the FA by the chip id): the R6400 v2 (chip 53030, switch revision 0), where
+  only the chip id finds it now, switched to the prepended tag at boot; TCP 941 / 941 / 939 + 938 Mbit/s through the
+  FA at 95-100 % idle CPU. The EA6900 (switch rev 3) and R6400 v1 (rev 5) switched as before, the v1 at 940 / 941 /
+  940 + 938. Without 762, a BCM47094 on an image for a BCM4708 board (an RT-AC66U B1 on the RT-AC68U image)
+  kept the regular tag.
 
 The previous files of the same day (with 734 instead of the hook), built from the published kit files on another
 build host and flashed on the EA6900: IPv4 939 / 941 / 939 + 938, IPv6 927 / 928 / 926 + 924, a 30-minute soak at

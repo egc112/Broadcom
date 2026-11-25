@@ -73,9 +73,25 @@ USB power GPIO, the LEDs and the reset button.
 ### The DTS: switch on CPU port 8
 
 Write the switch in the layout of [#25131](https://github.com/openwrt/openwrt/pull/25131): **port 8** (IMP0,
-`gmac2`) is the CPU port, ports 5 and 7 are disabled, and `gmac2` takes the board's MAC address. Port 8 is the
-switch's management port, and the flow accelerator sits in front of it, so this is also the layout part 3 builds on.
-`bcm-ns.dtsi` already connects port 8 to `gmac2`, port 5 to `gmac0` and port 7 to `gmac1`. From the EA6900 DTS:
+`gmac2`) is the CPU port, ports 5 and 7 are disabled, and `gmac2` takes the board's MAC address. Port 8 is the right CPU port for three reasons:
+
+1. **It is the switch's management port** (IMP0). The switch sends some frames to its management port whatever
+   port is set as the CPU port: frames it cannot place, such as a VLAN that is not in its VLAN table (the miss
+   path), and management frames. With the CPU on port 5 these end on port 8, where nobody listens.
+2. **That makes a VLAN-tagged WAN work**, as some ISPs require (for example `wan.35` with PPPoE):
+   [openwrt/openwrt#13691](https://github.com/openwrt/openwrt/issues/13691), broken on bcm53xx since OpenWrt 23.05,
+   is what #25131 fixes. The trade-off, measured in #25131: since the miss path now ends at the CPU, VLAN frames
+   still reach the CPU after their VLAN interface is deleted; the kernel drops them instead of the switch.
+3. **The flow accelerator sits in front of it**, so this is also the layout part 3 builds on.
+`bcm-ns.dtsi` already connects port 8 to `gmac2`, port 5 to `gmac0` and port 7 to `gmac1`.
+
+**Every Northstar router with the SoC's built-in switch has port 8, with or without an FA.** The switch in the
+BCM4708, BCM4709 and BCM47094 always has the three CPU-capable ports 5, 7 and 8, wired to `gmac0`, `gmac1` and
+`gmac2`. On chips with an FA, the FA sits between `gmac2` and port 8; on chips without one, port 8 is a plain CPU
+port. That is why #25131 moves every bcm53xx board with a switch to port 8, FA or not; only boards without the
+built-in switch (the Meraki MR26 and MR32) keep their old conduit.
+
+From the EA6900 DTS:
 
 ```dts
 	nvram@1c080000 {
@@ -250,6 +266,57 @@ FA-capable board with a free port 5 should end up with port 5 open. When depends
   harmless: with two CPU ports, OpenWrt main keeps port 8 as the default only on BCM58xx (`703`), so on a BCM5301x
   board DSA would put all ports on port 5 (`gmac0`) and undo the port 8 layout. #26789 extends that rule to
   BCM5301x.
+
+A new FA-capable board with port 5 open, once the FA driver is in OpenWrt (the EA6900's switch with `329` and
+`385` applied; `bcm-ns.dtsi` gives port 5 its `ethernet = <&gmac0>` and port 8 its `ethernet = <&gmac2>`):
+
+```dts
+&gmac2 {
+	nvmem-cells = <&et0macaddr 0>;
+	nvmem-cell-names = "mac-address";
+};
+
+&srab {
+	status = "okay";
+
+	ports {
+		port@0 {
+			label = "wan";
+
+			nvmem-cells = <&et0macaddr 1>;
+			nvmem-cell-names = "mac-address";
+		};
+
+		port@1 {
+			label = "lan1";
+		};
+		...
+		port@4 {
+			label = "lan4";
+		};
+
+		/* second CPU port, for the frames that must bypass the FA */
+		port@5 {
+			fixed-link {
+				speed = <1000>;
+				full-duplex;
+			};
+		};
+
+		port@7 {
+			status = "disabled";
+		};
+
+		port@8 {
+			label = "cpu";
+		};
+	};
+};
+```
+
+Compared with the board-only DTS, port 5 is no longer `disabled` and has a fixed link, and the WAN port takes its own
+MAC address from nvram (here `et0macaddr` + 1, as the stock firmware does), so it keeps it when it moves between
+the two CPU ports. With Florian's driver the FA node and the `gmac2` phandle come on top (see below).
 
 To avoid forgetting boards, port 5 could also be opened once for all FA-capable boards (in the SoC's `.dtsi` or the
 FA patch), with an opt-out for the few boards that use port 5 for something else, instead of board by board.

@@ -176,29 +176,43 @@ The radio needs its board's calibration: TX power, the power amplifier and recei
 type (`femctrl`).
 
 - **The usual case on these routers:** the values are in the router's nvram, as `0:`/`1:` sets or `pci/1/1/...`
-  (the EA6900), or in the chip's own SROM/OTP. b43-next reads them itself.
+  (the EA6900), or in the chip's own SROM/OTP. The driver reads them itself.
 - **Harder:** they are elsewhere in flash, in a vendor format (for example a Meraki board-config partition). Then
   they have to be extracted and turned into a fallback SPROM first.
 
 Check b43-next's `dmesg` lines after the first load: the SPROM revision it found, and no errors about missing
 calibration.
 
-### The change
+### The change: a checklist
 
-Add `kmod-b43-next` to the board's `DEVICE_PACKAGES`. The b43-next kit uses a variable for it, together with a full
-wpad, and the EA6900 needs only this line:
+If OpenWrt already has the router (part 2 done) and b43-next drives its radios, it comes down to this:
 
-```make
-B43_NEXT := wpad-openssl kmod-b43-next
-...
-define Device/linksys_ea6900
-  ...
-  DEVICE_PACKAGES := $(B43_NEXT) $(USB3_PACKAGES)
-endef
-```
+1. **The driver package:** [#26717](https://github.com/openwrt/openwrt/pull/26717) (in the b43-next kit:
+   `2-B43-1`) adds `kmod-b43-next` and its firmware to OpenWrt.
+2. **One line in `target/linux/bcm53xx/image/Makefile`:** the device's `DEVICE_PACKAGES` gets
+   `$(IEEE8021X) kmod-b43-next`, OpenWrt's default wpad plus the driver. For the R7000 (two BCM4360):
 
-The firmware for the 802.11ac radios comes with `kmod-b43-next`; a board with a BCM4331 also needs
-`b43-firmware-784-ht`, one with an N-PHY chip `b43-firmware-784-n` (as in the current #26717).
+   ```make
+   define Device/netgear_r7000
+     DEVICE_MODEL := R7000
+     DEVICE_PACKAGES := $(IEEE8021X) kmod-b43-next $(USB3_PACKAGES)
+     ...
+   ```
+
+   A device that had `$(B43)` (kmod-b43) gets this *instead*: `kmod-b43-next` conflicts with `kmod-b43`, and
+   `$(B43)` already brings a wpad.
+3. **Firmware for the other radio types:** the 802.11ac files (BCM4352, BCM4360) come with `kmod-b43-next`. A
+   BCM4331 also needs `b43-firmware-784-ht` on the same line (the R6400), an N-PHY chip `b43-firmware-784-n` (as
+   in the current #26717).
+4. **In menuconfig: `kmod-b43-next` as `M`** (Kernel modules, Wireless Drivers; a package, not a kernel option).
+   It then goes only into the images of the devices whose line lists it; `*` would put it into every image of the
+   build. Keep "Use a per-device root filesystem that adds profile packages" on in a multi-device build.
+5. **After the first boot, check the calibration data:** `Using SPROM revision ... provided by platform` (or the
+   chip's own SROM) for each radio, and no `Invalid SPROM` without a fallback after it. A supported chip without its
+   board's values does not work properly.
+
+For another wpad on all devices, change the `IEEE8021X :=` line at the top of the same Makefile (for example to
+`wpad-openssl`); selecting a second wpad in menuconfig stops the build with a package conflict.
 
 Test both bands as access points with a client, a throughput run per band, and a soak of an hour or more. Post the
 results in #26717 or a small device pull request on top of it, as

@@ -1,10 +1,10 @@
 # b43-next kit: OpenWrt with b43-next for the Broadcom (bcm53xx) routers
 
-For the **Netgear R6400 v1 and v2** and, with the [EA6900 board kit](../ea6900-board-kit/), the **Linksys EA6900
-v1**. It builds OpenWrt main with [b43-next](https://github.com/aleferri/b43-next) as the Wi-Fi driver. b43-next
+For the **Netgear R6400 v1 and v2**, the **Netgear R7000** (not tested yet) and, with the
+[EA6900 board kit](../ea6900-board-kit/), the **Linksys EA6900 v1**. It builds OpenWrt main with [b43-next](https://github.com/aleferri/b43-next) as the Wi-Fi driver. b43-next
 is b43 with its own copies of bcma and ssb, in one module that loads next to the kernel's. It drives the BCM4331
-(HT-PHY, the 2.4 GHz radio of the R6400) and the BCM4360 (AC-PHY, both radios of the EA6900 and the 5 GHz radio of
-the R6400).
+(HT-PHY, the 2.4 GHz radio of the R6400) and the BCM4360 (AC-PHY, both radios of the EA6900 and the R7000, and the 5 GHz
+radio of the R6400).
 
 Test version, 2026-11-23. Changes since 2026-11-22: the EA6900 board patch moved to a kit of its own, the EA6900's
 device selection is a separate patch (`2-B43-3-EA6900`, skipped without the board), and `2-B43-1` is fitted to
@@ -18,9 +18,9 @@ R6400 patch series in [b43-80211n](../b43-80211n/).
 | File | What |
 |---|---|
 | `patches/2-B43-1-b43-next-openwrt-26717.patch` | [openwrt/openwrt#26717](https://github.com/openwrt/openwrt/pull/26717) at 6d8e2fc70f: the `kmod-b43-next` package pinned to b43-next 625d906, aleferri's main of 2026-11-20, with its firmware 784.2 as a package of its own, `b43-firmware-784` (kmod-b43's `b43-firmware` keeps its own version choice); `tools/Makefile` builds b43-fwcutter for the firmware packages. Fitted to current main, see [below](#how-this-kit-is-made-and-why) |
-| `patches/2-B43-2-b43-next-devices.patch` | the R6400 v1, v2 and v2-otp get `kmod-b43-next` and `wpad-openssl` instead of kmod-b43 and wpad-basic-mbedtls |
+| `patches/2-B43-2-b43-next-devices.patch` | the R6400 v1, v2 and v2-otp get `kmod-b43-next` and `wpad-openssl` instead of kmod-b43 and wpad-basic-mbedtls; the R7000, which has no Wi-Fi driver in OpenWrt, gets them too (2026-11-25: the kits apply and the R7000 profile selects them; not built or flashed yet) |
 | `patches/2-B43-3-EA6900.patch` | the same for the EA6900; needs the EA6900 board kit, `apply.sh` skips it without the board |
-| `diffconfig` | R6400 v1 and v2 in one multi-profile build; kmod-b43-next, LuCI, iperf3, iw-full (the EA6900 comes from the board kit's diffconfig) |
+| `diffconfig` | R6400 v1 and v2 and the R7000 in one multi-profile build; kmod-b43-next, LuCI, iperf3, iw-full (the EA6900 comes from the board kit's diffconfig) |
 | `apply.sh` | applies the patches to an OpenWrt tree and adds the diffconfig to its `.config` |
 
 ## Build

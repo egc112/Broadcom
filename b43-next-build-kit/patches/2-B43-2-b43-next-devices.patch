@@ -1,8 +1,7 @@
 diff --git a/target/linux/bcm53xx/image/Makefile b/target/linux/bcm53xx/image/Makefile
-index 8d0b531080..be755d98b8 100644
 --- a/target/linux/bcm53xx/image/Makefile
 +++ b/target/linux/bcm53xx/image/Makefile
-@@ -138,6 +138,7 @@ DEVICE_VARS += LUXUL_BOARD
+@@ -138,6 +138,7 @@
  
  IEEE8021X := wpad-basic-mbedtls
  B43 := $(IEEE8021X) kmod-b43
@@ -10,7 +9,7 @@ index 8d0b531080..be755d98b8 100644
  BRCMFMAC_43602A1 := $(IEEE8021X) kmod-brcmfmac brcmfmac-firmware-43602a1-pcie
  BRCMFMAC_4366B1 := $(IEEE8021X) kmod-brcmfmac brcmfmac-firmware-4366b1-pcie
  BRCMFMAC_4366C0 := $(IEEE8021X) kmod-brcmfmac brcmfmac-firmware-4366c0-pcie
-@@ -516,7 +517,7 @@ TARGET_DEVICES += netgear_r6300-v2
+@@ -508,7 +509,7 @@
  define Device/netgear_r6400-v1
    DEVICE_MODEL := R6400
    DEVICE_VARIANT := v1
@@ -19,7 +18,7 @@ index 8d0b531080..be755d98b8 100644
    $(Device/netgear)
    NETGEAR_BOARD_ID := U12H332T00_NETGEAR
  endef
-@@ -525,7 +526,7 @@ TARGET_DEVICES += netgear_r6400-v1
+@@ -517,7 +518,7 @@
  define Device/netgear_r6400-v2
    DEVICE_MODEL := R6400
    DEVICE_VARIANT := v2
@@ -28,7 +27,7 @@ index 8d0b531080..be755d98b8 100644
    $(Device/netgear)
    NETGEAR_BOARD_ID := U12H332T20_NETGEAR
  endef
-@@ -534,7 +535,7 @@ TARGET_DEVICES += netgear_r6400-v2
+@@ -526,7 +527,7 @@
  define Device/netgear_r6400-v2-otp
    DEVICE_MODEL := R6400
    DEVICE_VARIANT := v2 OTP
@@ -37,3 +36,12 @@ index 8d0b531080..be755d98b8 100644
    DEVICE_DTS := bcm47094-netgear-r6400-v2
    SUPPORTED_DEVICES := netgear,r6400-v2
    $(Device/netgear)
+@@ -536,7 +537,7 @@
+ 
+ define Device/netgear_r7000
+   DEVICE_MODEL := R7000
+-  DEVICE_PACKAGES := $(USB3_PACKAGES)
++  DEVICE_PACKAGES := $(B43_NEXT) $(USB3_PACKAGES)
+   $(Device/netgear)
+   NETGEAR_BOARD_ID := U12H270T00_NETGEAR
+ endef

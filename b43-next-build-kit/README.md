@@ -18,7 +18,7 @@ R6400 patch series in [b43-80211n](../b43-80211n/).
 | File | What |
 |---|---|
 | `patches/2-B43-1-b43-next-openwrt-26717.patch` | [openwrt/openwrt#26717](https://github.com/openwrt/openwrt/pull/26717) at 6d8e2fc70f: the `kmod-b43-next` package pinned to b43-next 625d906, aleferri's main of 2026-11-20, with its firmware 784.2 as a package of its own, `b43-firmware-784` (kmod-b43's `b43-firmware` keeps its own version choice); `tools/Makefile` builds b43-fwcutter for the firmware packages. Fitted to current main, see [below](#how-this-kit-is-made-and-why) |
-| `patches/2-B43-2-b43-next-devices.patch` | the R6400 v1, v2 and v2-otp get `kmod-b43-next` and `wpad-openssl` instead of kmod-b43 and wpad-basic-mbedtls; the R7000, which has no Wi-Fi driver in OpenWrt, gets them too (2026-11-25: the kits apply and the R7000 profile selects them; not built or flashed yet) |
+| `patches/2-B43-2-b43-next-devices.patch` | the R6400 v1, v2 and v2-otp get `kmod-b43-next` instead of kmod-b43, with OpenWrt's default wpad; the R7000, which has no Wi-Fi driver in OpenWrt, gets them too (2026-11-25: the kits apply and the R7000 profile selects them; not built or flashed yet) |
 | `patches/2-B43-3-EA6900.patch` | the same for the EA6900; needs the EA6900 board kit, `apply.sh` skips it without the board |
 | `diffconfig` | R6400 v1 and v2 and the R7000 in one multi-profile build; kmod-b43-next, LuCI, iperf3, iw-full (the EA6900 comes from the board kit's diffconfig) |
 | `apply.sh` | applies the patches to an OpenWrt tree and adds the diffconfig to its `.config` |
@@ -38,12 +38,13 @@ Tested on OpenWrt main f8145e6545 (2026-11-23). The R6400 itself is in OpenWrt m
 without that kit, leave out `2-B43-3-EA6900.patch`. Then add the diffconfig lines to `.config`. With all kits
 copied into one folder, every `*.patch` in name order gives the same tree as the three `apply.sh` runs.
 
-**wpad and per-device packages.** The kit gives these devices `wpad-openssl` as a device package. Keep
-`CONFIG_TARGET_PER_DEVICE_ROOTFS` ("Use a per-device root filesystem that adds profile packages") on: in a
-multi-profile build without it, the device packages (the Wi-Fi driver, the wpad, the USB modules) do not end up
-in the images. A device package is installed on top of your own selection, so two wpad variants in one image
-stop the build with `unable to select packages ... conflicts`. To use another wpad, remove the kit's per device
-in menuconfig (Target Devices, the device's packages field): `-wpad-openssl wpad-basic-mbedtls`.
+**wpad and per-device packages.** The devices get OpenWrt's default wpad (`$(IEEE8021X)`, today
+`wpad-basic-mbedtls`), as in OpenWrt's own device lines. Keep `CONFIG_TARGET_PER_DEVICE_ROOTFS` ("Use a per-device
+root filesystem that adds profile packages") on: in a multi-profile build without it, the device packages (the Wi-Fi
+driver, the wpad, the USB modules) do not end up in the images. A device package is installed on top of your own
+selection, so selecting another wpad in menuconfig gives two wpad variants in one image and stops the build with
+`unable to select packages ... conflicts`. For another wpad in all devices, change the `IEEE8021X :=` line at the
+top of `target/linux/bcm53xx/image/Makefile` instead (for example to `wpad-openssl`).
 
 Images: `bin/targets/bcm53xx/generic/`: `*netgear_r6400-v1-squashfs.chk`, `*netgear_r6400-v2-squashfs.chk`,
 `*linksys_ea6900-squashfs.trx`. At boot, `/etc/init.d/b43-next` hands the PCIe radios from the kernel's bcma to
@@ -75,6 +76,8 @@ in order) and from one flat folder in name order; the kernel patches apply with 
 All three kits built together from their diffconfigs alone: all 40 bcm53xx devices, the R6400 v1, v2 and v2-otp
 and the EA6900 with `kmod-b43-next` and `wpad-openssl`, every other device with OpenWrt's own Wi-Fi packages.
 Not flashed yet with these exact files.
+2026-11-25, OpenWrt main 64c777f3af: the R7000 added and the devices on OpenWrt's default wpad; the three kits
+apply, and `make defconfig` gives the R6400 v1, the R7000 and the EA6900 `wpad-basic-mbedtls kmod-b43-next`.
 
 Radios, 2026-11-21 (main 6bd48701ef, b43-next 625d906, the same b43-next and device selection):
 

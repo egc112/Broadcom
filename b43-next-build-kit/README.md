@@ -1,6 +1,6 @@
 # b43-next kit: OpenWrt with b43-next for the Broadcom (bcm53xx) routers
 
-For the **Netgear R6400 v1 and v2**, the **Netgear R7000** (not tested yet) and, with the
+For the **Netgear R6400 v1 and v2**, the **Netgear R7000** (first flash 2026-11-26, radios up, no client test yet) and, with the
 [EA6900 board kit](../ea6900-board-kit/), the **Linksys EA6900 v1**. It builds OpenWrt main with [b43-next](https://github.com/aleferri/b43-next) as the Wi-Fi driver. b43-next
 is b43 with its own copies of bcma and ssb, in one module that loads next to the kernel's. It drives the BCM4331
 (HT-PHY, the 2.4 GHz radio of the R6400) and the BCM4360 (AC-PHY, both radios of the EA6900 and the R7000, and the 5 GHz
@@ -9,7 +9,8 @@ radio of the R6400).
 Test version, 2026-11-26. Changes since 2026-11-25: `2-B43-1` is the current #26717 (c3b21ea4cc), which splits
 firmware 784.2 into one package per PHY type, so the R6400 lines in `2-B43-2` add `b43-firmware-784-ht` for their
 BCM4331 (see [Which firmware each radio needs](#which-firmware-each-radio-needs)). #26717 now applies to OpenWrt
-main as it is, so the kit's own fit-up for the brcmsmac removal is gone. Earlier versions: the
+main as it is, so the kit's own fit-up for the brcmsmac removal is gone. New `2-B43-4`: the R7000 LEDs.
+Earlier versions: the
 [kit of 2026-11-25](https://github.com/egc112/Broadcom/tree/189dc0e/b43-next-build-kit), the
 [kit of 2026-11-22](https://github.com/egc112/Broadcom/tree/499c3ea/b43-next-build-kit), the EA6900 kit
 (b43-ac-wip, [last version](https://github.com/egc112/Broadcom/tree/d07f0a7/linksys-ea6900/build-kit)) and the
@@ -22,6 +23,7 @@ R6400 patch series in [b43-80211n](../b43-80211n/).
 | `patches/2-B43-1-b43-next-openwrt-26717.patch` | [openwrt/openwrt#26717](https://github.com/openwrt/openwrt/pull/26717) at c3b21ea4cc: the `kmod-b43-next` package pinned to b43-next 625d906, aleferri's main of 2026-11-20, and its firmware 784.2 in one package per PHY type (`b43-firmware-784-ac`, `-ht`, `-n`, `-lp`, `-g`, `-lcn`); kmod-b43 keeps `b43-firmware` (5.100.138). With [openwrt/openwrt#26255](https://github.com/openwrt/openwrt/pull/26255) at c6749e76c9, which #26717 depends on: it passes `CONFLICTS` to apk, so apk does not install kmod-b43 next to kmod-b43-next |
 | `patches/2-B43-2-b43-next-devices.patch` | the R6400 v1, v2 and v2-otp get `kmod-b43-next` and `b43-firmware-784-ht` instead of kmod-b43, with OpenWrt's default wpad; the R7000, which has no Wi-Fi driver in OpenWrt, gets them too (2026-11-25: the kits apply and the R7000 profile selects them; not built or flashed yet) |
 | `patches/2-B43-3-EA6900.patch` | the same for the EA6900; needs the EA6900 board kit, `apply.sh` skips it without the board |
+| `patches/2-B43-4-R7000-LEDs.patch` | the R7000 LEDs: the Internet LED (GPIO 9 white, GPIO 8 amber) with the switch LED programming that lights it, as for the R6400 (kernel patch `386-ARM-dts-BCM5301X-R7000-add-the-Internet-LED.patch`), and `01_leds` triggers for the Internet, 2.4 GHz, 5 GHz and USB LEDs, which had none |
 | `diffconfig` | R6400 v1 and v2 and the R7000 in one multi-profile build; kmod-b43-next, LuCI, iperf3, iw-full (the EA6900 comes from the board kit's diffconfig) |
 | `apply.sh` | applies the patches to an OpenWrt tree and adds the diffconfig to its `.config` |
 
@@ -89,6 +91,11 @@ R7000 and EA6900 images `b43-next.ko` with the AC-PHY files only; no image has b
 flashed yet with these exact files. The same day on main 15df7fcd24, after main's own mac80211 release bump:
 `2-B43-1` without #26717's bump applies with the other kits, and the package scan defines all six
 `b43-firmware-784` packages.
+2026-11-26, R7000 flashed with the kit (main 15df7fcd24, b43-next 8563e370): both BCM4360 radios up and beaconing
+(2.4 GHz HT20, 5 GHz VHT80); no client test yet. Internet LED dark: the bootloader leaves switch LED function 1 at
+0x0324 with no port mapped. Writing `2-B43-4`'s values at runtime lit it white (GPIO 9 low) and amber (GPIO 8 low)
+with WAN link; netdev triggers lit the 2.4 and 5 GHz LEDs. `2-B43-4` itself not built yet; the USB port names in
+its `01_leds` lines are not tested yet. Its kernel patch applies with and without the flow accelerator kit.
 
 Radios, 2026-11-21 (main 6bd48701ef, b43-next 625d906, the same b43-next and device selection):
 
@@ -143,6 +150,7 @@ keeps `b43-firmware` (5.100.138, in `/lib/firmware/b43`) and is not affected.
 | `2-B43-1` | Ville Takio (flatstik); #26255 by Josef Schlehofer (BKPepe) | openwrt/openwrt#26717 and #26255; #26717's mac80211 release bump left out (Erik Conijn) |
 | b43-next itself | Alessio Ferri and contributors | downloaded at build time; its sources are documented in its own repository |
 | `2-B43-2`, `2-B43-3`, `diffconfig`, `apply.sh` | Erik Conijn | OpenWrt's own image Makefile and package configuration |
+| `2-B43-4` | Erik Conijn | the R6400 switch LED patch in OpenWrt (319); the Internet LED GPIO from DD-WRT's `ledconfig.c` |
 
 The b43 firmware (from Broadcom's driver 6.30.163.46) is downloaded at build time, as for OpenWrt's kmod-b43;
 the kit contains no firmware or Broadcom-derived code.

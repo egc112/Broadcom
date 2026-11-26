@@ -6,7 +6,7 @@ diff --git a/target/linux/bcm53xx/image/Makefile b/target/linux/bcm53xx/image/Ma
    DEVICE_MODEL := R6400
    DEVICE_VARIANT := v1
 -  DEVICE_PACKAGES := $(B43) $(USB3_PACKAGES)
-+  DEVICE_PACKAGES := $(IEEE8021X) kmod-b43-next $(USB3_PACKAGES)
++  DEVICE_PACKAGES := $(IEEE8021X) kmod-b43-next b43-firmware-784-ht $(USB3_PACKAGES)
    $(Device/netgear)
    NETGEAR_BOARD_ID := U12H332T00_NETGEAR
  endef
@@ -15,7 +15,7 @@ diff --git a/target/linux/bcm53xx/image/Makefile b/target/linux/bcm53xx/image/Ma
    DEVICE_MODEL := R6400
    DEVICE_VARIANT := v2
 -  DEVICE_PACKAGES := $(B43) $(USB3_PACKAGES)
-+  DEVICE_PACKAGES := $(IEEE8021X) kmod-b43-next $(USB3_PACKAGES)
++  DEVICE_PACKAGES := $(IEEE8021X) kmod-b43-next b43-firmware-784-ht $(USB3_PACKAGES)
    $(Device/netgear)
    NETGEAR_BOARD_ID := U12H332T20_NETGEAR
  endef
@@ -24,7 +24,7 @@ diff --git a/target/linux/bcm53xx/image/Makefile b/target/linux/bcm53xx/image/Ma
    DEVICE_MODEL := R6400
    DEVICE_VARIANT := v2 OTP
 -  DEVICE_PACKAGES := $(B43) $(USB3_PACKAGES)
-+  DEVICE_PACKAGES := $(IEEE8021X) kmod-b43-next $(USB3_PACKAGES)
++  DEVICE_PACKAGES := $(IEEE8021X) kmod-b43-next b43-firmware-784-ht $(USB3_PACKAGES)
    DEVICE_DTS := bcm47094-netgear-r6400-v2
    SUPPORTED_DEVICES := netgear,r6400-v2
    $(Device/netgear)

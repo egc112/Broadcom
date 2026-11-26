@@ -1,22 +1,25 @@
 diff --git a/include/package-pack.mk b/include/package-pack.mk
-index 399b06be42..01518cc105 100644
+index e91619bc37a15f..ea1ba6bcb331a7 100644
 --- a/include/package-pack.mk
 +++ b/include/package-pack.mk
-@@ -621,7 +621,7 @@ else
- 	  $$(if $$(Package/$(1)/PROVIDES),--info "provides:$$(Package/$(1)/PROVIDES)") \
- 	  $$(if $$(Package/$(1)/PRIORITY),--info "provider-priority:$$(Package/$(1)/PRIORITY)") \
- 	  $$(APK_SCRIPTS_$(1)) \
--	  --info "depends:$$(foreach depends,$$(subst $$(comma),$$(space),$$(subst $$(space),,$$(subst $$(paren_right),,$$(subst $$(paren_left),,$$(Package/$(1)/DEPENDS))))),$$(depends))" \
-+	  --info "depends:$$(strip $$(foreach depends,$$(subst $$(comma),$$(space),$$(subst $$(space),,$$(subst $$(paren_right),,$$(subst $$(paren_left),,$$(Package/$(1)/DEPENDS))))),$$(depends)) $(foreach conflict,$(CONFLICTS),!$(conflict)))" \
- 	  --files "$$(IDIR_$(1))" \
- 	  $(if $(CONFIG_SIGN_EACH_PACKAGE),--sign $(BUILD_KEY_APK_SEC),) \
- 	  --output "$$(PACK_$(1))"
+@@ -408,6 +408,11 @@ endif
+ 	touch $$@
+ 
+     Package/$(1)/DEPENDS := $$(foreach dep,$$(filter-out @%,$$(IDEPEND_$(1))),$$(dep)$$(call GetABISuffix,$$(dep)))
++    ifneq ($(CONFIG_USE_APK),)
++    # apk has no conflicts field. A dependency prefixed with "!" is a
++    # conflict, see apk-world(5).
++    Package/$(1)/DEPENDS += $$(addprefix !,$(CONFLICTS))
++    endif
+     ifneq ($$(EXTRA_DEPENDS),)
+       ifeq ($(CONFIG_USE_APK),)
+         Package/$(1)/DEPENDS := $$(call mergelist,$$(Package/$(1)/DEPENDS))
 diff --git a/package/kernel/b43-next/Makefile b/package/kernel/b43-next/Makefile
 new file mode 100644
-index 0000000000..06971b9b39
+index 0000000000..3d2bd025c8
 --- /dev/null
 +++ b/package/kernel/b43-next/Makefile
-@@ -0,0 +1,100 @@
+@@ -0,0 +1,92 @@
 +include $(TOPDIR)/rules.mk
 +
 +PKG_NAME:=b43-next
@@ -46,21 +49,24 @@ index 0000000000..06971b9b39
 +  URL:=https://github.com/aleferri/b43-next
 +  KCONFIG:=CONFIG_HW_RANDOM=y
 +  DEPENDS:=@PCI_SUPPORT +kmod-mac80211 +kmod-lib-cordic +@DRIVER_11AC_SUPPORT \
-+	+@KERNEL_PAGE_POOL +b43-firmware-784 @!TARGET_uml
++	+@KERNEL_PAGE_POOL +b43-firmware-784-ac @!TARGET_uml \
++	+!(TARGET_bcm47xx||TARGET_bcm53xx):kmod-bcma \
++	+!(TARGET_bcm47xx||TARGET_bcm53xx):kmod-ssb
 +  CONFLICTS:=kmod-b43
 +  FILES:=$(PKG_BUILD_DIR)/b43-next.ko
 +  AUTOLOAD:=$(call AutoProbe,b43-next)
++  MODPARAMS.b43-next:=fwpostfix=-784
 +  MENU:=1
 +endef
 +
 +define KernelPackage/b43-next/description
-+ b43 with its own copies of the ssb and bcma buses, in one module that
-+ loads next to the kernel's ssb and bcma, with the AC-PHY of the BCM4352
-+ and BCM4360 and the 802.11n work of b43-next. It drives the PCIe cards
-+ b43 drives; at boot, /etc/init.d/b43-next hands them from the kernel's
-+ bcma or ssb PCI bridge to b43-next's and moves their radios' paths in
-+ /etc/config/wireless along. The 802.11 cores built into a SoC stay with
-+ kmod-b43.
++ b43 out of tree, on the kernel's bcma and ssb: the AC-PHY of the BCM4352
++ and BCM4360 and the 802.11n work of b43-next, for the PCIe cards and SoC
++ cores b43 drives.
++
++ It loads firmware 784.2 from /lib/firmware/b43-784. The AC-PHY files
++ (b43-firmware-784-ac) come with it; add the b43-firmware-784 package of
++ each other PHY type on the device (-n, -ht, -lp, -g, -lcn).
 +endef
 +
 +define KernelPackage/b43-next/config
@@ -89,7 +95,7 @@ index 0000000000..06971b9b39
 +
 +# mac80211 comes from the backports, not from the kernel's .config. No SDIO
 +# host, as in kmod-b43: on a kernel with MMC it would need kmod-mmc.
-+PKG_MAKE_FLAGS := CONFIG_MAC80211=m CONFIG_MMC=
++PKG_MAKE_FLAGS := CONFIG_MAC80211=m CONFIG_MMC= B43_NEXT_KERNEL_BUS=y
 +ifdef CONFIG_LEDS_TRIGGERS
 +  PKG_MAKE_FLAGS += CONFIG_MAC80211_LEDS=y
 +endif
@@ -103,276 +109,134 @@ index 0000000000..06971b9b39
 +		M="$(PKG_BUILD_DIR)" \
 +		NOSTDINC_FLAGS="$(NOSTDINC_FLAGS)" \
 +		modules
-+	$(TARGET_CROSS)objcopy -O binary -j .modinfo $(PKG_BUILD_DIR)/b43-next.ko \
-+		$(PKG_BUILD_DIR)/modinfo.bin
-+	tr '\0' '\n' < $(PKG_BUILD_DIR)/modinfo.bin | \
-+		sed -n 's/^alias=\(pci:.*\)/\1/p' | sort -u > $(PKG_BUILD_DIR)/pci-aliases
-+endef
-+
-+define KernelPackage/b43-next/install
-+	$(INSTALL_DIR) $(1)/usr/share/b43-next
-+	$(INSTALL_DATA) $(PKG_BUILD_DIR)/pci-aliases $(1)/usr/share/b43-next/
-+	$(INSTALL_DIR) $(1)/etc/init.d
-+	$(INSTALL_BIN) ./files/b43-next.init $(1)/etc/init.d/b43-next
 +endef
 +
 +$(eval $(call KernelPackage,b43-next))
-diff --git a/package/kernel/b43-next/files/b43-next.init b/package/kernel/b43-next/files/b43-next.init
-new file mode 100644
-index 0000000000..6e9f4e8aab
---- /dev/null
-+++ b/package/kernel/b43-next/files/b43-next.init
-@@ -0,0 +1,226 @@
-+#!/bin/sh /etc/rc.common
-+# The PCIe cards of b43-next, held at boot by the kernel's bcma or ssb PCI
-+# bridge (built in on bcm53xx): handed to bcma-next's or ssb-next's bridge
-+# after the module is loaded (boot, S10) and before the wireless comes up
-+# (wpad S19, network S20). Each radio of /etc/config/wireless on such a card
-+# moves its path along: the card's bus becomes bcmnN instead of bcmaN, so
-+# that wifi config finds it configured instead of adding a radio for it.
-+#
-+# stop (also when the package is removed) hands the cards back, and the
-+# radios their paths from before: kept in b43_next_kernel_path, as the
-+# kernel's bus numbers grow while it runs and are those of the boot again
-+# only after a reboot. The option stays, and marks the radios as moved by
-+# this script for the next start.
-+
-+START=15
-+
-+ALIASES=/usr/share/b43-next/pci-aliases
-+# Written before the cards are handed over, removed after: if it is still
-+# there, the last attempt did not finish (a hang, a power cut). That one is
-+# tried once more; after a second, the cards stay with the kernel until the
-+# marker is removed.
-+MARKER=/etc/b43-next.binding
-+PCI=/sys/bus/pci
-+
-+b43n_wanted() {
-+	local alias modalias
-+	modalias=$(cat "$1/modalias" 2>/dev/null) || return 1
-+	while read -r alias; do
-+		case "$modalias" in
-+		$alias) return 0 ;;
-+		esac
-+	done < "$ALIASES"
-+	return 1
-+}
-+
-+b43n_driver() {
-+	[ -e "$1/driver" ] && basename "$(readlink "$1/driver")"
-+}
-+
-+# The radios of /etc/config/wireless on PCI device $1: their section names
-+b43n_radios() {
-+	local s path
-+	for s in $(uci -q show wireless | sed -n "s/^wireless\.\([^.=]*\)=wifi-device$/\1/p"); do
-+		path=$(uci -q get "wireless.$s.path") || continue
-+		case "$path" in
-+		*/$1/*) echo "$s" ;;
-+		esac
-+	done
-+}
-+
-+# A device's path as wifi config writes it: below /sys/devices, without
-+# the platform/ in front of a PCI bus
-+b43n_wifi_path() {
-+	local p=${1#/sys/devices/}
-+	case "$p" in
-+	platform/*/pci*) p=${p#platform/} ;;
-+	esac
-+	echo "$p"
-+}
-+
-+# The path of the 802.11 core under PCI device $1: the parent of its phy,
-+# or without one (a kernel bridge with no b43 loaded) the core of index $2
-+b43n_core_path() {
-+	local phy core
-+	for phy in /sys/class/ieee80211/*; do
-+		core=$(readlink -f "$phy/device")
-+		case "$core" in
-+		*/$1/*) b43n_wifi_path "$core"; return 0 ;;
-+		esac
-+	done
-+	[ -n "$2" ] || return 1
-+	core=$(ls -d "$PCI/devices/$1"/bcm*:"$2" "$PCI/devices/$1"/ssb*:"$2" 2>/dev/null | head -1)
-+	[ -n "$core" ] || return 1
-+	b43n_wifi_path "$(readlink -f "$core")"
-+}
-+
-+# The radios of PCI device $1 that are its core's: those whose path is the
-+# core's, and those the hand-over moved (they keep the kernel's path in
-+# b43_next_kernel_path). A radio left by an earlier probe of the card
-+# (another bcmaN, after b43 was loaded while the system ran) points at no
-+# device and is left alone.
-+b43n_live_radios() {
-+	local s path kpath live
-+	for s in $(b43n_radios "$1"); do
-+		path=$(uci -q get "wireless.$s.path")
-+		kpath=$(uci -q get "wireless.$s.b43_next_kernel_path")
-+		live=$(b43n_core_path "$1" "${path##*:}") || continue
-+		[ "$path" = "$live" ] || [ -n "$kpath" ] || continue
-+		echo "$s"
-+	done
-+}
-+
-+# The paths of radios $2 of PCI device $1 as its core has them now
-+b43n_set_paths() {
-+	local s path new changed=
-+	for s in $2; do
-+		path=$(uci -q get "wireless.$s.path")
-+		new=$(b43n_core_path "$1" "${path##*:}") || continue
-+		[ "$path" = "$new" ] && continue
-+		uci set "wireless.$s.path=$new"
-+		changed=1
-+	done
-+	[ -z "$changed" ] || uci commit wireless
-+}
-+
-+# The radios wifi config added for device $1 while it moved: all but $2
-+b43n_drop_added() {
-+	local s k keep=" "
-+	for k in $2; do
-+		keep="$keep$k "
-+	done
-+	for s in $(b43n_radios "$1"); do
-+		case "$keep" in
-+		*" $s "*) continue ;;
-+		esac
-+		logger -t b43-next "$1: removing the radio added for it ($s)"
-+		uci -q delete "wireless.default_$s"
-+		uci -q delete "wireless.$s"
-+	done
-+	uci commit wireless
-+}
-+
-+start() {
-+	local dev addr drv bus next before live bound= s path
-+
-+	[ -f "$ALIASES" ] || return 0
-+	if [ ! -e "$MARKER" ]; then
-+		: > "$MARKER"
-+	elif [ "$(cat "$MARKER")" != retry ]; then
-+		logger -t b43-next "the last hand-over did not finish; trying once more"
-+		echo retry > "$MARKER"
-+	else
-+		logger -t b43-next "the last two hand-overs did not finish; the cards stay with the kernel (rm $MARKER to retry)"
-+		return 0
-+	fi
-+	sync
-+
-+	# bcma-next numbers its buses from 0 while the module is loaded
-+	next=$(ls /sys/bus/bcma-next/devices 2>/dev/null |
-+		sed -n 's/^bcmn\([0-9]*\):.*/\1/p' | sort -n | tail -1)
-+	next=${next:+$((next + 1))}
-+	next=${next:-0}
-+
-+	for dev in "$PCI"/devices/*; do
-+		addr=${dev##*/}
-+		drv=$(b43n_driver "$dev")
-+		case "$drv" in
-+		bcma-next-pci-bridge|ssb-next-pci-bridge) continue ;;
-+		esac
-+		b43n_wanted "$dev" || continue
-+
-+		# The radios' new path, before the device moves: a bcma card's
-+		# 802.11 core becomes bcmnN:1
-+		before=$(b43n_radios "$addr")
-+		live=$(b43n_live_radios "$addr")
-+		for s in $live; do
-+			path=$(uci -q get "wireless.$s.path")
-+			case "$path" in
-+			*/bcma[0-9]*:*)
-+				uci -q get "wireless.$s.b43_next_kernel_path" >/dev/null ||
-+					uci set "wireless.$s.b43_next_kernel_path=$path"
-+				uci set "wireless.$s.path=${path%/*}/bcmn$next:${path##*:}"
-+				;;
-+			esac
-+		done
-+		[ -z "$live" ] || uci commit wireless
-+
-+		for bus in bcma-next-pci-bridge ssb-next-pci-bridge; do
-+			echo "$bus" > "$dev/driver_override"
-+			[ -e "$dev/driver" ] && echo "$addr" > "$dev/driver/unbind"
-+			echo "$addr" > "$PCI/drivers_probe"
-+			[ "$(b43n_driver "$dev")" = "$bus" ] && break
-+		done
-+		if [ "$(b43n_driver "$dev")" != "$bus" ]; then
-+			logger -t b43-next "$addr: no b43-next bridge took it, back to the kernel"
-+			echo > "$dev/driver_override"
-+			echo "$addr" > "$PCI/drivers_probe"
-+			b43n_set_paths "$addr" "$live"
-+			continue
-+		fi
-+		[ "$bus" = bcma-next-pci-bridge ] && next=$((next + 1))
-+		logger -t b43-next "$addr: $drv -> $bus"
-+
-+		# The path as it came out, and no radio added on the way
-+		sleep 1
-+		b43n_set_paths "$addr" "$live"
-+		[ -z "$before" ] || b43n_drop_added "$addr" "$before"
-+		bound=1
-+	done
-+
-+	rm -f "$MARKER"
-+	sync
-+	# netifd keeps the paths it read; at boot it hasn't started yet
-+	[ -z "$bound" ] || ubus call network reload 2>/dev/null
-+	return 0
-+}
-+
-+stop() {
-+	local dev addr drv before live s path moved=
-+
-+	for dev in "$PCI"/devices/*; do
-+		addr=${dev##*/}
-+		drv=$(b43n_driver "$dev")
-+		case "$drv" in
-+		bcma-next-pci-bridge|ssb-next-pci-bridge) ;;
-+		*) continue ;;
-+		esac
-+		before=$(b43n_radios "$addr")
-+		live=$(b43n_live_radios "$addr")
-+		echo "$addr" > "$dev/driver/unbind"
-+		echo > "$dev/driver_override"
-+		echo "$addr" > "$PCI/drivers_probe"
-+		logger -t b43-next "$addr: $drv -> $(b43n_driver "$dev")"
-+		sleep 1
-+		b43n_set_paths "$addr" "$live"
-+		[ -z "$before" ] || b43n_drop_added "$addr" "$before"
-+		for s in $live; do
-+			path=$(uci -q get "wireless.$s.b43_next_kernel_path") || continue
-+			uci set "wireless.$s.path=$path"
-+		done
-+		[ -z "$before" ] || uci commit wireless
-+		moved=1
-+	done
-+	[ -z "$moved" ] || ubus call network reload 2>/dev/null
-+	return 0
-+}
 diff --git a/package/kernel/mac80211/Makefile b/package/kernel/mac80211/Makefile
-index 27d1dd7d26..f3aa6d7454 100644
+index 27d1dd7d26..8d335ec14f 100644
 --- a/package/kernel/mac80211/Makefile
 +++ b/package/kernel/mac80211/Makefile
-@@ -397,3 +397,5 @@ endef
+@@ -12,7 +12,7 @@ PKG_NAME:=mac80211
+ 
+ PKG_SOURCE_VERSION:=7.2
+ PKG_VERSION:=$(subst -,_,$(PKG_SOURCE_VERSION))
+-PKG_RELEASE:=18
++PKG_RELEASE:=19
+ PKG_LICENSE:=GPL-2.0-only
+ PKG_LICENSE_FILES:=COPYING
+ 
+@@ -397,3 +397,6 @@ endef
  $(eval $(foreach drv,$(PKG_DRIVERS),$(call KernelPackage,$(drv))))
  $(eval $(call KernelPackage,cfg80211))
  $(eval $(call KernelPackage,mac80211))
 +$(eval $(call BuildPackage,b43-firmware))
-+$(eval $(call BuildPackage,b43-firmware-784))
++$(eval $(call BuildPackage,b43-firmware-open))
++$(foreach phy,$(B43_FW784_PHYS),$(eval $(call BuildPackage,b43-firmware-784-$(phy))))
 diff --git a/package/kernel/mac80211/broadcom.mk b/package/kernel/mac80211/broadcom.mk
-index da9616cbfb..7642836f49 100644
+index da9616cbfb..90b9f6141e 100644
 --- a/package/kernel/mac80211/broadcom.mk
 +++ b/package/kernel/mac80211/broadcom.mk
-@@ -84,6 +84,20 @@ define Download/b43
+@@ -34,55 +34,66 @@ config-$(CONFIG_PACKAGE_BRCM80211_DEBUG) += BRCMDBG
+ config-$(CONFIG_LEDS_TRIGGERS) += B43_LEDS B43LEGACY_LEDS
+ 
+ #Broadcom firmware
+-ifneq ($(CONFIG_B43_FW_5_10),)
+-  PKG_B43_FWV4_NAME:=broadcom-wl
+-  PKG_B43_FWV4_VERSION:=5.10.56.27.3
+-  PKG_B43_FWV4_OBJECT:=$(PKG_B43_FWV4_NAME)-$(PKG_B43_FWV4_VERSION)/driver/wl_apsta/wl_prebuilt.o
+-  PKG_B43_FWV4_SOURCE:=$(PKG_B43_FWV4_NAME)-$(PKG_B43_FWV4_VERSION)_mipsel.tar.bz2
+-  PKG_B43_FWV4_SOURCE_URL:=@OPENWRT
+-  PKG_B43_FWV4_HASH:=26a8c370f48fc129d0731cfd751c36cae1419b0bc8ca35781126744e60eae009
+-else
+-ifneq ($(CONFIG_B43_FW_4_178),)
+-  PKG_B43_FWV4_NAME:=broadcom-wl
+-  PKG_B43_FWV4_VERSION:=4.178.10.4
+-  PKG_B43_FWV4_OBJECT:=$(PKG_B43_FWV4_NAME)-$(PKG_B43_FWV4_VERSION)/linux/wl_apsta.o
+-  PKG_B43_FWV4_SOURCE:=$(PKG_B43_FWV4_NAME)-$(PKG_B43_FWV4_VERSION).tar.bz2
+-  PKG_B43_FWV4_SOURCE_URL:=@OPENWRT
+-  PKG_B43_FWV4_HASH:=32f6ad98facbb9045646fdc8b54bb03086d204153253f9c65d0234a5d90ae53f
+-else
+-ifneq ($(CONFIG_B43_FW_5_100_138),)
+-  PKG_B43_FWV4_NAME:=broadcom-wl
+-  PKG_B43_FWV4_VERSION:=5.100.138
+-  PKG_B43_FWV4_OBJECT:=$(PKG_B43_FWV4_NAME)-$(PKG_B43_FWV4_VERSION)/linux/wl_apsta.o
+-  PKG_B43_FWV4_SOURCE:=$(PKG_B43_FWV4_NAME)-$(PKG_B43_FWV4_VERSION).tar.bz2
+-  PKG_B43_FWV4_SOURCE_URL:=@OPENWRT
+-  PKG_B43_FWV4_HASH:=f1e7067aac5b62b67b8b6e4c517990277804339ac16065eb13c731ff909ae46f
+-else
+-  PKG_B43_FWV4_NAME:=broadcom-wl
+-  PKG_B43_FWV4_VERSION:=4.150.10.5
+-  PKG_B43_FWV4_OBJECT:=$(PKG_B43_FWV4_NAME)-$(PKG_B43_FWV4_VERSION)/driver/wl_apsta_mimo.o
+-  PKG_B43_FWV4_SOURCE:=$(PKG_B43_FWV4_NAME)-$(PKG_B43_FWV4_VERSION).tar.bz2
+-  PKG_B43_FWV4_SOURCE_URL:=@OPENWRT
+-  PKG_B43_FWV4_HASH:=a9f4e276a4d8d3a1cd0f2eb87080ae89b77f0a7140f06d4e9e2135fc44fdd533
+-endif
+-endif
+-endif
+-ifneq ($(CONFIG_B43_OPENFIRMWARE),)
+-  PKG_B43_FWV4_NAME:=broadcom-wl
+-  PKG_B43_FWV4_VERSION:=5.2
+-  PKG_B43_FWV4_OBJECT:=openfwwf-$(PKG_B43_FWV4_VERSION)
+-  PKG_B43_FWV4_SOURCE:=openfwwf-$(PKG_B43_FWV4_VERSION).tar.gz
+-  PKG_B43_FWV4_SOURCE_URL:=http://netweb.ing.unibs.it/~openfwwf/firmware
+-  PKG_B43_FWV4_HASH:=9de03320083201080b2e94b81637ac07a159cf4e6f3481383e1a217e627bc0dc
+-endif
+-
++PKG_B43_FWV4_NAME:=broadcom-wl
++PKG_B43_FWV4_VERSION:=5.100.138
++PKG_B43_FWV4_OBJECT:=$(PKG_B43_FWV4_NAME)-$(PKG_B43_FWV4_VERSION)/linux/wl_apsta.o
++PKG_B43_FWV4_SOURCE:=$(PKG_B43_FWV4_NAME)-$(PKG_B43_FWV4_VERSION).tar.bz2
+ 
++ifneq ($(CONFIG_PACKAGE_b43-firmware),)
+ define Download/b43
+   FILE:=$(PKG_B43_FWV4_SOURCE)
+-  URL:=$(PKG_B43_FWV4_SOURCE_URL)
+-  HASH:=$(PKG_B43_FWV4_HASH)
++  URL:=@OPENWRT
++  HASH:=f1e7067aac5b62b67b8b6e4c517990277804339ac16065eb13c731ff909ae46f
  endef
  $(eval $(call Download,b43))
- 
++endif
++
++PKG_B43_OPENFW_VERSION:=5.2
++PKG_B43_OPENFW_OBJECT:=openfwwf-$(PKG_B43_OPENFW_VERSION)
++PKG_B43_OPENFW_SOURCE:=openfwwf-$(PKG_B43_OPENFW_VERSION).tar.gz
++
++ifneq ($(CONFIG_PACKAGE_b43-firmware-open),)
++define Download/b43-open
++  FILE:=$(PKG_B43_OPENFW_SOURCE)
++  URL:=http://netweb.ing.unibs.it/openfwwf/firmware \
++	https://src.fedoraproject.org/lookaside/pkgs/b43-openfwwf/openfwwf-5.2.tar.gz/e045a135453274e439ae183f8498b0fa
++  HASH:=9de03320083201080b2e94b81637ac07a159cf4e6f3481383e1a217e627bc0dc
++endef
++$(eval $(call Download,b43-open))
++endif
++
 +PKG_B43_FW784_NAME:=broadcom-wl
 +PKG_B43_FW784_VERSION:=6.30.163.46
 +PKG_B43_FW784_OBJECT:=$(PKG_B43_FW784_NAME)-$(PKG_B43_FW784_VERSION).wl_apsta.o
 +PKG_B43_FW784_SOURCE:=$(PKG_B43_FW784_NAME)-$(PKG_B43_FW784_VERSION).tar.bz2
 +
-+ifneq ($(CONFIG_PACKAGE_b43-firmware-784),)
++# 784.2 split by PHY type: each package has the files b43-fwsquash.py keeps
++# for its types; ucode13.fw (revision 13 G-PHY and LP-PHY cores) is in the
++# LP-PHY package only
++B43_FW784_PHYS:=ac ht n lp g lcn
++B43_FW784_TYPES_ac:=AC
++B43_FW784_TYPES_ht:=HT
++B43_FW784_TYPES_n:=N
++B43_FW784_TYPES_lp:=LP
++B43_FW784_TYPES_g:=G,A,AG
++B43_FW784_TYPES_lcn:=LCN,LCN40
++B43_FW784_DROP_g:=ucode13.fw
++B43_FW784_TITLE_ac:=AC-PHY
++B43_FW784_TITLE_ht:=HT-PHY
++B43_FW784_TITLE_n:=N-PHY
++B43_FW784_TITLE_lp:=LP-PHY
++B43_FW784_TITLE_g:=A-PHY and G-PHY
++B43_FW784_TITLE_lcn:=LCN-PHY and LCN40-PHY
++B43_FW784_COREREVS:=2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42
++
++ifneq ($(foreach phy,$(B43_FW784_PHYS),$(CONFIG_PACKAGE_b43-firmware-784-$(phy))),)
 +define Download/b43-784
 +  FILE:=$(PKG_B43_FW784_SOURCE)
 +  URL:=@SF/b43-firmware
@@ -380,11 +244,10 @@ index da9616cbfb..7642836f49 100644
 +endef
 +$(eval $(call Download,b43-784))
 +endif
-+
+ 
  define KernelPackage/b43
    $(call KernelPackage/mac80211/Default)
-   TITLE:=Broadcom 43xx wireless support
-@@ -92,7 +106,7 @@ define KernelPackage/b43
+@@ -92,7 +103,7 @@ define KernelPackage/b43
    	CONFIG_HW_RANDOM=y
    # Depend on PCI_SUPPORT to make sure we can select kmod-bcma or kmod-ssb
    DEPENDS += \
@@ -393,62 +256,142 @@ index da9616cbfb..7642836f49 100644
  	$(if $(CONFIG_PACKAGE_B43_USE_SSB),+kmod-ssb) \
  	$(if $(CONFIG_PACKAGE_B43_USE_BCMA),+kmod-bcma)
    FILES:=$(PKG_BUILD_DIR)/drivers/net/wireless/broadcom/b43/b43.ko
-@@ -100,23 +114,35 @@ define KernelPackage/b43
+@@ -100,78 +111,37 @@ define KernelPackage/b43
    MENU:=1
  endef
  
 -define KernelPackage/b43/config
-+define Package/b43-firmware
-+  SECTION:=firmware
-+  CATEGORY:=Firmware
-+  TITLE:=Broadcom 43xx firmware (b43)
-+  URL:=https://wireless.wiki.kernel.org/en/users/drivers/b43/firmware
-+  MENU:=1
-+endef
- 
+-
 -config PACKAGE_B43_USE_SSB
 -	select PACKAGE_kmod-ssb
 -	tristate
 -	depends on !TARGET_bcm47xx
 -	default PACKAGE_kmod-b43 if PACKAGE_B43_BUSES_BCMA_AND_SSB
 -	default PACKAGE_kmod-b43 if PACKAGE_B43_BUSES_SSB
-+define Package/b43-firmware-784
-+  SECTION:=firmware
-+  CATEGORY:=Firmware
-+  TITLE:=Broadcom 43xx firmware 784.2 (b43-next)
-+  URL:=https://wireless.wiki.kernel.org/en/users/drivers/b43/firmware
-+  CONFLICTS:=b43-firmware
-+endef
- 
+-
 -config PACKAGE_B43_USE_BCMA
 -	select PACKAGE_kmod-bcma
 -	tristate
 -	depends on !TARGET_bcm47xx && !TARGET_bcm53xx
 -	default PACKAGE_kmod-b43 if PACKAGE_B43_BUSES_BCMA_AND_SSB
 -	default PACKAGE_kmod-b43 if PACKAGE_B43_BUSES_BCMA
-+define Package/b43-firmware-784/description
-+ Firmware 784.2 from Broadcom driver 6.30.163.46, cut with b43-fwcutter,
-+ for kmod-b43-next. It is the only b43 firmware with the microcode of the
-+ AC-PHY cores (core revision 42: BCM4352, BCM4360).
+-
+-  if PACKAGE_kmod-b43
+-
+-	choice
+-		prompt "b43 firmware version"
+-		default B43_FW_5_100_138
+-		help
+-		  This option allows you to select the version of the b43 firmware.
+-
+-	config B43_FW_4_150
+-		bool "Firmware 410.2160 from driver 4.150.10.5 (old stable)"
+-		help
+-		  Old stable firmware for BCM43xx devices.
+-
+-		  If unsure, select this.
+-
+-	config B43_FW_4_178
+-		bool "Firmware 478.104 from driver 4.178.10.4"
+-		help
+-		  Older firmware for BCM43xx devices.
+-
+-		  If unsure, select the "stable" firmware.
+-
+-	config B43_FW_5_10
+-		bool "Firmware 508.1084 from driver 5.10.56.27"
+-		help
+-		  Older firmware for BCM43xx devices.
+-
+-		  If unsure, select the "stable" firmware.
+-
+-	config B43_FW_5_100_138
+-		bool "Firmware 666.2 from driver 5.100.138 (stable)"
+-		help
+-		  The currently default firmware for BCM43xx devices.
+-
+-		  This firmware currently gets most of the testing and is needed for some N-PHY devices.
++define Package/b43-firmware
++  SECTION:=firmware
++  CATEGORY:=Firmware
++  TITLE:=Broadcom 43xx firmware 666.2 (b43)
++  URL:=https://wireless.wiki.kernel.org/en/users/drivers/b43/firmware
++  MENU:=1
 +endef
  
--  if PACKAGE_kmod-b43
+-		  If unsure, select the this firmware.
 +define Package/b43-firmware/description
-+ The b43 firmware, cut from a Broadcom driver with b43-fwcutter, for
++ Firmware 666.2 from Broadcom driver 5.100.138, cut with b43-fwcutter, for
 + kmod-b43.
 +endef
-+
+ 
+-	config B43_OPENFIRMWARE
+-		bool "Open FirmWare for WiFi networks"
+-		help
+-		  Opensource firmware for BCM43xx devices.
++define Package/b43-firmware-open
++  SECTION:=firmware
++  CATEGORY:=Firmware
++  TITLE:=Open FirmWare for WiFi networks (b43)
++  URL:=http://netweb.ing.unibs.it/openfwwf/
++endef
+ 
+-		  Do _not_ select this, unless you know what you are doing.
+-		  The Opensource firmware is not suitable for embedded devices, yet.
+-		  It does not support QoS, which is bad for AccessPoints.
+-		  It does not support hardware crypto acceleration, which is a showstopper
+-		  for embedded devices with low CPU resources.
++define Package/b43-firmware-open/description
++ OpenFWWF 5.2, open source firmware for the G-PHY cores of revision 5 to 10,
++ installed in /lib/firmware/b43-open, where b43 loads it when the
++ proprietary firmware is missing. No QoS and no hardware crypto.
++endef
+ 
+-		  If unsure, select the "stable" firmware.
+-
+-	endchoice
 +define Package/b43-firmware/config
 +  if PACKAGE_b43-firmware
  
- 	choice
- 		prompt "b43 firmware version"
-@@ -219,6 +245,27 @@ config PACKAGE_B43_USE_BCMA
+ 	config B43_FW_SQUASH
+ 		bool "Remove unnecessary firmware files"
+-		depends on !B43_OPENFIRMWARE
+ 		default y
+ 		help
+ 		  This options allows you to remove unnecessary b43 firmware files
+@@ -219,6 +189,54 @@ config PACKAGE_B43_USE_BCMA
  		  Example (keep files for G-PHY and N-PHY):
  		    G,N
  
 +  endif
 +endef
++
++define B43Firmware784
++  define Package/b43-firmware-784-$(1)
++    SECTION:=firmware
++    CATEGORY:=Firmware
++    TITLE:=Broadcom 43xx firmware 784.2, $(B43_FW784_TITLE_$(1)) (b43-next)
++    URL:=https://wireless.wiki.kernel.org/en/users/drivers/b43/firmware
++  endef
++
++  define Package/b43-firmware-784-$(1)/description
++   Firmware 784.2 from Broadcom driver 6.30.163.46, cut with b43-fwcutter:
++   the files for the $(B43_FW784_TITLE_$(1)) cores, installed in
++   /lib/firmware/b43-784 for kmod-b43-next.
++  endef
++
++  define Package/b43-firmware-784-$(1)/install
++	rm -rf $(PKG_BUILD_DIR)/b43-firmware-784-$(1)
++	mkdir -p $(PKG_BUILD_DIR)/b43-firmware-784-$(1)
++	tar xjf "$(DL_DIR)/$(PKG_B43_FW784_SOURCE)" -C "$(PKG_BUILD_DIR)/b43-firmware-784-$(1)"
++	b43-fwcutter -w $(PKG_BUILD_DIR)/b43-firmware-784-$(1) $(PKG_BUILD_DIR)/b43-firmware-784-$(1)/$(PKG_B43_FW784_OBJECT)
++	b43-fwsquash.py "$(B43_FW784_TYPES_$(1))" "$(B43_FW784_COREREVS)" "$(PKG_BUILD_DIR)/b43-firmware-784-$(1)/b43"
++	rm -f $(addprefix $(PKG_BUILD_DIR)/b43-firmware-784-$(1)/b43/,$(B43_FW784_DROP_$(1)))
++	$$(INSTALL_DIR) $$(1)/lib/firmware/b43-784
++	$$(INSTALL_DATA) $(PKG_BUILD_DIR)/b43-firmware-784-$(1)/b43/*.fw $$(1)/lib/firmware/b43-784/
++  endef
++endef
++$(foreach phy,$(B43_FW784_PHYS),$(eval $(call B43Firmware784,$(phy))))
 +
 +define KernelPackage/b43/config
 +
@@ -471,29 +414,1259 @@ index da9616cbfb..7642836f49 100644
  	choice
  		prompt "Supported buses"
  		default PACKAGE_B43_BUSES_BCMA_AND_SSB
-@@ -402,7 +449,7 @@ define KernelPackage/brcmfmac/config
+@@ -402,24 +420,21 @@ define KernelPackage/brcmfmac/config
  endef
  
  
 -define KernelPackage/b43/install
 +define Package/b43-firmware/install
  	rm -rf $(1)/lib/firmware/
- ifeq ($(CONFIG_B43_OPENFIRMWARE),y)
- 	tar xzf "$(DL_DIR)/$(PKG_B43_FWV4_SOURCE)" -C "$(PKG_BUILD_DIR)"
-@@ -423,3 +470,11 @@ ifneq ($(CONFIG_B43_FW_SQUASH),)
+-ifeq ($(CONFIG_B43_OPENFIRMWARE),y)
+-	tar xzf "$(DL_DIR)/$(PKG_B43_FWV4_SOURCE)" -C "$(PKG_BUILD_DIR)"
+-else
+ 	tar xjf "$(DL_DIR)/$(PKG_B43_FWV4_SOURCE)" -C "$(PKG_BUILD_DIR)"
+-endif
+ 	$(INSTALL_DIR) $(1)/lib/firmware/
+-ifeq ($(CONFIG_B43_OPENFIRMWARE),y)
+-	$(MAKE) -C "$(PKG_BUILD_DIR)/$(PKG_B43_FWV4_OBJECT)/"
+-	$(INSTALL_DIR) $(1)/lib/firmware/b43-open/
+-	$(INSTALL_DATA) $(PKG_BUILD_DIR)/$(PKG_B43_FWV4_OBJECT)/ucode5.fw $(1)/lib/firmware/b43-open/ucode5.fw
+-	$(INSTALL_DATA) $(PKG_BUILD_DIR)/$(PKG_B43_FWV4_OBJECT)/b0g0bsinitvals5.fw $(1)/lib/firmware/b43-open/b0g0bsinitvals5.fw
+-	$(INSTALL_DATA) $(PKG_BUILD_DIR)/$(PKG_B43_FWV4_OBJECT)/b0g0initvals5.fw $(1)/lib/firmware/b43-open/b0g0initvals5.fw
+-else
+ 	b43-fwcutter -w $(1)/lib/firmware/ $(PKG_BUILD_DIR)/$(PKG_B43_FWV4_OBJECT)
+-endif
+ ifneq ($(CONFIG_B43_FW_SQUASH),)
  	b43-fwsquash.py "$(CONFIG_B43_FW_SQUASH_PHYTYPES)" "$(CONFIG_B43_FW_SQUASH_COREREVS)" "$(1)/lib/firmware/b43"
  endif
  endef
 +
-+define Package/b43-firmware-784/install
-+	rm -rf $(PKG_BUILD_DIR)/b43-firmware-784
-+	mkdir -p $(PKG_BUILD_DIR)/b43-firmware-784
-+	tar xjf "$(DL_DIR)/$(PKG_B43_FW784_SOURCE)" -C "$(PKG_BUILD_DIR)/b43-firmware-784"
-+	$(INSTALL_DIR) $(1)/lib/firmware/
-+	b43-fwcutter -w $(1)/lib/firmware/ $(PKG_BUILD_DIR)/b43-firmware-784/$(PKG_B43_FW784_OBJECT)
++define Package/b43-firmware-open/install
++	tar xzf "$(DL_DIR)/$(PKG_B43_OPENFW_SOURCE)" -C "$(PKG_BUILD_DIR)"
++	$(MAKE) -C "$(PKG_BUILD_DIR)/$(PKG_B43_OPENFW_OBJECT)/"
++	$(INSTALL_DIR) $(1)/lib/firmware/b43-open/
++	$(INSTALL_DATA) $(PKG_BUILD_DIR)/$(PKG_B43_OPENFW_OBJECT)/ucode5.fw $(1)/lib/firmware/b43-open/ucode5.fw
++	$(INSTALL_DATA) $(PKG_BUILD_DIR)/$(PKG_B43_OPENFW_OBJECT)/b0g0bsinitvals5.fw $(1)/lib/firmware/b43-open/b0g0bsinitvals5.fw
++	$(INSTALL_DATA) $(PKG_BUILD_DIR)/$(PKG_B43_OPENFW_OBJECT)/b0g0initvals5.fw $(1)/lib/firmware/b43-open/b0g0initvals5.fw
 +endef
+diff --git a/target/linux/generic/hack-6.18/810-bcma-ssb-fallback-sprom.patch b/target/linux/generic/hack-6.18/810-bcma-ssb-fallback-sprom.patch
+index 392c873b0e..da05f125a6 100644
+--- a/target/linux/generic/hack-6.18/810-bcma-ssb-fallback-sprom.patch
++++ b/target/linux/generic/hack-6.18/810-bcma-ssb-fallback-sprom.patch
+@@ -68,7 +68,7 @@ Subject: [PATCH] ssb_sprom: add generic kernel support for Broadcom  Fallback SP
+  		return err;
+ --- a/drivers/bcma/sprom.c
+ +++ b/drivers/bcma/sprom.c
+-@@ -51,21 +51,26 @@ static int bcma_fill_sprom_with_fallback
++@@ -52,21 +52,26 @@ static int bcma_fill_sprom_with_fallback
+  {
+  	int err;
+  
+diff --git a/target/linux/generic/pending-6.18/806-bcma-ssb-support-the-BCM4352-BCM4360-family.patch b/target/linux/generic/pending-6.18/806-bcma-ssb-support-the-BCM4352-BCM4360-family.patch
+new file mode 100644
+index 0000000000..87940010a5
+--- /dev/null
++++ b/target/linux/generic/pending-6.18/806-bcma-ssb-support-the-BCM4352-BCM4360-family.patch
+@@ -0,0 +1,1197 @@
++From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
++From: Alessio Ferri <alessio.ferri.3012@gmail.com>
++Date: Wed, 17 Jun 2026 20:55:58 +0000
++Subject: [PATCH] bcma: ssb: support the BCM4352/BCM4360 family
++
++Everything the BCM4352/BCM4360 family needs from bcma, ssb and the
++bcm47xx NVRAM parser, in one place. Each section below is one change,
++with its reasons.
++
++Add SPROM revision 11 extraction
++--------------------------------
++
++SPROM revision 11 is introduced with the BCM4352/BCM4360 family. Extend
++struct ssb_sprom with the rev-11 fields actually parsed (per-band rxgains,
++per-chain maxp/pa power info, the FEM/PA control block, the TSSI floor,
++subband5gver, 80 MHz MCS power offsets, pdoffset40ma) and add bcma_sprom_extract_r11(), dispatched from bcma_sprom_get() when the
++SPROM revision word reads as 11. bcma_sprom_get() already probes the rev-11
++buffer size, and bcma_sprom_valid() populates bus->sprom.revision before
++the dispatch. Revisions <= 10 keep the extract_r8 path.
++
++The rev-11 field set and word offsets follow the public bcmdhd SROM
++parser table (include/bcmsrom_tbl.h, GPLv2).
++
++Header fields (IL0MAC/ANTAVAIL/TXRXC/CCODE and the ledbh0-3 LED
++behaviours in gpio0-3) reuse the rev-8 masks/shifts; only the absolute
++offsets moved. CCODE uses 0x96, since rev-8 0x92 collides with the middle
++word of the rev-11 IL0MAC block. The LED words are 0x9A/0x9C: extract_r8
++would read them from 0x96/0x98, which on rev 11 are CCODE and REGREV, and
++leaving them unset gives b43 zeros instead of the 0xff that selects its
++LED defaults. boardflags3 is words 70-71 (0x8C).
++
++Also extracts the explicit per-rate-group offsets of the bonded channels'
++sub-band rows (sb20in40*, sb20in80and160*, sb40and80*, dot11agdup*,
++mcslr5g*; SROM11 words 200-218 of bcmsrom_fmt.h) and decodes the antenna
++gain (agbg0/aga0, whole dB in [5:0] plus quarter dB in [7:6]) into
++antenna_gain_qdb[], which the regulatory ceiling subtracts from EIRP, and pdoffset80ma, the
++per-chain power-detector offsets of the 80 MHz rate groups.
++
++The five rpcal words, the TX beamforming RX path calibration for 2.4 GHz
++and the four 5 GHz sub-bands, are words 182, 183, 190, 191 and 198,
++between the per-rate words. Rev 11 has no 160 MHz per-rate field in the
++SPROM: those words are the rpcal ones.
++
++The temperature fields -- tempthresh, tempoffset, rawtempsense, measpower,
++tempsense_slope, tempcorrx, tempsense_option, phycal_tempdelta,
++temps_period and temps_hysteresis -- sit in rev 11 four bytes below their
++rev-8 words with the same layout, so the SPROM8 masks apply. The
++TG789vac v2 dump, the one board here that programs them, has THERMAL =
++0x7800 and TEMPDELTA = 0x5500, matching tempthresh=120 and
++temps_period=5 in its NVRAM.
++
++Read the SROM rev 11 fields from NVRAM
++--------------------------------------
++
++A board without a SROM keeps its radios' data in NVRAM, under the
++device's prefix, and bcma reads it through the bcm47xx fallback; the
++Northstar routers do so for their BCM4360s. bcm47xx_fill_sprom() has no
++case for revision 11 and its rev 8-10 entries exclude it, so there the
++rev 11 fields stay zero.
++
++Read on rev 11 every field bcma_sprom_extract_r11() fills, under the
++names Broadcom's driver gives them: the scalars in
++bcm47xx_sprom_fill_auto(), the per-chain power info, pdoffset40ma,
++pdoffset80ma and the rxgains of the four sub-bands, tssifloor5g and the
++antenna gain in bcm47xx_fill_sprom_path_r11(). A list is taken whole or
++not at all; nvram_read_u8_array() and nvram_read_u16_array() do that,
++AvVmid_cN included. ssb_sprom_antgain_qdb() decodes the antenna gain
++byte for both sources.
++
++PMU init for the BCM4352/BCM4360 family
++---------------------------------------
++
++Neither bcma_pmu_pll_init() nor bcma_pmu_resources_init() have a case
++for the family; both are no-ops for these chips today.
++
++Only chip rev 3 has been captured, so only rev 3 is programmed:
++
++- PLLCTL2/PLLCTL3 = 0x0c31/0x100e, a 960.0098 MHz fractional VCO for a
++  40 MHz crystal, latched with PLL_UPD. Not on a BCM4360 with the USB
++  strap (chipstatus bit 8), which no capture has.
++- Resource 6 up/down time 0x00200001.
++- With chipstatus bit 5 clear, PLLCTL6 = PLLCTL14 = 0x09048562, latched,
++  and a max resource mask of 0x1ff; with it set, both masks keep their
++  reset values.
++
++The PCIe2 core's HT available request is made on rev 3 only too.
++
++Both branches of bit 5 are captured on rev 3: clear on a BCM4360
++(MacBookAir6,1), set on a BCM4352 (Archer T5E).
++
++Add BCM4352 (0x43b3) to the PCI bridge table
++--------------------------------------------
++
++The BCM4352 is an AC PHY. It is missing from bcma_pci_bridge_tbl[],
++so bcma-pci-bridge does not bind. Add the ID.
++
++The chip identifies as BCM4352 (chip rev 3, PHY type AC); b43 with AC-PHY
++support handles it once bcma reaches the D11 core.
++
++Carry the NVRAM ledbh4..ledbh15 LED mappings
++--------------------------------------------
++
++The SPROM has fields for the LEDs on GPIO pins 0-3 only, ledbh0-3, and
++struct ssb_sprom mirrors that as gpio0-3. Broadcom boards map LEDs on any
++of the sixteen GPIO lines through NVRAM ledbh4..ledbh15, which the stock
++driver reads with the same device prefix as ledbh0-3; on the Netgear D6220
++and the D-Link DSL-3580L the 5 GHz activity LED is ledbh10=0x88.
++
++On those boards the 802.11 core is a PCIe device with its own SPROM, so
++bcma reads the SPROM from the device and the NVRAM fallback never runs:
++whatever the board says in NVRAM about the device is lost. The stock
++driver merges the two; do the same for the variables the SPROM has no word
++for.
++
++Add gpio_ext[12] for pins 4-15. bcm47xx_sprom fills it in two places: in
++bcm47xx_sprom_fill_auto(), next to ledbh0-3, for a SPROM that comes from
++NVRAM, and through bcm47xx_sprom_fill_bcma_nvram(), which resolves the
++bus's prefix as the fallback does, for a SPROM read from the device; bcma
++calls the latter after extracting the device SPROM. The prefix resolution
++moves out of bcm47xx_get_sprom_bcma() into a helper the two share. Like
++the fallback, this exists only with bcma built in; elsewhere the call is
++an inline no-op.
++
++Carry boardflags3 and AvVmid_c0..2 from NVRAM
++---------------------------------------------
++
++The AC-PHY programs each chain's power-detector input with a pair, Av and
++Vmid, per band. A board gives the pairs in NVRAM as AvVmid_c0..2 -- ten
++comma-separated values, Av,Vmid for 2g, 5gl, 5gml, 5gmu and 5gh, as in the
++public Broadcom NVRAM files -- and the stock driver takes them from there
++only when boardflags3 has BFL3_AvVim (0x40000000), "load AvVim from nvram"
++in the same files; without the flag it uses a default set of its own.
++
++AvVmid has no field in struct ssb_sprom; add avvmid[3][5][2] and
++avvmid_valid, the chains whose variable parsed, so that a flag without the
++variable leaves the driver on its defaults. Read both in
++bcm47xx_sprom_fill_nvram_only(), next to ledbh4..15, which runs for a
++SPROM from NVRAM and on top of one read from the device. On the latter,
++a boardflags3 in NVRAM replaces the word the rev 11 extraction read.
++
++Clear only FORCEHT for BCMA_CLKMODE_DYNAMIC
++-------------------------------------------
++
++bcma_core_set_clockmode() sets every bit of CLKCTLST but FORCEHT
++instead of clearing FORCEHT. Mask it out.
++
++Set corecontrol bits 5:2 on the family
++--------------------------------------
++
++The stock driver sets them next to the GPIO timer: wl 6.30.223 writes
++0x3c on the Archer T5E, wl 6.30.102.7 pulses them low and back high on
++the DSL-3580L. Bit 3 is UARTCLKEN, the others are unnamed.
++
++Log PMU and SPROM probing at info level
++---------------------------------------
++
++The PMU and SPROM revisions, and the PLL and resource mask values the
++family's PMU init overwrites, for the bring-up logs.
++
++Signed-off-by: Alessio Ferri <alessio.ferri.3012@gmail.com>
++[one change of a log level dropped, it conflicts with 810; the resource
++masks are logged for the family only]
++Signed-off-by: Ville Takio <ville+git@takio.fi>
++---
++ drivers/bcma/core.c                         |   2 +-
++ drivers/bcma/driver_chipcommon.c            |  10 +
++ drivers/bcma/driver_chipcommon_pmu.c        |  58 ++++-
++ drivers/bcma/driver_pcie2.c                 |   4 +
++ drivers/bcma/host_pci.c                     |   1 +
++ drivers/bcma/sprom.c                        | 222 +++++++++++++++-
++ drivers/firmware/broadcom/bcm47xx_sprom.c   | 264 ++++++++++++++++++--
++ include/linux/bcm47xx_sprom.h               |  16 ++
++ include/linux/bcma/bcma_driver_chipcommon.h |   4 +
++ include/linux/ssb/ssb.h                     |  88 +++++++
++ include/linux/ssb/ssb_regs.h                | 119 +++++++++
++ 11 files changed, 759 insertions(+), 29 deletions(-)
++
++--- a/drivers/bcma/core.c
+++++ b/drivers/bcma/core.c
++@@ -100,7 +100,7 @@ void bcma_core_set_clockmode(struct bcma
++ 			bcma_err(core->bus, "HT force timeout\n");
++ 		break;
++ 	case BCMA_CLKMODE_DYNAMIC:
++-		bcma_set32(core, BCMA_CLKCTLST, ~BCMA_CLKCTLST_FORCEHT);
+++		bcma_mask32(core, BCMA_CLKCTLST, ~BCMA_CLKCTLST_FORCEHT);
++ 		break;
++ 	}
++ }
++--- a/drivers/bcma/driver_chipcommon.c
+++++ b/drivers/bcma/driver_chipcommon.c
++@@ -227,6 +227,16 @@ void bcma_core_chipcommon_init(struct bc
++ 			((leddc_on << BCMA_CC_GPIOTIMER_ONTIME_SHIFT) |
++ 			 (leddc_off << BCMA_CC_GPIOTIMER_OFFTIME_SHIFT)));
++ 	}
+++
+++	/*
+++	 * Bits 5:2 of corecontrol, which the stock driver sets next to the
+++	 * GPIO timer: wl 6.30.223 writes 0x3c on the Archer T5E, wl 6.30.102.7
+++	 * pulses the bits low and back high on the DSL-3580L. Bit 3 is
+++	 * UARTCLKEN; bits 2, 4 and 5 are not named here.
+++	 */
+++	if (cc->core->bus->chipinfo.id == BCMA_CHIP_ID_BCM4352 ||
+++	    cc->core->bus->chipinfo.id == BCMA_CHIP_ID_BCM4360)
+++		bcma_cc_set32(cc, BCMA_CC_CORECTL, 0x3c);
++ 	cc->ticks_per_ms = bcma_chipco_watchdog_ticks_per_ms(cc);
++ 
++ 	cc->setup_done = true;
++--- a/drivers/bcma/driver_chipcommon_pmu.c
+++++ b/drivers/bcma/driver_chipcommon_pmu.c
++@@ -145,6 +145,47 @@ static void bcma_pmu2_pll_init0(struct b
++ 	/* TODO: Do we need to update OTP? */
++ }
++ 
+++/* BCM4352/BCM4360: only chip rev 3 has been captured. */
+++static void bcma_pmu_4360_pll_init(struct bcma_drv_cc *cc)
+++{
+++	struct bcma_bus *bus = cc->core->bus;
+++	u32 ctl2, ctl3;
+++
+++	if (bus->chipinfo.rev != 3)
+++		return;
+++	/* No capture has the USB strap. */
+++	if (bus->chipinfo.id == BCMA_CHIP_ID_BCM4360 &&
+++	    cc->status & BCMA_CC_CHIPST_4360_MODE_USB)
+++		return;
+++
+++	/* Fractional VCO, 960.0098 MHz from a 40 MHz crystal. */
+++	ctl2 = bcma_chipco_pll_read(cc, BCMA_CC_PMU_PLL_CTL2);
+++	ctl3 = bcma_chipco_pll_read(cc, BCMA_CC_PMU_PLL_CTL3);
+++	bcma_info(bus, "PMU PLL pre-write: ctl2=0x%08x ctl3=0x%08x\n",
+++		  ctl2, ctl3);
+++	bcma_chipco_pll_write(cc, BCMA_CC_PMU_PLL_CTL2, 0x0c31);
+++	bcma_chipco_pll_write(cc, BCMA_CC_PMU_PLL_CTL3, 0x100e);
+++	bcma_pmu_set32(cc, BCMA_CC_PMU_CTL, BCMA_CC_PMU_CTL_PLL_UPD);
+++}
+++
+++/* Returns the max resource mask to program, 0 to leave it alone. */
+++static u32 bcma_pmu_4360_resources_init(struct bcma_drv_cc *cc)
+++{
+++	if (cc->core->bus->chipinfo.rev != 3)
+++		return 0;
+++
+++	bcma_pmu_write32(cc, BCMA_CC_PMU_RES_TABSEL, 6);
+++	bcma_pmu_write32(cc, BCMA_CC_PMU_RES_UPDNTM, 0x00200001);
+++
+++	/* min_res_mask keeps its reset value in both cases. */
+++	if (cc->status & BCMA_CC_CHIPST_4360_RSRC_INIT_MODE0)
+++		return 0;
+++	bcma_chipco_pll_write(cc, BCMA_CC_PMU_PLL_CTL6, 0x09048562);
+++	bcma_chipco_pll_write(cc, BCMA_CC_PMU_PLL_CTL14, 0x09048562);
+++	bcma_pmu_set32(cc, BCMA_CC_PMU_CTL, BCMA_CC_PMU_CTL_PLL_UPD);
+++	return 0x1ff;
+++}
+++
++ static void bcma_pmu_pll_init(struct bcma_drv_cc *cc)
++ {
++ 	struct bcma_bus *bus = cc->core->bus;
++@@ -156,6 +197,10 @@ static void bcma_pmu_pll_init(struct bcm
++ 			xtalfreq = 20000;
++ 		bcma_pmu2_pll_init0(cc, xtalfreq);
++ 		break;
+++	case BCMA_CHIP_ID_BCM4352:
+++	case BCMA_CHIP_ID_BCM4360:
+++		bcma_pmu_4360_pll_init(cc);
+++		break;
++ 	}
++ }
++ 
++@@ -188,6 +233,15 @@ static void bcma_pmu_resources_init(stru
++ 			  BCMA_RES_4314_WL_CORE_READY;
++ 		max_msk = 0x3FFFFFFF;
++ 		break;
+++	case BCMA_CHIP_ID_BCM4352:
+++	case BCMA_CHIP_ID_BCM4360:
+++		max_msk = bcma_pmu_4360_resources_init(cc);
+++		bcma_info(bus,
+++			  "PMU res mask pre-write: min=0x%08x max=0x%08x (writing min=0x%08x max=0x%08x)\n",
+++			  bcma_pmu_read32(cc, BCMA_CC_PMU_MINRES_MSK),
+++			  bcma_pmu_read32(cc, BCMA_CC_PMU_MAXRES_MSK),
+++			  min_msk, max_msk);
+++		break;
++ 	default:
++ 		bcma_debug(bus, "PMU resource config unknown or not needed for device 0x%04X\n",
++ 			   bus->chipinfo.id);
++@@ -288,8 +342,8 @@ void bcma_pmu_early_init(struct bcma_drv
++ 	pmucap = bcma_pmu_read32(cc, BCMA_CC_PMU_CAP);
++ 	cc->pmu.rev = (pmucap & BCMA_CC_PMU_CAP_REVISION);
++ 
++-	bcma_debug(bus, "Found rev %u PMU (capabilities 0x%08X)\n", cc->pmu.rev,
++-		   pmucap);
+++	bcma_info(bus, "Found rev %u PMU (capabilities 0x%08X)\n", cc->pmu.rev,
+++		  pmucap);
++ }
++ 
++ void bcma_pmu_init(struct bcma_drv_cc *cc)
++--- a/drivers/bcma/driver_pcie2.c
+++++ b/drivers/bcma/driver_pcie2.c
++@@ -170,6 +170,10 @@ void bcma_core_pcie2_init(struct bcma_dr
++ 	case BCMA_CHIP_ID_BCM4360:
++ 	case BCMA_CHIP_ID_BCM4352:
++ 		pcie2->reqsize = 1024;
+++		/* Only chip rev 3 has been captured. */
+++		if (ci->rev == 3)
+++			pcie2_set32(pcie2, BCMA_CLKCTLST,
+++				    BCMA_CLKCTLST_HAVEHTREQ);
++ 		break;
++ 	default:
++ 		pcie2->reqsize = 128;
++--- a/drivers/bcma/host_pci.c
+++++ b/drivers/bcma/host_pci.c
++@@ -298,6 +298,7 @@ static const struct pci_device_id bcma_p
++ 	{ PCI_DEVICE(PCI_VENDOR_ID_BROADCOM, 0x43a9) },
++ 	{ PCI_DEVICE(PCI_VENDOR_ID_BROADCOM, 0x43aa) },
++ 	{ PCI_DEVICE(PCI_VENDOR_ID_BROADCOM, 0x43b1) },
+++	{ PCI_DEVICE(PCI_VENDOR_ID_BROADCOM, 0x43b3) },
++ 	{ PCI_DEVICE(PCI_VENDOR_ID_BROADCOM, 0x4727) },
++ 	{ PCI_DEVICE(PCI_VENDOR_ID_BROADCOM, 43227) },	/* 0xa8db, BCM43217 (sic!) */
++ 	{ PCI_DEVICE(PCI_VENDOR_ID_BROADCOM, 43228) },	/* 0xa8dc */
++--- a/drivers/bcma/sprom.c
+++++ b/drivers/bcma/sprom.c
++@@ -11,6 +11,7 @@
++ 
++ #include <linux/bcma/bcma.h>
++ #include <linux/bcma/bcma_regs.h>
+++#include <linux/bcm47xx_sprom.h>
++ #include <linux/pci.h>
++ #include <linux/io.h>
++ #include <linux/dma-mapping.h>
++@@ -171,7 +172,7 @@ static int bcma_sprom_valid(struct bcma_
++ 	}
++ 
++ 	bus->sprom.revision = revision;
++-	bcma_debug(bus, "Found SPROM revision %d\n", revision);
+++	bcma_info(bus, "Found SPROM revision %d\n", revision);
++ 
++ 	return 0;
++ }
++@@ -474,6 +475,211 @@ static void bcma_sprom_extract_r8(struct
++ 	     SSB_SPROM8_TEMPDELTA_HYSTERESIS_SHIFT);
++ }
++ 
+++static void bcma_sprom_unpack_rxgains(struct ssb_sprom_rxgains *out,
+++				      int chain, u8 packed)
+++{
+++	out->trelnabyp[chain] = (packed >> 7) & 0x01;
+++	out->triso[chain]     = (packed >> 3) & 0x0f;
+++	out->elnagain[chain]  =  packed       & 0x07;
+++}
+++
+++static void bcma_sprom_extract_r11(struct bcma_bus *bus, const u16 *sprom)
+++{
+++	static const u16 pwr_info_offset[] = {
+++		SSB_SPROM11_PWR_INFO_CORE0,
+++		SSB_SPROM11_PWR_INFO_CORE1,
+++		SSB_SPROM11_PWR_INFO_CORE2,
+++	};
+++	u16 v;
+++	int i, j;
+++
+++	BUILD_BUG_ON(ARRAY_SIZE(pwr_info_offset) >
+++		     ARRAY_SIZE(bus->sprom.core_pwr_info));
+++
+++	/* Header: rev-11 offsets, rev-8 masks/shifts. */
+++	for (i = 0; i < 3; i++) {
+++		v = sprom[SPOFF(SSB_SPROM11_IL0MAC) + i];
+++		*(((__be16 *)bus->sprom.il0mac) + i) = cpu_to_be16(v);
+++	}
+++
+++	SPEX(board_rev, SSB_SPROM8_BOARDREV, ~0, 0);
+++	SPEX(board_type, SSB_SPROM1_SPID, ~0, 0);
+++	SPEX(boardflags_lo, SSB_SPROM8_BFLLO, ~0, 0);
+++	SPEX(boardflags_hi, SSB_SPROM8_BFLHI, ~0, 0);
+++	SPEX(boardflags2_lo, SSB_SPROM8_BFL2LO, ~0, 0);
+++	SPEX(boardflags2_hi, SSB_SPROM8_BFL2HI, ~0, 0);
+++	SPEX32(boardflags3, SSB_SPROM11_BFL3, ~0, 0);
+++
+++	SPEX(country_code, SSB_SPROM11_CCODE, ~0, 0);
+++	SPEX(gpio0, SSB_SPROM11_GPIOA, SSB_SPROM8_GPIOA_P0, 0);
+++	SPEX(gpio1, SSB_SPROM11_GPIOA, SSB_SPROM8_GPIOA_P1,
+++	     SSB_SPROM8_GPIOA_P1_SHIFT);
+++	SPEX(gpio2, SSB_SPROM11_GPIOB, SSB_SPROM8_GPIOB_P2, 0);
+++	SPEX(gpio3, SSB_SPROM11_GPIOB, SSB_SPROM8_GPIOB_P3,
+++	     SSB_SPROM8_GPIOB_P3_SHIFT);
+++	SPEX(ant_available_a, SSB_SPROM11_ANTAVAIL, SSB_SPROM8_ANTAVAIL_A,
+++	     SSB_SPROM8_ANTAVAIL_A_SHIFT);
+++	SPEX(ant_available_bg, SSB_SPROM11_ANTAVAIL, SSB_SPROM8_ANTAVAIL_BG,
+++	     SSB_SPROM8_ANTAVAIL_BG_SHIFT);
+++	SPEX(txchain, SSB_SPROM11_TXRXC, SSB_SPROM8_TXRXC_TXCHAIN,
+++	     SSB_SPROM8_TXRXC_TXCHAIN_SHIFT);
+++	SPEX(rxchain, SSB_SPROM11_TXRXC, SSB_SPROM8_TXRXC_RXCHAIN,
+++	     SSB_SPROM8_TXRXC_RXCHAIN_SHIFT);
+++	SPEX(antswitch, SSB_SPROM11_TXRXC, SSB_SPROM8_TXRXC_SWITCH,
+++	     SSB_SPROM8_TXRXC_SWITCH_SHIFT);
+++	SPEX(subband5gver, SSB_SPROM11_SUBBAND5GVER, 0x00ff, 0);
+++
+++	/* FEM / PA control block. */
+++	SPEX(tssiposslope2g, SSB_SPROM11_FEM_CFG1,
+++	     SSB_SPROM11_FEM_TSSIPOSSLOPE, 0);
+++	SPEX(epagain2g, SSB_SPROM11_FEM_CFG1, SSB_SPROM11_FEM_EPAGAIN,
+++	     SSB_SPROM11_FEM_EPAGAIN_SHIFT);
+++	SPEX(pdgain2g, SSB_SPROM11_FEM_CFG1, SSB_SPROM11_FEM_PDGAIN,
+++	     SSB_SPROM11_FEM_PDGAIN_SHIFT);
+++	SPEX(tworangetssi2g, SSB_SPROM11_FEM_CFG1,
+++	     SSB_SPROM11_FEM_TWORANGETSSI, SSB_SPROM11_FEM_TWORANGETSSI_SHIFT);
+++	SPEX(papdcap2g, SSB_SPROM11_FEM_CFG1, SSB_SPROM11_FEM_PAPDCAP,
+++	     SSB_SPROM11_FEM_PAPDCAP_SHIFT);
+++	SPEX(femctrl, SSB_SPROM11_FEM_CFG1, SSB_SPROM11_FEM_CTRL,
+++	     SSB_SPROM11_FEM_CTRL_SHIFT);
+++	SPEX(tssiposslope5g, SSB_SPROM11_FEM_CFG2,
+++	     SSB_SPROM11_FEM_TSSIPOSSLOPE, 0);
+++	SPEX(epagain5g, SSB_SPROM11_FEM_CFG2, SSB_SPROM11_FEM_EPAGAIN,
+++	     SSB_SPROM11_FEM_EPAGAIN_SHIFT);
+++	SPEX(pdgain5g, SSB_SPROM11_FEM_CFG2, SSB_SPROM11_FEM_PDGAIN,
+++	     SSB_SPROM11_FEM_PDGAIN_SHIFT);
+++	SPEX(tworangetssi5g, SSB_SPROM11_FEM_CFG2,
+++	     SSB_SPROM11_FEM_TWORANGETSSI, SSB_SPROM11_FEM_TWORANGETSSI_SHIFT);
+++	SPEX(papdcap5g, SSB_SPROM11_FEM_CFG2, SSB_SPROM11_FEM_PAPDCAP,
+++	     SSB_SPROM11_FEM_PAPDCAP_SHIFT);
+++	SPEX(gainctrlsph, SSB_SPROM11_FEM_CFG2,
+++	     SSB_SPROM11_FEM_GAINCTRLSPH, SSB_SPROM11_FEM_GAINCTRLSPH_SHIFT);
+++
+++	/* TSSI floor. */
+++	SPEX(tssifloor2g, SSB_SPROM11_TSSIFLOOR_2G,
+++	     SSB_SPROM11_TSSIFLOOR_MASK, 0);
+++	for (i = 0; i < 4; i++)
+++		SPEX(tssifloor5g[i], SSB_SPROM11_TSSIFLOOR_5GL + i * 2,
+++		     SSB_SPROM11_TSSIFLOOR_MASK, 0);
+++
+++	/* Per-chain power info. */
+++	for (i = 0; i < ARRAY_SIZE(pwr_info_offset); i++) {
+++		struct ssb_sprom_core_pwr_info *p = &bus->sprom.core_pwr_info[i];
+++		u16 base = pwr_info_offset[i];
+++
+++		p->maxp2ga = sprom[SPOFF(base + SSB_SPROM11_PWR_MAXP2GA)] & 0xff;
+++
+++		for (j = 0; j < 3; j++)
+++			p->pa2ga[j] = sprom[SPOFF(base + SSB_SPROM11_PWR_PA2GA) + j];
+++
+++		v = sprom[SPOFF(base + SSB_SPROM11_PWR_MAXP5GA)];
+++		p->maxp5ga[0] = v & 0xff;
+++		p->maxp5ga[1] = (v >> 8) & 0xff;
+++		v = sprom[SPOFF(base + SSB_SPROM11_PWR_MAXP5GA) + 1];
+++		p->maxp5ga[2] = v & 0xff;
+++		p->maxp5ga[3] = (v >> 8) & 0xff;
+++
+++		for (j = 0; j < 12; j++)
+++			p->pa5ga[j] = sprom[SPOFF(base + SSB_SPROM11_PWR_PA5GA) + j];
+++
+++		v = sprom[SPOFF(base + SSB_SPROM11_PWR_RXGAINS0)];
+++		bcma_sprom_unpack_rxgains(&bus->sprom.rxgains_5gm, i,  v       & 0xff);
+++		bcma_sprom_unpack_rxgains(&bus->sprom.rxgains_5gh, i, (v >> 8) & 0xff);
+++		v = sprom[SPOFF(base + SSB_SPROM11_PWR_RXGAINS1)];
+++		bcma_sprom_unpack_rxgains(&bus->sprom.rxgains_2g,  i,  v       & 0xff);
+++		bcma_sprom_unpack_rxgains(&bus->sprom.rxgains_5gl, i, (v >> 8) & 0xff);
+++	}
+++
+++	SPEX(rpcal2g,    SSB_SPROM11_RPCAL_2G,  ~0, 0);
+++	SPEX(rpcal5gb[0], SSB_SPROM11_RPCAL_5GL, ~0, 0);
+++	SPEX(rpcal5gb[1], SSB_SPROM11_RPCAL_5GM, ~0, 0);
+++	SPEX(rpcal5gb[2], SSB_SPROM11_RPCAL_5GH, ~0, 0);
+++	SPEX(rpcal5gb[3], SSB_SPROM11_RPCAL_5GU, ~0, 0);
+++
+++	SPEX(pdoffset2g40ma[0], SSB_SPROM11_PDOFFSET2G40M,
+++	     SSB_SPROM11_PDOFFSET2G40M_MA0, SSB_SPROM11_PDOFFSET2G40M_MA0_SHIFT);
+++	SPEX(pdoffset2g40ma[1], SSB_SPROM11_PDOFFSET2G40M,
+++	     SSB_SPROM11_PDOFFSET2G40M_MA1, SSB_SPROM11_PDOFFSET2G40M_MA1_SHIFT);
+++	SPEX(pdoffset2g40ma[2], SSB_SPROM11_PDOFFSET2G40M,
+++	     SSB_SPROM11_PDOFFSET2G40M_MA2, SSB_SPROM11_PDOFFSET2G40M_MA2_SHIFT);
+++	SPEX(pdoffset2g40mvalid, SSB_SPROM11_PDOFFSET2G40M,
+++	     SSB_SPROM11_PDOFFSET2G40M_VALID,
+++	     SSB_SPROM11_PDOFFSET2G40M_VALID_SHIFT);
+++
+++	for (i = 0; i < 3; i++) {
+++		bus->sprom.pdoffset40ma[i] =
+++			sprom[SPOFF(SSB_SPROM11_PDOFFSET40MA) + i];
+++		bus->sprom.pdoffset80ma[i] =
+++			sprom[SPOFF(SSB_SPROM11_PDOFFSET80MA) + i];
+++	}
+++
+++	SPEX(cckbw202gpo,           SSB_SPROM11_CCKBW202GPO,           ~0, 0);
+++	SPEX(cckbw20ul2gpo,         SSB_SPROM11_CCKBW20UL2GPO,         ~0, 0);
+++	SPEX32(mcsbw202gpo,         SSB_SPROM11_MCSBW202GPO,           ~0, 0);
+++	SPEX32(mcsbw402gpo,         SSB_SPROM11_MCSBW402GPO,           ~0, 0);
+++	SPEX(dot11agofdmhrbw202gpo, SSB_SPROM11_DOT11AGOFDMHRBW202GPO, ~0, 0);
+++	SPEX(ofdmlrbw202gpo,        SSB_SPROM11_OFDMLRBW202GPO,        ~0, 0);
+++	SPEX32(mcsbw205glpo,        SSB_SPROM11_MCSBW205GLPO,          ~0, 0);
+++	SPEX32(mcsbw405glpo,        SSB_SPROM11_MCSBW405GLPO,          ~0, 0);
+++	SPEX32(mcsbw805glpo,        SSB_SPROM11_MCSBW805GLPO,          ~0, 0);
+++	SPEX32(mcsbw205gmpo,        SSB_SPROM11_MCSBW205GMPO,          ~0, 0);
+++	SPEX32(mcsbw405gmpo,        SSB_SPROM11_MCSBW405GMPO,          ~0, 0);
+++	SPEX32(mcsbw805gmpo,        SSB_SPROM11_MCSBW805GMPO,          ~0, 0);
+++	SPEX32(mcsbw205ghpo,        SSB_SPROM11_MCSBW205GHPO,          ~0, 0);
+++	SPEX32(mcsbw405ghpo,        SSB_SPROM11_MCSBW405GHPO,          ~0, 0);
+++	SPEX32(mcsbw805ghpo,        SSB_SPROM11_MCSBW805GHPO,          ~0, 0);
+++
+++	SPEX(mcslr5gpo[0],          SSB_SPROM11_MCSLR5GLPO,            ~0, 0);
+++	SPEX(mcslr5gpo[1],          SSB_SPROM11_MCSLR5GMPO,            ~0, 0);
+++	SPEX(mcslr5gpo[2],          SSB_SPROM11_MCSLR5GHPO,            ~0, 0);
+++	SPEX(sb20in40hrpo,          SSB_SPROM11_SB20IN40HRPO,          ~0, 0);
+++	SPEX(sb20in40lrpo,          SSB_SPROM11_SB20IN40LRPO,          ~0, 0);
+++	SPEX(sb20in80and160hr5gpo[0], SSB_SPROM11_SB20IN80AND160HR5GLPO, ~0, 0);
+++	SPEX(sb20in80and160hr5gpo[1], SSB_SPROM11_SB20IN80AND160HR5GMPO, ~0, 0);
+++	SPEX(sb20in80and160hr5gpo[2], SSB_SPROM11_SB20IN80AND160HR5GHPO, ~0, 0);
+++	SPEX(sb20in80and160lr5gpo[0], SSB_SPROM11_SB20IN80AND160LR5GLPO, ~0, 0);
+++	SPEX(sb20in80and160lr5gpo[1], SSB_SPROM11_SB20IN80AND160LR5GMPO, ~0, 0);
+++	SPEX(sb20in80and160lr5gpo[2], SSB_SPROM11_SB20IN80AND160LR5GHPO, ~0, 0);
+++	SPEX(sb40and80hr5gpo[0],    SSB_SPROM11_SB40AND80HR5GLPO,      ~0, 0);
+++	SPEX(sb40and80hr5gpo[1],    SSB_SPROM11_SB40AND80HR5GMPO,      ~0, 0);
+++	SPEX(sb40and80hr5gpo[2],    SSB_SPROM11_SB40AND80HR5GHPO,      ~0, 0);
+++	SPEX(sb40and80lr5gpo[0],    SSB_SPROM11_SB40AND80LR5GLPO,      ~0, 0);
+++	SPEX(sb40and80lr5gpo[1],    SSB_SPROM11_SB40AND80LR5GMPO,      ~0, 0);
+++	SPEX(sb40and80lr5gpo[2],    SSB_SPROM11_SB40AND80LR5GHPO,      ~0, 0);
+++	SPEX(dot11agduphrpo,        SSB_SPROM11_DOT11AGDUPHRPO,        ~0, 0);
+++	SPEX(dot11agduplrpo,        SSB_SPROM11_DOT11AGDUPLRPO,        ~0, 0);
+++
+++	SPEX(tempthresh, SSB_SPROM11_THERMAL, SSB_SPROM8_THERMAL_TRESH,
+++	     SSB_SPROM8_THERMAL_TRESH_SHIFT);
+++	SPEX(tempoffset, SSB_SPROM11_THERMAL, SSB_SPROM8_THERMAL_OFFSET,
+++	     SSB_SPROM8_THERMAL_OFFSET_SHIFT);
+++	SPEX(rawtempsense, SSB_SPROM11_RAWTS, SSB_SPROM8_RAWTS_RAWTEMP,
+++	     SSB_SPROM8_RAWTS_RAWTEMP_SHIFT);
+++	SPEX(measpower, SSB_SPROM11_RAWTS, SSB_SPROM8_RAWTS_MEASPOWER,
+++	     SSB_SPROM8_RAWTS_MEASPOWER_SHIFT);
+++	SPEX(tempsense_slope, SSB_SPROM11_OPT_CORRX,
+++	     SSB_SPROM8_OPT_CORRX_TEMP_SLOPE,
+++	     SSB_SPROM8_OPT_CORRX_TEMP_SLOPE_SHIFT);
+++	SPEX(tempcorrx, SSB_SPROM11_OPT_CORRX, SSB_SPROM8_OPT_CORRX_TEMPCORRX,
+++	     SSB_SPROM8_OPT_CORRX_TEMPCORRX_SHIFT);
+++	SPEX(tempsense_option, SSB_SPROM11_OPT_CORRX,
+++	     SSB_SPROM8_OPT_CORRX_TEMP_OPTION,
+++	     SSB_SPROM8_OPT_CORRX_TEMP_OPTION_SHIFT);
+++	SPEX(phycal_tempdelta, SSB_SPROM11_TEMPDELTA,
+++	     SSB_SPROM8_TEMPDELTA_PHYCAL,
+++	     SSB_SPROM8_TEMPDELTA_PHYCAL_SHIFT);
+++	SPEX(temps_period, SSB_SPROM11_TEMPDELTA, SSB_SPROM8_TEMPDELTA_PERIOD,
+++	     SSB_SPROM8_TEMPDELTA_PERIOD_SHIFT);
+++	SPEX(temps_hysteresis, SSB_SPROM11_TEMPDELTA,
+++	     SSB_SPROM8_TEMPDELTA_HYSTERESIS,
+++	     SSB_SPROM8_TEMPDELTA_HYSTERESIS_SHIFT);
+++
+++	bus->sprom.antenna_gain_qdb[0] =
+++		ssb_sprom_antgain_qdb(sprom[SPOFF(SSB_SPROM11_AGBG10)] & 0xff);
+++	bus->sprom.antenna_gain_qdb[1] =
+++		ssb_sprom_antgain_qdb(sprom[SPOFF(SSB_SPROM11_AGBG2A0)] >> 8);
+++}
+++
++ /*
++  * Indicates the presence of external SPROM.
++  */
++@@ -640,8 +846,16 @@ int bcma_sprom_get(struct bcma_bus *bus)
++ 		bcma_warn(bus, "Invalid SPROM read from the PCIe card, trying to use fallback SPROM\n");
++ 		err = bcma_fill_sprom_with_fallback(bus, &bus->sprom);
++ 	} else {
++-		bcma_sprom_extract_r8(bus, sprom);
+++		if (bus->sprom.revision == 11)
+++			bcma_sprom_extract_r11(bus, sprom);
+++		else
+++			bcma_sprom_extract_r8(bus, sprom);
++ 		kfree(sprom);
+++		/*
+++		 * The board's NVRAM may say more about this device than its
+++		 * SPROM has words for. Not having NVRAM here is the norm.
+++		 */
+++		bcm47xx_sprom_fill_bcma_nvram(bus, &bus->sprom);
++ 	}
++ 
++ 	return err;
++--- a/drivers/firmware/broadcom/bcm47xx_sprom.c
+++++ b/drivers/firmware/broadcom/bcm47xx_sprom.c
++@@ -29,6 +29,7 @@
++ #include <linux/bcm47xx_nvram.h>
++ #include <linux/bcm47xx_sprom.h>
++ #include <linux/bcma/bcma.h>
+++#include <linux/err.h>
++ #include <linux/etherdevice.h>
++ #include <linux/if_ether.h>
++ #include <linux/ssb/ssb.h>
++@@ -93,6 +94,42 @@ NVRAM_READ_VAL(u32)
++ 
++ #undef NVRAM_READ_VAL
++ 
+++/*
+++ * A comma-separated list of n values, taken whole or not at all: a list that
+++ * does not parse into n values leaves the field as it was. Returns whether
+++ * the field was set.
+++ */
+++#define NVRAM_READ_ARRAY(type)						\
+++static bool nvram_read_ ## type ## _array(const char *prefix,		\
+++					  const char *postfix,		\
+++					  const char *name, type *val,	\
+++					  int n, bool fallback)		\
+++{									\
+++	char buf[128], *p = buf, *tok;					\
+++	type var[12];							\
+++	int i = 0;							\
+++									\
+++	if (n > ARRAY_SIZE(var))					\
+++		return false;						\
+++	if (get_nvram_var(prefix, postfix, name, buf, sizeof(buf),	\
+++			  fallback) < 0)				\
+++		return false;						\
+++	while (i < n && (tok = strsep(&p, ",")) != NULL) {		\
+++		if (kstrto ## type(strim(tok), 0, &var[i]))		\
+++			return false;					\
+++		i++;							\
+++	}								\
+++	if (i != n)							\
+++		return false;						\
+++	memcpy(val, var, n * sizeof(*val));				\
+++	return true;							\
+++}
+++
+++NVRAM_READ_ARRAY(u8)
+++NVRAM_READ_ARRAY(u16)
+++
+++#undef NVRAM_READ_ARRAY
+++
++ static void nvram_read_u32_2(const char *prefix, const char *name,
++ 			     u16 *val_lo, u16 *val_hi, bool fallback)
++ {
++@@ -171,6 +208,47 @@ static void nvram_read_alpha2(const char
++ 	memcpy(val, buf, 2);
++ }
++ 
+++/*
+++ * AvVmid_c<core>: Av,Vmid of the chain's power-detector input for 2g, 5gl,
+++ * 5gml, 5gmu and 5gh. Taken whole or not at all: a list that does not parse
+++ * into ten values leaves the chain on the driver's defaults.
+++ */
+++static void nvram_read_avvmid(const char *prefix, int core,
+++			      struct ssb_sprom *sprom, bool fallback)
+++{
+++	char name[sizeof("AvVmid_c0")];
+++
+++	snprintf(name, sizeof(name), "AvVmid_c%d", core);
+++	if (nvram_read_u8_array(prefix, NULL, name, &sprom->avvmid[core][0][0],
+++				sizeof(sprom->avvmid[core]), fallback))
+++		sprom->avvmid_valid |= BIT(core);
+++}
+++
+++/*
+++ * The variables no SPROM revision has a word for: the board sets them in
+++ * NVRAM only, next to the device's other entries, and the stock driver
+++ * reads them with the same prefix. Read both when the SPROM comes from
+++ * NVRAM and on top of a SPROM read from the device.
+++ */
+++static void bcm47xx_sprom_fill_nvram_only(struct ssb_sprom *sprom,
+++					  const char *prefix, bool fallback)
+++{
+++	char name[sizeof("ledbh15")];
+++	int i;
+++
+++	for (i = 0; i < ARRAY_SIZE(sprom->gpio_ext); i++) {
+++		snprintf(name, sizeof(name), "ledbh%d", i + 4);
+++		nvram_read_u8(prefix, NULL, name, &sprom->gpio_ext[i], 0xff,
+++			      fallback);
+++	}
+++
+++	nvram_read_u32(prefix, NULL, "boardflags3", &sprom->boardflags3, 0,
+++		       fallback);
+++	sprom->avvmid_valid = 0;
+++	for (i = 0; i < ARRAY_SIZE(sprom->avvmid); i++)
+++		nvram_read_avvmid(prefix, i, sprom, fallback);
+++}
+++
++ /* This is one-function-only macro, it uses local "sprom" variable! */
++ #define ENTRY(_revmask, _type, _prefix, _name, _val, _allset, _fallback) \
++ 	if (_revmask & BIT(sprom->revision)) \
++@@ -208,6 +286,8 @@ static void bcm47xx_sprom_fill_auto(stru
++ 	ENTRY(0xfffffffe, u8, pre, "ledbh1", gpio1, 0xff, fb);
++ 	ENTRY(0xfffffffe, u8, pre, "ledbh2", gpio2, 0xff, fb);
++ 	ENTRY(0xfffffffe, u8, pre, "ledbh3", gpio3, 0xff, fb);
+++	if (sprom->revision)
+++		bcm47xx_sprom_fill_nvram_only(sprom, pre, fb);
++ 
++ 	ENTRY(0x0000070e, u16, pre, "pa0b0", pa0b0, 0, fb);
++ 	ENTRY(0x0000070e, u16, pre, "pa0b1", pa0b1, 0, fb);
++@@ -367,6 +447,50 @@ static void bcm47xx_sprom_fill_auto(stru
++ 	ENTRY(0x00000600, u16, pre, "legofdm40duppo", legofdm40duppo, 0, fb);
++ 	ENTRY(0x00000700, u8, pre, "pcieingress_war", pcieingress_war, 0, fb);
++ 
+++	ENTRY(0xfffff800, u8, pre, "subband5gver", subband5gver, 0, fb);
+++	ENTRY(0xfffff800, u8, pre, "tssiposslope2g", tssiposslope2g, 0, fb);
+++	ENTRY(0xfffff800, u8, pre, "epagain2g", epagain2g, 0, fb);
+++	ENTRY(0xfffff800, u8, pre, "pdgain2g", pdgain2g, 0, fb);
+++	ENTRY(0xfffff800, u8, pre, "tworangetssi2g", tworangetssi2g, 0, fb);
+++	ENTRY(0xfffff800, u8, pre, "papdcap2g", papdcap2g, 0, fb);
+++	ENTRY(0xfffff800, u8, pre, "femctrl", femctrl, 0, fb);
+++	ENTRY(0xfffff800, u8, pre, "tssiposslope5g", tssiposslope5g, 0, fb);
+++	ENTRY(0xfffff800, u8, pre, "epagain5g", epagain5g, 0, fb);
+++	ENTRY(0xfffff800, u8, pre, "pdgain5g", pdgain5g, 0, fb);
+++	ENTRY(0xfffff800, u8, pre, "tworangetssi5g", tworangetssi5g, 0, fb);
+++	ENTRY(0xfffff800, u8, pre, "papdcap5g", papdcap5g, 0, fb);
+++	ENTRY(0xfffff800, u8, pre, "gainctrlsph", gainctrlsph, 0, fb);
+++	ENTRY(0xfffff800, u16, pre, "tssifloor2g", tssifloor2g, 0, fb);
+++	ENTRY(0xfffff800, u16, pre, "rpcal2g", rpcal2g, 0, fb);
+++	ENTRY(0xfffff800, u16, pre, "rpcal5gb0", rpcal5gb[0], 0, fb);
+++	ENTRY(0xfffff800, u16, pre, "rpcal5gb1", rpcal5gb[1], 0, fb);
+++	ENTRY(0xfffff800, u16, pre, "rpcal5gb2", rpcal5gb[2], 0, fb);
+++	ENTRY(0xfffff800, u16, pre, "rpcal5gb3", rpcal5gb[3], 0, fb);
+++	ENTRY(0xfffff800, u16, pre, "dot11agofdmhrbw202gpo", dot11agofdmhrbw202gpo, 0, fb);
+++	ENTRY(0xfffff800, u16, pre, "ofdmlrbw202gpo", ofdmlrbw202gpo, 0, fb);
+++	ENTRY(0xfffff800, u32, pre, "mcsbw805glpo", mcsbw805glpo, 0, fb);
+++	ENTRY(0xfffff800, u32, pre, "mcsbw805gmpo", mcsbw805gmpo, 0, fb);
+++	ENTRY(0xfffff800, u32, pre, "mcsbw805ghpo", mcsbw805ghpo, 0, fb);
+++	ENTRY(0xfffff800, u16, pre, "mcslr5glpo", mcslr5gpo[0], 0, fb);
+++	ENTRY(0xfffff800, u16, pre, "mcslr5gmpo", mcslr5gpo[1], 0, fb);
+++	ENTRY(0xfffff800, u16, pre, "mcslr5ghpo", mcslr5gpo[2], 0, fb);
+++	ENTRY(0xfffff800, u16, pre, "sb20in40hrpo", sb20in40hrpo, 0, fb);
+++	ENTRY(0xfffff800, u16, pre, "sb20in40lrpo", sb20in40lrpo, 0, fb);
+++	ENTRY(0xfffff800, u16, pre, "sb20in80and160hr5glpo", sb20in80and160hr5gpo[0], 0, fb);
+++	ENTRY(0xfffff800, u16, pre, "sb20in80and160hr5gmpo", sb20in80and160hr5gpo[1], 0, fb);
+++	ENTRY(0xfffff800, u16, pre, "sb20in80and160hr5ghpo", sb20in80and160hr5gpo[2], 0, fb);
+++	ENTRY(0xfffff800, u16, pre, "sb20in80and160lr5glpo", sb20in80and160lr5gpo[0], 0, fb);
+++	ENTRY(0xfffff800, u16, pre, "sb20in80and160lr5gmpo", sb20in80and160lr5gpo[1], 0, fb);
+++	ENTRY(0xfffff800, u16, pre, "sb20in80and160lr5ghpo", sb20in80and160lr5gpo[2], 0, fb);
+++	ENTRY(0xfffff800, u16, pre, "sb40and80hr5glpo", sb40and80hr5gpo[0], 0, fb);
+++	ENTRY(0xfffff800, u16, pre, "sb40and80hr5gmpo", sb40and80hr5gpo[1], 0, fb);
+++	ENTRY(0xfffff800, u16, pre, "sb40and80hr5ghpo", sb40and80hr5gpo[2], 0, fb);
+++	ENTRY(0xfffff800, u16, pre, "sb40and80lr5glpo", sb40and80lr5gpo[0], 0, fb);
+++	ENTRY(0xfffff800, u16, pre, "sb40and80lr5gmpo", sb40and80lr5gpo[1], 0, fb);
+++	ENTRY(0xfffff800, u16, pre, "sb40and80lr5ghpo", sb40and80lr5gpo[2], 0, fb);
+++	ENTRY(0xfffff800, u16, pre, "dot11agduphrpo", dot11agduphrpo, 0, fb);
+++	ENTRY(0xfffff800, u16, pre, "dot11agduplrpo", dot11agduplrpo, 0, fb);
+++
++ 	/* TODO: rev 11 support */
++ 	ENTRY(0x00000700, u8, pre, "rxgainerr2ga0", rxgainerr2ga[0], 0, fb);
++ 	ENTRY(0x00000700, u8, pre, "rxgainerr2ga1", rxgainerr2ga[1], 0, fb);
++@@ -480,6 +604,74 @@ static void bcm47xx_fill_sprom_path_r45(
++ 	}
++ }
++ 
+++static void bcm47xx_fill_sprom_path_r11(struct ssb_sprom *sprom,
+++					const char *prefix, bool fallback)
+++{
+++	const struct {
+++		const char *band;
+++		struct ssb_sprom_rxgains *rx;
+++	} rxgains[] = {
+++		{ "2g",  &sprom->rxgains_2g },
+++		/* rxgains5g* is the low 5 GHz sub-band */
+++		{ "5g",  &sprom->rxgains_5gl },
+++		{ "5gm", &sprom->rxgains_5gm },
+++		{ "5gh", &sprom->rxgains_5gh },
+++	};
+++	char postfix[2], name[sizeof("rxgains5gmtrelnabypa")];
+++	u8 agbg0 = 0, aga0 = 0;
+++	int i, b;
+++
+++	for (i = 0; i < ARRAY_SIZE(sprom->pdoffset40ma); i++) {
+++		struct ssb_sprom_core_pwr_info *pwr_info;
+++
+++		pwr_info = &sprom->core_pwr_info[i];
+++
+++		snprintf(postfix, sizeof(postfix), "%i", i);
+++		nvram_read_u8(prefix, postfix, "maxp2ga",
+++			      &pwr_info->maxp2ga, 0, fallback);
+++		nvram_read_u16_array(prefix, postfix, "pa2ga", pwr_info->pa2ga,
+++				     ARRAY_SIZE(pwr_info->pa2ga), fallback);
+++		nvram_read_u8_array(prefix, postfix, "maxp5ga",
+++				    pwr_info->maxp5ga,
+++				    ARRAY_SIZE(pwr_info->maxp5ga), fallback);
+++		nvram_read_u16_array(prefix, postfix, "pa5ga", pwr_info->pa5ga,
+++				     ARRAY_SIZE(pwr_info->pa5ga), fallback);
+++		nvram_read_u16(prefix, postfix, "pdoffset40ma",
+++			       &sprom->pdoffset40ma[i], 0, fallback);
+++		nvram_read_u16(prefix, postfix, "pdoffset80ma",
+++			       &sprom->pdoffset80ma[i], 0, fallback);
+++		nvram_read_u8(prefix, postfix, "pdoffset2g40ma",
+++			      &sprom->pdoffset2g40ma[i], 0, fallback);
+++
+++		for (b = 0; b < ARRAY_SIZE(rxgains); b++) {
+++			struct ssb_sprom_rxgains *rx = rxgains[b].rx;
+++
+++			snprintf(name, sizeof(name), "rxgains%selnagaina",
+++				 rxgains[b].band);
+++			nvram_read_u8(prefix, postfix, name, &rx->elnagain[i],
+++				      0, fallback);
+++			snprintf(name, sizeof(name), "rxgains%strisoa",
+++				 rxgains[b].band);
+++			nvram_read_u8(prefix, postfix, name, &rx->triso[i],
+++				      0, fallback);
+++			snprintf(name, sizeof(name), "rxgains%strelnabypa",
+++				 rxgains[b].band);
+++			nvram_read_u8(prefix, postfix, name, &rx->trelnabyp[i],
+++				      0, fallback);
+++		}
+++	}
+++
+++	nvram_read_u16_array(prefix, NULL, "tssifloor5g", sprom->tssifloor5g,
+++			     ARRAY_SIZE(sprom->tssifloor5g), fallback);
+++
+++	nvram_read_u8(prefix, NULL, "pdoffset2g40mvalid",
+++		      &sprom->pdoffset2g40mvalid, 0, fallback);
+++	nvram_read_u8(prefix, NULL, "agbg0", &agbg0, 0, fallback);
+++	nvram_read_u8(prefix, NULL, "aga0", &aga0, 0, fallback);
+++	sprom->antenna_gain_qdb[0] = ssb_sprom_antgain_qdb(agbg0);
+++	sprom->antenna_gain_qdb[1] = ssb_sprom_antgain_qdb(aga0);
+++}
+++
++ static bool bcm47xx_is_valid_mac(u8 *mac)
++ {
++ 	return mac && !(mac[0] == 0x00 && mac[1] == 0x90 && mac[2] == 0x4c);
++@@ -585,6 +777,9 @@ void bcm47xx_fill_sprom(struct ssb_sprom
++ 	case 9:
++ 		bcm47xx_fill_sprom_path_r4589(sprom, prefix, fallback);
++ 		break;
+++	case 11:
+++		bcm47xx_fill_sprom_path_r11(sprom, prefix, fallback);
+++		break;
++ 	}
++ 
++ 	bcm47xx_sprom_fill_auto(sprom, prefix, fallback);
++@@ -646,45 +841,70 @@ static void bcm47xx_sprom_apply_prefix_a
++ 	}
++ }
++ 
++-static int bcm47xx_get_sprom_bcma(struct bcma_bus *bus, struct ssb_sprom *out)
+++/*
+++ * The NVRAM prefix of a bcma bus's variables: pci/<bus>/<slot>/ or its
+++ * devpathN alias for a PCI device, sb/<core>/ for the SoC's own core.
+++ * Returns the prefix, NULL for a SoC bus without an 802.11 core, or an
+++ * error pointer for a host type NVRAM knows nothing about. *fallback is
+++ * set when the caller may fall back to unprefixed variables.
+++ */
+++static char *bcm47xx_sprom_bcma_prefix(struct bcma_bus *bus, char *buf,
+++				       size_t size, bool *fallback)
++ {
++-	struct bcma_boardinfo *binfo = &bus->boardinfo;
++ 	struct bcma_device *core;
++-	char buf[10];
++-	char *prefix;
++-	bool fallback = false;
++ 
+++	*fallback = false;
++ 	switch (bus->hosttype) {
++ 	case BCMA_HOSTTYPE_PCI:
++-		memset(out, 0, sizeof(struct ssb_sprom));
++ 		/* On BCM47XX all PCI buses share the same domain */
++ 		if (IS_ENABLED(CONFIG_BCM47XX))
++-			snprintf(buf, sizeof(buf), "pci/%u/%u/",
+++			snprintf(buf, size, "pci/%u/%u/",
++ 				 bus->host_pci->bus->number + 1,
++ 				 PCI_SLOT(bus->host_pci->devfn));
++ 		else
++-			snprintf(buf, sizeof(buf), "pci/%u/%u/",
+++			snprintf(buf, size, "pci/%u/%u/",
++ 				 pci_domain_nr(bus->host_pci->bus) + 1,
++ 				 bus->host_pci->bus->number);
++-		bcm47xx_sprom_apply_prefix_alias(buf, sizeof(buf));
++-		prefix = buf;
++-		break;
+++		bcm47xx_sprom_apply_prefix_alias(buf, size);
+++		return buf;
++ 	case BCMA_HOSTTYPE_SOC:
++-		memset(out, 0, sizeof(struct ssb_sprom));
++ 		core = bcma_find_core(bus, BCMA_CORE_80211);
++-		if (core) {
++-			snprintf(buf, sizeof(buf), "sb/%u/",
++-				 core->core_index);
++-			prefix = buf;
++-			fallback = true;
++-		} else {
++-			prefix = NULL;
++-		}
++-		break;
+++		if (!core)
+++			return NULL;
+++		snprintf(buf, size, "sb/%u/", core->core_index);
+++		*fallback = true;
+++		return buf;
++ 	default:
+++		return ERR_PTR(-EINVAL);
+++	}
+++}
+++
+++int bcm47xx_sprom_fill_bcma_nvram(struct bcma_bus *bus, struct ssb_sprom *out)
+++{
+++	char buf[10];
+++	char *prefix;
+++	bool fallback;
+++
+++	prefix = bcm47xx_sprom_bcma_prefix(bus, buf, sizeof(buf), &fallback);
+++	if (IS_ERR(prefix))
+++		return PTR_ERR(prefix);
+++	bcm47xx_sprom_fill_nvram_only(out, prefix, fallback);
+++	return 0;
+++}
+++
+++static int bcm47xx_get_sprom_bcma(struct bcma_bus *bus, struct ssb_sprom *out)
+++{
+++	struct bcma_boardinfo *binfo = &bus->boardinfo;
+++	char buf[10];
+++	char *prefix;
+++	bool fallback;
+++
+++	prefix = bcm47xx_sprom_bcma_prefix(bus, buf, sizeof(buf), &fallback);
+++	if (IS_ERR(prefix)) {
++ 		pr_warn("Unable to fill SPROM for given bustype.\n");
++-		return -EINVAL;
+++		return PTR_ERR(prefix);
++ 	}
+++	memset(out, 0, sizeof(struct ssb_sprom));
++ 
++ 	nvram_read_u16(prefix, NULL, "boardvendor", &binfo->vendor, 0, true);
++ 	if (!binfo->vendor)
++--- a/include/linux/bcm47xx_sprom.h
+++++ b/include/linux/bcm47xx_sprom.h
++@@ -9,6 +9,7 @@
++ #include <linux/types.h>
++ #include <linux/vmalloc.h>
++ 
+++struct bcma_bus;
++ struct ssb_sprom;
++ 
++ #ifdef CONFIG_BCM47XX_SPROM
++@@ -28,4 +29,19 @@ static inline int bcm47xx_sprom_register
++ };
++ #endif
++ 
+++/*
+++ * The NVRAM-only variables of a bus whose SPROM was read from the device:
+++ * what bcm47xx_fill_sprom() would read for it that the SPROM has no word
+++ * for. Like the fallback itself, only with bcma built in.
+++ */
+++#if defined(CONFIG_BCM47XX_SPROM) && IS_BUILTIN(CONFIG_BCMA)
+++int bcm47xx_sprom_fill_bcma_nvram(struct bcma_bus *bus, struct ssb_sprom *out);
+++#else
+++static inline int bcm47xx_sprom_fill_bcma_nvram(struct bcma_bus *bus,
+++						struct ssb_sprom *out)
+++{
+++	return -ENOTSUPP;
+++}
+++#endif
+++
++ #endif /* __BCM47XX_SPROM_H */
++--- a/include/linux/bcma/bcma_driver_chipcommon.h
+++++ b/include/linux/bcma/bcma_driver_chipcommon.h
++@@ -107,6 +107,8 @@
++ #define  BCMA_CC_CHIPST_4706_PCIE1_DISABLE	BIT(5) /* PCIE1 enable strap pin */
++ #define  BCMA_CC_CHIPST_5357_NAND_BOOT		BIT(4) /* NAND boot, valid for CC rev 38 and/or BCM5357 */
++ #define  BCMA_CC_CHIPST_4360_XTAL_40MZ		0x00000001
+++#define  BCMA_CC_CHIPST_4360_RSRC_INIT_MODE0	0x00000020
+++#define  BCMA_CC_CHIPST_4360_MODE_USB		0x00000100
++ #define BCMA_CC_JCMD			0x0030		/* Rev >= 10 only */
++ #define  BCMA_CC_JCMD_START		0x80000000
++ #define  BCMA_CC_JCMD_BUSY		0x80000000
++@@ -500,6 +502,8 @@
++ #define BCMA_CC_PMU_PLL_CTL3		3
++ #define BCMA_CC_PMU_PLL_CTL4		4
++ #define BCMA_CC_PMU_PLL_CTL5		5
+++#define BCMA_CC_PMU_PLL_CTL6		6
+++#define BCMA_CC_PMU_PLL_CTL14		14
++ 
++ #define BCMA_CC_PMU1_PLL0_PC0_P1DIV_MASK	0x00f00000
++ #define BCMA_CC_PMU1_PLL0_PC0_P1DIV_SHIFT	20
++--- a/include/linux/ssb/ssb.h
+++++ b/include/linux/ssb/ssb.h
++@@ -23,6 +23,19 @@ struct ssb_sprom_core_pwr_info {
++ 	u8 itssi_2g, itssi_5g;
++ 	u8 maxpwr_2g, maxpwr_5gl, maxpwr_5g, maxpwr_5gh;
++ 	u16 pa_2g[4], pa_5gl[4], pa_5g[4], pa_5gh[4];
+++
+++	/* SROM rev 11 */
+++	u8 maxp2ga;
+++	u8 maxp5ga[4];
+++	u16 pa2ga[3];
+++	u16 pa5ga[12];
+++};
+++
+++/* Per-band rx gain context, one value per RF chain. SROM rev 11. */
+++struct ssb_sprom_rxgains {
+++	u8 elnagain[3];
+++	u8 triso[3];
+++	u8 trelnabyp[3];
++ };
++ 
++ struct ssb_sprom {
++@@ -63,6 +76,11 @@ struct ssb_sprom {
++ 	u8 gpio1;		/* GPIO pin 1 */
++ 	u8 gpio2;		/* GPIO pin 2 */
++ 	u8 gpio3;		/* GPIO pin 3 */
+++	u8 gpio_ext[12];	/* GPIO pins 4-15; NVRAM ledbh4-ledbh15 only,
+++				 * no SPROM revision carries them */
+++	u8 avvmid[3][5][2];	/* NVRAM AvVmid_c0..2: {Av, Vmid} for 2g, 5gl,
+++				 * 5gml, 5gmu, 5gh */
+++	u8 avvmid_valid;	/* bit per chain whose AvVmid_cN parsed */
++ 	u8 maxpwr_bg;		/* 2.4GHz Amplifier Max Power (in dBm Q5.2) */
++ 	u8 maxpwr_al;		/* 5.2GHz Amplifier Max Power (in dBm Q5.2) */
++ 	u8 maxpwr_a;		/* 5.3GHz Amplifier Max Power (in dBm Q5.2) */
++@@ -192,8 +210,78 @@ struct ssb_sprom {
++ 	u16 legofdm40duppo;
++ 	u8 sar2g;
++ 	u8 sar5g;
+++
+++	/* SROM rev 11. Populated by the rev 11 extractor from the device's
+++	 * SPROM, or by bcm47xx_sprom from NVRAM on a board without one; zero
+++	 * on rev <= 10 boards.
+++	 */
+++	struct ssb_sprom_rxgains rxgains_2g;
+++	struct ssb_sprom_rxgains rxgains_5gl;
+++	struct ssb_sprom_rxgains rxgains_5gm;
+++	struct ssb_sprom_rxgains rxgains_5gh;
+++	u8 subband5gver;
+++	/* Antenna gain in quarter dB, per band: agbg0 for 2.4 GHz, aga0 for
+++	 * 5 GHz, decoded by ssb_sprom_antgain_qdb(). */
+++	s8 antenna_gain_qdb[2];
+++	u16 dot11agofdmhrbw202gpo;
+++	u16 ofdmlrbw202gpo;
+++	u32 mcsbw805glpo;
+++	u32 mcsbw805gmpo;
+++	u32 mcsbw805ghpo;
+++	/* TX beamforming RX path calibration, one word for 2.4 GHz and one per
+++	 * 5 GHz sub-band (l, m, h, u). */
+++	u16 rpcal2g;
+++	u16 rpcal5gb[4];
+++	u16 pdoffset40ma[3];
+++	u16 pdoffset80ma[3];
+++	u8 pdoffset2g40ma[3];	/* 4 bits, signed */
+++	u8 pdoffset2g40mvalid;
+++	/* Explicit per-rate-group power offsets of the bonded channels'
+++	 * sub-band rows (20-in-40, 20-in-80/160, 40-in-80, duplicate legacy),
+++	 * low-rate and high-rate halves, and the MCS 8-9 offsets; nibbles.
+++	 * Index 0..2 is the 5 GHz l/m/h band. */
+++	u16 mcslr5gpo[3];
+++	u16 sb20in40hrpo;
+++	u16 sb20in40lrpo;
+++	u16 sb20in80and160hr5gpo[3];
+++	u16 sb20in80and160lr5gpo[3];
+++	u16 sb40and80hr5gpo[3];
+++	u16 sb40and80lr5gpo[3];
+++	u16 dot11agduphrpo;
+++	u16 dot11agduplrpo;
+++	/* FEM / PA control block (SROM11_FEM_CFG1/2). femctrl selects the
+++	 * front-end module control scheme: a driver that programs the FEM
+++	 * control table must check it, not assume it.
+++	 */
+++	u8 tssiposslope2g;
+++	u8 epagain2g;
+++	u8 pdgain2g;
+++	u8 tworangetssi2g;
+++	u8 papdcap2g;
+++	u8 femctrl;
+++	u8 tssiposslope5g;
+++	u8 epagain5g;
+++	u8 pdgain5g;
+++	u8 tworangetssi5g;
+++	u8 papdcap5g;
+++	u8 gainctrlsph;
+++	/* TSSI floor: 0x3ff when the field is not programmed. */
+++	u16 tssifloor2g;
+++	u16 tssifloor5g[4];
++ };
++ 
+++/*
+++ * A SROM rev 11 antenna gain byte, agbg0 or aga0, in quarter dB: whole dB in
+++ * bits [5:0], signed, and quarter dB in bits [7:6]. The NVRAM variable holds
+++ * the same byte.
+++ */
+++static inline s8 ssb_sprom_antgain_qdb(u8 raw)
+++{
+++	s8 gain = (s8)((raw & 0x3f) << 2) >> 2;
+++
+++	return 4 * gain + (raw >> 6);
+++}
+++
++ /* Information about the PCB the circuitry is soldered on. */
++ struct ssb_boardinfo {
++ 	u16 vendor;
++--- a/include/linux/ssb/ssb_regs.h
+++++ b/include/linux/ssb/ssb_regs.h
++@@ -606,6 +606,125 @@
++ #define SSB_SPROM8_BW40PO		0x0196
++ #define SSB_SPROM8_BWDUPPO		0x0198
++ 
+++/* SROM revision 11. Only the header fields whose absolute offset moved
+++ * are redefined; the bitfield masks/shifts are reused from rev 8.
+++ */
+++#define SSB_SPROM11_BFL3		0x008C	/* boardflags3, 32 bits */
+++#define SSB_SPROM11_IL0MAC		0x0090	/* 6 byte MAC address */
+++#define SSB_SPROM11_CCODE		0x0096	/* 2 byte country code */
+++#define SSB_SPROM11_GPIOA		0x009A	/* ledbh0 low byte, ledbh1 high */
+++#define SSB_SPROM11_GPIOB		0x009C	/* ledbh2 low byte, ledbh3 high */
+++#define SSB_SPROM11_ANTAVAIL		0x00A0
+++#define SSB_SPROM11_AGBG10		0x00A2	/* agbg0 low byte, agbg1 high */
+++#define SSB_SPROM11_AGBG2A0		0x00A4	/* agbg2 low byte, aga0 high */
+++#define SSB_SPROM11_AGA21		0x00A6	/* aga1 low byte, aga2 high */
+++#define SSB_SPROM11_TXRXC		0x00A8
+++/* FEM / PA control block. Layout from bcmsrom_tbl.h (SROM11_FEM_CFG1/2);
+++ * offsets verified on the DSL-3580L and D6220 raw dumps, where the two
+++ * words, 0x30A1 and 0x00A1, decode into all six fields of each.
+++ */
+++#define SSB_SPROM11_FEM_CFG1		0x00AA
+++#define SSB_SPROM11_FEM_CFG2		0x00AC
+++#define SSB_SPROM11_FEM_TSSIPOSSLOPE	0x0001
+++#define SSB_SPROM11_FEM_EPAGAIN		0x000E
+++#define SSB_SPROM11_FEM_EPAGAIN_SHIFT	1
+++#define SSB_SPROM11_FEM_PDGAIN		0x01F0
+++#define SSB_SPROM11_FEM_PDGAIN_SHIFT	4
+++#define SSB_SPROM11_FEM_TWORANGETSSI	0x0200
+++#define SSB_SPROM11_FEM_TWORANGETSSI_SHIFT	9
+++#define SSB_SPROM11_FEM_PAPDCAP		0x0400
+++#define SSB_SPROM11_FEM_PAPDCAP_SHIFT	10
+++#define SSB_SPROM11_FEM_CTRL		0xF800	/* CFG1: femctrl */
+++#define SSB_SPROM11_FEM_CTRL_SHIFT	11
+++#define SSB_SPROM11_FEM_GAINCTRLSPH	0xF800	/* CFG2: gainctrlsph */
+++#define SSB_SPROM11_FEM_GAINCTRLSPH_SHIFT	11
+++/*
+++ * Temperature words: SROM8's, four bytes lower, with the same field layout,
+++ * so the SSB_SPROM8_THERMAL, _RAWTS, _OPT_CORRX and _TEMPDELTA masks apply.
+++ * Verified on the TG789vac v2 dump, which programs THERMAL = 0x7800
+++ * (tempthresh=120, tempoffset=0) and TEMPDELTA = 0x5500 (temps_period=5,
+++ * temps_hysteresis=5, phycal_tempdelta=0) as its NVRAM says; the D6220 and
+++ * DSL-3580L dumps leave all four at 0xffff.
+++ */
+++#define SSB_SPROM11_THERMAL		0x00AE
+++#define SSB_SPROM11_RAWTS		0x00B0
+++#define SSB_SPROM11_OPT_CORRX		0x00B2
+++#define SSB_SPROM11_TEMPDELTA		0x00B8
+++/* TSSI floor, mask 0x03ff. 2G single, 5G array of 4 (5GL/5GM/5GH/5GU).
+++ * Word indices 95..99 per bcmsrom_fmt.h; verified 0xffff (unprogrammed,
+++ * masks to 0x3ff) on DSL-3580L and D6220 raw dumps.
+++ */
+++#define SSB_SPROM11_TSSIFLOOR_2G	0x00BE
+++#define SSB_SPROM11_TSSIFLOOR_5GL	0x00C0
+++#define SSB_SPROM11_TSSIFLOOR_MASK	0x03FF
+++#define SSB_SPROM11_PDOFFSET2G40M	0x00C8	/* 4 bits per chain */
+++#define  SSB_SPROM11_PDOFFSET2G40M_MA0		0x000F
+++#define  SSB_SPROM11_PDOFFSET2G40M_MA0_SHIFT	0
+++#define  SSB_SPROM11_PDOFFSET2G40M_MA1		0x00F0
+++#define  SSB_SPROM11_PDOFFSET2G40M_MA1_SHIFT	4
+++#define  SSB_SPROM11_PDOFFSET2G40M_MA2		0x0F00
+++#define  SSB_SPROM11_PDOFFSET2G40M_MA2_SHIFT	8
+++#define  SSB_SPROM11_PDOFFSET2G40M_VALID	0x8000
+++#define  SSB_SPROM11_PDOFFSET2G40M_VALID_SHIFT	15
+++#define SSB_SPROM11_PDOFFSET40MA	0x00CA	/* 3 x u16, one per chain */
+++#define SSB_SPROM11_PDOFFSET80MA	0x00D0	/* 3 x u16, one per chain */
+++#define SSB_SPROM11_SUBBAND5GVER	0x00D6
+++
+++/* Per-chain power info blocks. Stride 0x28 bytes; field layout given by
+++ * SSB_SPROM11_PWR_* below.
+++ */
+++#define SSB_SPROM11_PWR_INFO_CORE0	0x00D8
+++#define SSB_SPROM11_PWR_INFO_CORE1	0x0100
+++#define SSB_SPROM11_PWR_INFO_CORE2	0x0128
+++
+++#define SSB_SPROM11_PWR_MAXP2GA		0x0000	/* u8 in low byte */
+++#define SSB_SPROM11_PWR_PA2GA		0x0002	/* 3 x u16 */
+++#define SSB_SPROM11_PWR_RXGAINS0	0x0008	/* 5gm (lo) / 5gh (hi) */
+++#define SSB_SPROM11_PWR_RXGAINS1	0x000A	/* 2g  (lo) / 5gl (hi) */
+++#define SSB_SPROM11_PWR_MAXP5GA		0x000C	/* 2 x u16 -> 4 x u8 */
+++#define SSB_SPROM11_PWR_PA5GA		0x0010	/* 12 x u16 */
+++
+++/* Power-per-rate region. */
+++#define SSB_SPROM11_CCKBW202GPO		0x0150
+++#define SSB_SPROM11_CCKBW20UL2GPO	0x0152
+++#define SSB_SPROM11_MCSBW202GPO		0x0154
+++#define SSB_SPROM11_MCSBW402GPO		0x0158
+++#define SSB_SPROM11_DOT11AGOFDMHRBW202GPO 0x015C
+++#define SSB_SPROM11_OFDMLRBW202GPO	0x015E
+++#define SSB_SPROM11_MCSBW205GLPO	0x0160
+++#define SSB_SPROM11_MCSBW405GLPO	0x0164
+++#define SSB_SPROM11_MCSBW805GLPO	0x0168
+++#define SSB_SPROM11_RPCAL_2G		0x016C
+++#define SSB_SPROM11_RPCAL_5GL		0x016E
+++#define SSB_SPROM11_MCSBW205GMPO	0x0170
+++#define SSB_SPROM11_MCSBW405GMPO	0x0174
+++#define SSB_SPROM11_MCSBW805GMPO	0x0178
+++#define SSB_SPROM11_RPCAL_5GM		0x017C
+++#define SSB_SPROM11_RPCAL_5GH		0x017E
+++#define SSB_SPROM11_MCSBW205GHPO	0x0180
+++#define SSB_SPROM11_MCSBW405GHPO	0x0184
+++#define SSB_SPROM11_MCSBW805GHPO	0x0188
+++#define SSB_SPROM11_RPCAL_5GU		0x018C
+++#define SSB_SPROM11_MCSLR5GLPO		0x0190
+++#define SSB_SPROM11_MCSLR5GMPO		0x0192
+++#define SSB_SPROM11_MCSLR5GHPO		0x0194
+++#define SSB_SPROM11_SB20IN40HRPO	0x0196
+++#define SSB_SPROM11_SB20IN80AND160HR5GLPO 0x0198
+++#define SSB_SPROM11_SB40AND80HR5GLPO	0x019A
+++#define SSB_SPROM11_SB20IN80AND160HR5GMPO 0x019C
+++#define SSB_SPROM11_SB40AND80HR5GMPO	0x019E
+++#define SSB_SPROM11_SB20IN80AND160HR5GHPO 0x01A0
+++#define SSB_SPROM11_SB40AND80HR5GHPO	0x01A2
+++#define SSB_SPROM11_SB20IN40LRPO	0x01A4
+++#define SSB_SPROM11_SB20IN80AND160LR5GLPO 0x01A6
+++#define SSB_SPROM11_SB40AND80LR5GLPO	0x01A8
+++#define SSB_SPROM11_SB20IN80AND160LR5GMPO 0x01AA
+++#define SSB_SPROM11_SB40AND80LR5GMPO	0x01AC
+++#define SSB_SPROM11_SB20IN80AND160LR5GHPO 0x01AE
+++#define SSB_SPROM11_SB40AND80LR5GHPO	0x01B0
+++#define SSB_SPROM11_DOT11AGDUPHRPO	0x01B2
+++#define SSB_SPROM11_DOT11AGDUPLRPO	0x01B4
+++
++ /* Values for boardflags_lo read from SPROM */
++ #define SSB_BFL_BTCOEXIST		0x0001	/* implements Bluetooth coexistance */
++ #define SSB_BFL_PACTRL			0x0002	/* GPIO 9 controlling the PA */
 diff --git a/tools/Makefile b/tools/Makefile
-index e2b7194676..0500060419 100644
+index e2b7194676..f73a6938f5 100644
 --- a/tools/Makefile
 +++ b/tools/Makefile
 @@ -17,7 +17,7 @@ ifeq ($(CONFIG_EXTERNAL_TOOLCHAIN),)
@@ -501,7 +1674,22 @@ index e2b7194676..0500060419 100644
    endif
  endif
 -ifneq ($(CONFIG_SDK)$(CONFIG_PACKAGE_kmod-b43),)
-+ifneq ($(CONFIG_SDK)$(CONFIG_PACKAGE_kmod-b43)$(CONFIG_PACKAGE_b43-firmware)$(CONFIG_PACKAGE_b43-firmware-784),)
++ifneq ($(CONFIG_SDK)$(CONFIG_PACKAGE_kmod-b43)$(CONFIG_PACKAGE_b43-firmware)$(CONFIG_PACKAGE_b43-firmware-open)$(CONFIG_PACKAGE_b43-firmware-784-ac)$(CONFIG_PACKAGE_b43-firmware-784-ht)$(CONFIG_PACKAGE_b43-firmware-784-n)$(CONFIG_PACKAGE_b43-firmware-784-lp)$(CONFIG_PACKAGE_b43-firmware-784-g)$(CONFIG_PACKAGE_b43-firmware-784-lcn),)
    BUILD_B43_TOOLS = y
  endif
  ifneq ($(CONFIG_SDK)$(CONFIG_TARGET_INITRAMFS_COMPRESSION_BZIP2),)
+diff --git a/tools/b43-tools/Makefile b/tools/b43-tools/Makefile
+index a23d19177a..bb051d3f7a 100644
+--- a/tools/b43-tools/Makefile
++++ b/tools/b43-tools/Makefile
+@@ -22,8 +22,8 @@ define Host/Compile
+ 		CFLAGS="$(HOST_CFLAGS) -include endian.h" \
+ 		$(HOST_MAKE_FLAGS) \
+ 		$(1) QUIET_SPARSE=:
+-	+$(MAKE) $(HOST_JOBS) -C $(HOST_BUILD_DIR)/assembler \
+-		CFLAGS="$(HOST_CFLAGS) -include endian.h -Wno-error=int-conversion" \
++	+CFLAGS="$(HOST_CFLAGS) -include endian.h" \
++	$(MAKE) $(HOST_JOBS) -C $(HOST_BUILD_DIR)/assembler \
+ 		$(HOST_MAKE_FLAGS) \
+ 		LDFLAGS= \
+ 		$(1) QUIET_SPARSE=:

@@ -202,8 +202,8 @@ If OpenWrt already has the router (part 2 done) and b43-next drives its radios, 
    A device that had `$(B43)` (kmod-b43) gets this *instead*: `kmod-b43-next` conflicts with `kmod-b43`, and
    `$(B43)` already brings a wpad.
 3. **Firmware for the other radio types:** the 802.11ac files (BCM4352, BCM4360) come with `kmod-b43-next`. A
-   BCM4331 also needs `b43-firmware-784-ht` on the same line (the R6400), an N-PHY chip `b43-firmware-784-n` (as
-   in the current #26717).
+   BCM4331 also needs `b43-firmware-784-ht` on the same line (the R6400), an N-PHY chip `b43-firmware-784-n`;
+   the [table in the b43-next kit](b43-next-build-kit/README.md#which-firmware-each-radio-needs) has every type.
 4. **In menuconfig: `kmod-b43-next` as `M`** (Kernel modules, Wireless Drivers; a package, not a kernel option).
    It then goes only into the images of the devices whose line lists it; `*` would put it into every image of the
    build. Keep "Use a per-device root filesystem that adds profile packages" on in a multi-device build.

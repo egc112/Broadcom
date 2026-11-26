@@ -94,8 +94,17 @@ flashed yet with these exact files. The same day on main 15df7fcd24, after main'
 2026-11-26, R7000 flashed with the kit (main 15df7fcd24, b43-next 8563e370): both BCM4360 radios up and beaconing
 (2.4 GHz HT20, 5 GHz VHT80); no client test yet. Internet LED dark: the bootloader leaves switch LED function 1 at
 0x0324 with no port mapped. Writing `2-B43-4`'s values at runtime lit it white (GPIO 9 low) and amber (GPIO 8 low)
-with WAN link; netdev triggers lit the 2.4 and 5 GHz LEDs. `2-B43-4` itself not built yet; the USB port names in
-its `01_leds` lines are not tested yet. Its kernel patch applies with and without the flow accelerator kit.
+with WAN link; netdev triggers lit the 2.4 and 5 GHz LEDs. Its kernel patch applies with and without the flow
+accelerator kit. Built and flashed the same day: the Internet LED lights white with WAN link and goes dark without,
+the 2.4 GHz and 5 GHz LEDs light white, a USB stick in
+the front port lights USB LED 1 and in the back port USB LED 2. After a sysupgrade with kept settings,
+`/etc/config/system` has no LED sections, so the LEDs stay dark until they are added (a fresh install adds them).
+Wi-Fi the same day, MT6000 as client, iperf3 to a wired PC: 5 GHz VHT80 3 streams up 497-509, down 408-414 Mbit/s;
+2.4 GHz HT20 up 120-130, down 127-132 Mbit/s. On 2.4 GHz only after `nvram set pci/1/1/txchain=7`,
+`pci/1/1/rxchain=7`, `nvram commit`: this R7000's NVRAM has no chain masks for the 2.4 GHz card (the 5 GHz card
+has 7), b43-next then uses 2 chains (MCS 0-15, 85-95 Mbit/s); DD-WRT sets the same 7 for the R7000. This R7000
+came to OpenWrt from Netgear's firmware after a DD-WRT reset, so this is likely the stock NVRAM; a router flashed
+straight from DD-WRT probably still has DD-WRT's values.
 
 Radios, 2026-11-21 (main 6bd48701ef, b43-next 625d906, the same b43-next and device selection):
 

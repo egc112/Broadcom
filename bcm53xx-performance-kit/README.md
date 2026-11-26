@@ -236,6 +236,13 @@ previous kit with the settings kept:
   940 + 938. Without 762, a BCM47094 on an image for a BCM4708 board (an RT-AC66U B1 on the RT-AC68U image)
   kept the regular tag.
 
+**R7000, 2026-11-26** (BCM4709, switch BCM53012 rev 5), these kit files with the b43-next kit, OpenWrt main
+15df7fcd24: with both offloading options on and a reboot, "switched eth0 eth2 to brcm-prepend", accelerator in the
+path, traps to port 5. TCP from a LAN PC through the FA: upload 941 Mbit/s, upload and download at once 938 + 892
+(the WAN-side host, an MT6000, retransmitted as the sender, so 892 is its limit), `[HW_OFFLOAD]`, 0 % CPU, no
+driver warnings. For comparison on the same router: about 550 Mbit/s each way in software, about 720 with
+software offloading only.
+
 The previous files of the same day (with 734 instead of the hook), built from the published kit files on another
 build host and flashed on the EA6900: IPv4 939 / 941 / 939 + 938, IPv6 927 / 928 / 926 + 924, a 30-minute soak at
 940 + 938 without a driver warning.

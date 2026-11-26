@@ -116,15 +116,6 @@ diff --git a/package/kernel/mac80211/Makefile b/package/kernel/mac80211/Makefile
 index 27d1dd7d26..8d335ec14f 100644
 --- a/package/kernel/mac80211/Makefile
 +++ b/package/kernel/mac80211/Makefile
-@@ -12,7 +12,7 @@ PKG_NAME:=mac80211
- 
- PKG_SOURCE_VERSION:=7.2
- PKG_VERSION:=$(subst -,_,$(PKG_SOURCE_VERSION))
--PKG_RELEASE:=18
-+PKG_RELEASE:=19
- PKG_LICENSE:=GPL-2.0-only
- PKG_LICENSE_FILES:=COPYING
- 
 @@ -397,3 +397,6 @@ endef
  $(eval $(foreach drv,$(PKG_DRIVERS),$(call KernelPackage,$(drv))))
  $(eval $(call KernelPackage,cfg80211))

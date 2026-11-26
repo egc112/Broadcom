@@ -27,7 +27,7 @@ R6400 patch series in [b43-80211n](../b43-80211n/).
 
 ## Build
 
-Tested on OpenWrt main f76496253d (2026-11-26). The R6400 itself is in OpenWrt main already.
+Tested on OpenWrt main 15df7fcd24 (2026-11-26). The R6400 itself is in OpenWrt main already.
 
     git clone https://git.openwrt.org/openwrt/openwrt.git && cd openwrt
     /path/to/ea6900-board-kit/apply.sh .         # only for the EA6900, and always first
@@ -62,9 +62,11 @@ When openwrt#26717 is merged into OpenWrt, `2-B43-1` is no longer needed.
   (`1-`). The EA6900 line of the device selection is `2-B43-3-EA6900`: it changes a line that the board patch
   adds, so it cannot be in `2-B43-2`, which has to apply without the board. This also ends the shared board patch
   of the earlier kits, and with it the checksum list (`.kit-applied`) of the old `apply.sh`.
-- **#26717 as it is, plus #26255.** #26717 is based on current main and applies unchanged. It depends on #26255
-  (open), which earlier versions of #26717 carried themselves; the kit adds it in front, so `2-B43-1` is the two
-  PRs' diffs one after the other.
+- **#26717 plus #26255, without the mac80211 release bump.** #26717 depends on #26255 (open), which earlier
+  versions of #26717 carried themselves; the kit adds it in front, so `2-B43-1` is the two PRs' diffs one after
+  the other. #26717's `PKG_RELEASE` bump of mac80211 (18 to 19) is left out: main bumped it to 19 itself on
+  2026-11-26 (1a638103df), the hunk no longer applied, and with it went the lines that define the firmware
+  packages. A kit build does not need the bump. Nothing else is changed.
 - **The firmware by PHY type.** `kmod-b43-next` pulls in only the AC-PHY firmware. Each device line adds the
   package of every other radio type the device has, which for the boards in this kit means `-ht` on the R6400.
 - **kmod-b43-next as a module in the diffconfig (`=m`).** The devices get it as a device package. With `=y` it
@@ -84,7 +86,9 @@ apply, and `make defconfig` gives the R6400 v1, the R7000 and the EA6900 `wpad-b
 combination and from one flat folder in name order. All three kits built together (all 40 bcm53xx devices): the
 R6400 v1, v2 and v2-otp images have `b43-next.ko` with the AC- and HT-PHY firmware in `/lib/firmware/b43-784`, the
 R7000 and EA6900 images `b43-next.ko` with the AC-PHY files only; no image has both `b43.ko` and `b43-next.ko`. Not
-flashed yet with these exact files.
+flashed yet with these exact files. The same day on main 15df7fcd24, after main's own mac80211 release bump:
+`2-B43-1` without #26717's bump applies with the other kits, and the package scan defines all six
+`b43-firmware-784` packages.
 
 Radios, 2026-11-21 (main 6bd48701ef, b43-next 625d906, the same b43-next and device selection):
 
@@ -136,7 +140,7 @@ keeps `b43-firmware` (5.100.138, in `/lib/firmware/b43`) and is not affected.
 
 | Part | Author | Based on |
 |---|---|---|
-| `2-B43-1` | Ville Takio (flatstik); #26255 by Josef Schlehofer (BKPepe) | openwrt/openwrt#26717 and #26255, unchanged |
+| `2-B43-1` | Ville Takio (flatstik); #26255 by Josef Schlehofer (BKPepe) | openwrt/openwrt#26717 and #26255; #26717's mac80211 release bump left out (Erik Conijn) |
 | b43-next itself | Alessio Ferri and contributors | downloaded at build time; its sources are documented in its own repository |
 | `2-B43-2`, `2-B43-3`, `diffconfig`, `apply.sh` | Erik Conijn | OpenWrt's own image Makefile and package configuration |
 

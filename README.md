@@ -15,4 +15,38 @@ Patches and files for Broadcom BCM53xx ARM routers running OpenWrt, e.g. the Net
 
 What it adds up to: [measured best-case figures for the R6400 v2](r6400-v2-showcase.md), wired and Wi-Fi, from 802.11g at about 10 Mbit/s to 941 Mbit/s at 1 % CPU.
 
+## Warning: `nvram commit` can leave the router without Ethernet
+
+OpenWrt's `nvram` tool (`package/utils/nvram`, current main) sometimes writes an NVRAM partition that the kernel
+rejects at the next boot. The kernel's NVRAM driver then fails (`brcm_nvram ... probe ... failed with error -22`
+in `dmesg`), the switch waits for it forever (`deferred probe pending`), and the router comes up **without any
+Ethernet port, WAN and LAN alike**. Wi-Fi still works, if it is set up.
+
+It happens when the NVRAM data ends exactly on a 4-byte boundary, so roughly one `nvram commit` in four, depending
+on what was set or unset: the tool then gives the data a length that includes 4 bytes it left at `0xff` instead of
+zeroing them. Seen on our R7000 on 2026-11-27 (OpenWrt main 15df7fcd24); any bcm53xx router that takes its MAC
+addresses from NVRAM can be hit. Routers whose NVRAM you never change are not affected.
+
+**Before you reboot after an `nvram commit`**, check the partition (busybox, on the router itself):
+
+```sh
+mtd=/dev/$(grep '"nvram"' /proc/mtd | cut -d: -f1)
+len=$(hexdump -s 4 -n 4 -e '1/4 "%u"' $mtd)
+hexdump -s $((len - 4)) -n 4 -e '4/1 "%02x" "\n"' $mtd
+```
+
+Any output other than `ffffffff` is fine: `00000000`, or a byte of the last entry followed by `000000`.
+
+`ffffffff` means the bad layout: do **not** reboot. Add a harmless entry of 9 bytes, which moves the end off the
+4-byte boundary, commit once more and check again:
+
+```sh
+nvram set fixpad=1     # if fixpad is already set: nvram unset fixpad
+nvram commit
+```
+
+**Already rebooted and no Ethernet?** Connect over Wi-Fi (the router's own SSID, then `ssh root@192.168.1.1`), add
+the entry and commit as above, check, then reboot. Do not try to re-bind the NVRAM driver at runtime: on our R7000
+that broke NAND access until a power cycle.
+
 Questions and test reports: please open an issue.

@@ -200,7 +200,8 @@ nvram set lan_netmask=255.255.255.0
 nvram commit
 ```
 
-Do not switch the router off during the commit. OpenWrt does not use these values, so nothing else
+Do not switch the router off during the commit, and check the partition before you reboot:
+[the NVRAM warning](../README.md#warning-nvram-commit-can-leave-the-router-without-ethernet). OpenWrt does not use these values, so nothing else
 changes. Tested on our router: the mini CFE answered on 192.168.1.1 afterwards.
 
 If the router no longer boots and you do not know the address: give the computer a wide netmask

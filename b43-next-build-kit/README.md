@@ -104,7 +104,8 @@ Wi-Fi the same day, MT6000 as client, iperf3 to a wired PC: 5 GHz VHT80 3 stream
 `pci/1/1/rxchain=7`, `nvram commit`: this R7000's NVRAM has no chain masks for the 2.4 GHz card (the 5 GHz card
 has 7), b43-next then uses 2 chains (MCS 0-15, 85-95 Mbit/s); DD-WRT sets the same 7 for the R7000. This R7000
 came to OpenWrt from Netgear's firmware after a DD-WRT reset, so this is likely the stock NVRAM; a router flashed
-straight from DD-WRT probably still has DD-WRT's values.
+straight from DD-WRT probably still has DD-WRT's values. After any `nvram commit`, check the partition before you
+reboot: [the NVRAM warning](../README.md#warning-nvram-commit-can-leave-the-router-without-ethernet).
 
 Radios, 2026-11-21 (main 6bd48701ef, b43-next 625d906, the same b43-next and device selection):
 

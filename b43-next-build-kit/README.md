@@ -20,7 +20,7 @@ R6400 patch series in [b43-80211n](../b43-80211n/).
 
 | File | What |
 |---|---|
-| `patches/2-B43-1-b43-next-openwrt-26717.patch` | [openwrt/openwrt#26717](https://github.com/openwrt/openwrt/pull/26717) at c3b21ea4cc: the `kmod-b43-next` package pinned to b43-next 625d906, aleferri's main of 2026-11-20, and its firmware 784.2 in one package per PHY type (`b43-firmware-784-ac`, `-ht`, `-n`, `-lp`, `-g`, `-lcn`); kmod-b43 keeps `b43-firmware` (5.100.138). With [openwrt/openwrt#26255](https://github.com/openwrt/openwrt/pull/26255) at c6749e76c9, which #26717 depends on: it passes `CONFLICTS` to apk, so apk does not install kmod-b43 next to kmod-b43-next |
+| `patches/2-B43-1-b43-next-openwrt-26717.patch` | [openwrt/openwrt#26717](https://github.com/openwrt/openwrt/pull/26717) at c3b21ea4cc: the `kmod-b43-next` package, with the pin moved to b43-next aef7dde, aleferri's main of 2026-11-28 (#26717 itself pins 625d906 of 2026-11-20), and its firmware 784.2 in one package per PHY type (`b43-firmware-784-ac`, `-ht`, `-n`, `-lp`, `-g`, `-lcn`); kmod-b43 keeps `b43-firmware` (5.100.138). With [openwrt/openwrt#26255](https://github.com/openwrt/openwrt/pull/26255) at c6749e76c9, which #26717 depends on: it passes `CONFLICTS` to apk, so apk does not install kmod-b43 next to kmod-b43-next |
 | `patches/2-B43-2-b43-next-devices.patch` | the R6400 v1, v2 and v2-otp get `kmod-b43-next` and `b43-firmware-784-ht` instead of kmod-b43, with OpenWrt's default wpad; the R7000, which has no Wi-Fi driver in OpenWrt, gets them too (2026-11-25: the kits apply and the R7000 profile selects them; not built or flashed yet) |
 | `patches/2-B43-3-EA6900.patch` | the same for the EA6900; needs the EA6900 board kit, `apply.sh` skips it without the board |
 | `patches/2-B43-4-R7000-LEDs.patch` | the R7000 LEDs: the Internet LED (GPIO 9 white, GPIO 8 amber) with the switch LED programming that lights it, as for the R6400 (kernel patch `386-ARM-dts-BCM5301X-R7000-add-the-Internet-LED.patch`), and `01_leds` triggers for the Internet, 2.4 GHz, 5 GHz and USB LEDs, which had none |
@@ -83,7 +83,10 @@ When openwrt#26717 is merged into OpenWrt, `2-B43-1` is no longer needed.
   versions of #26717 carried themselves; the kit adds it in front, so `2-B43-1` is the two PRs' diffs one after
   the other. #26717's `PKG_RELEASE` bump of mac80211 (18 to 19) is left out: main bumped it to 19 itself on
   2026-11-26 (1a638103df), the hunk no longer applied, and with it went the lines that define the firmware
-  packages. A kit build does not need the bump. Nothing else is changed.
+  packages. A kit build does not need the bump.
+- **A newer b43-next than #26717.** The kit pins b43-next aef7dde (2026-11-28) instead of #26717's 625d906
+  (2026-11-20): `PKG_SOURCE_DATE`, `PKG_SOURCE_VERSION` and `PKG_MIRROR_HASH` in `package/kernel/b43-next/Makefile`.
+  Nothing else is changed.
 - **The firmware by PHY type.** `kmod-b43-next` pulls in only the AC-PHY firmware. Each device line adds the
   package of every other radio type the device has, which for the boards in this kit means `-ht` on the R6400.
 - **kmod-b43-next as a module in the diffconfig (`=m`).** The devices get it as a device package. With `=y` it
@@ -97,6 +100,9 @@ in order) and from one flat folder in name order; the kernel patches apply with 
 All three kits built together from their diffconfigs alone: all 40 bcm53xx devices, the R6400 v1, v2 and v2-otp
 and the EA6900 with `kmod-b43-next` and `wpad-openssl`, every other device with OpenWrt's own Wi-Fi packages.
 Not flashed yet with these exact files.
+2026-11-28, OpenWrt main 10658eef27: `2-B43-1` with b43-next aef7dde applies and builds; the mirror hash is that
+of the downloaded tarball. On the R6400 v1 b43-next detects both radios (4331 and 4360); they came up after the
+radio path fix above (not yet checked for warnings over a longer run).
 2026-11-25, OpenWrt main 64c777f3af: the R7000 added and the devices on OpenWrt's default wpad; the three kits
 apply, and `make defconfig` gives the R6400 v1, the R7000 and the EA6900 `wpad-basic-mbedtls kmod-b43-next`.
 2026-11-26, OpenWrt main f76496253d (#26717 c3b21ea4cc, #26255 c6749e76c9): the three kits apply in every

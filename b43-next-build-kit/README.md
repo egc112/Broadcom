@@ -52,8 +52,22 @@ selection, so selecting another wpad in menuconfig gives two wpad variants in on
 top of `target/linux/bcm53xx/image/Makefile` instead (for example to `wpad-openssl`).
 
 Images: `bin/targets/bcm53xx/generic/`: `*netgear_r6400-v1-squashfs.chk`, `*netgear_r6400-v2-squashfs.chk`,
-`*linksys_ea6900-squashfs.trx`. At boot, `/etc/init.d/b43-next` hands the PCIe radios from the kernel's bcma to
-b43-next and moves their paths in `/etc/config/wireless` along.
+`*linksys_ea6900-squashfs.trx`. b43-next runs on the kernel's own bcma bus, so the radios have the same paths in
+`/etc/config/wireless` as with kmod-b43 (`.../bcma1:1`, `.../bcma2:1`).
+
+**Upgrading from a build with b43-next's own bus** (radio paths ending in `.../bcmn0:1` and
+`.../bcmn1:1`): after a sysupgrade that keeps the settings, the old radios no longer exist (`wifi-scripts: Bug: PHY
+is undefined for device` in the log) and new ones appear with their Wi-Fi off, so there is no Wi-Fi at all. Point the
+old radios at the new paths and remove the new ones; this keeps your SSIDs and keys (check the paths with
+`wifi status` or `uci show wireless`):
+
+    uci set wireless.radio0.path="$(uci get wireless.radio2.path)"
+    uci set wireless.radio1.path="$(uci get wireless.radio3.path)"
+    uci delete wireless.default_radio2; uci delete wireless.radio2
+    uci delete wireless.default_radio3; uci delete wireless.radio3
+    uci commit wireless; wifi
+
+Check first that radio2 has the same band as radio0, and radio3 the same as radio1.
 
 When openwrt#26717 is merged into OpenWrt, `2-B43-1` is no longer needed.
 

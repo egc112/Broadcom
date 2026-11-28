@@ -72,7 +72,8 @@ If you try the kit on another board, please report what you see, working or not,
 Tested on OpenWrt main 194f70d6fd (2026-11-23).
 
     git clone https://git.openwrt.org/openwrt/openwrt.git && cd openwrt
-    /path/to/ea6900-board-kit/apply.sh .         # only for the EA6900, and always first
+    /path/to/nvram-fix-kit/apply.sh .            # always, and first
+    /path/to/ea6900-board-kit/apply.sh .         # only for the EA6900
     /path/to/b43-next-build-kit/apply.sh .       # optional: b43-next Wi-Fi
     /path/to/bcm53xx-performance-kit/apply.sh .
     ./scripts/feeds update -a && ./scripts/feeds install -a

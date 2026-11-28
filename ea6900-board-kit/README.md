@@ -11,15 +11,17 @@ Test version, 2026-11-23. Until 2026-11-22 this patch was in both other kits (`B
 
 | File | What |
 |---|---|
-| `patches/1-EA6900-1-board.patch` | EA6900 board support: device tree (327), image definition, board.d LEDs and network, the nvram partial-boots fix; openwrt/openwrt#26316 as it is |
+| `patches/1-EA6900-1-board.patch` | EA6900 board support: device tree (327), image definition, board.d LEDs and network, the nvram partial-boots fix; openwrt/openwrt#26316, with the nvram `PKG_RELEASE` 16 to 17 on top of the nvram fix kit |
 | `diffconfig` | the EA6900 in a multi-profile build, with a per-device root filesystem |
 | `apply.sh` | applies the patch to an OpenWrt tree and adds the diffconfig to its `.config` |
 
 ## Build
 
-**Apply this kit first**, before the other kits: their EA6900 parts change lines that this patch adds.
+**Apply this kit right after the [nvram fix kit](../nvram-fix-kit/)** and before the other kits: it expects the nvram
+`PKG_RELEASE` that kit 0 sets, and the other kits' EA6900 parts change lines that this patch adds.
 
     git clone https://git.openwrt.org/openwrt/openwrt.git && cd openwrt
+    /path/to/nvram-fix-kit/apply.sh .
     /path/to/ea6900-board-kit/apply.sh .
     /path/to/b43-next-build-kit/apply.sh .       # optional: b43-next Wi-Fi
     /path/to/bcm53xx-performance-kit/apply.sh .  # optional: the flow accelerator

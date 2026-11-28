@@ -32,7 +32,8 @@ R6400 patch series in [b43-80211n](../b43-80211n/).
 Tested on OpenWrt main 15df7fcd24 (2026-11-26). The R6400 itself is in OpenWrt main already.
 
     git clone https://git.openwrt.org/openwrt/openwrt.git && cd openwrt
-    /path/to/ea6900-board-kit/apply.sh .         # only for the EA6900, and always first
+    /path/to/nvram-fix-kit/apply.sh .            # always, and first
+    /path/to/ea6900-board-kit/apply.sh .         # only for the EA6900
     /path/to/b43-next-build-kit/apply.sh .
     /path/to/bcm53xx-performance-kit/apply.sh .  # optional: the flow accelerator
     ./scripts/feeds update -a && ./scripts/feeds install -a
